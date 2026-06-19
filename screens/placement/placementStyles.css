@@ -32,10 +32,12 @@
 .pl-badge-on-scene { border-color: rgba(62,210,130,.5); color: #b3ffd9; background: rgba(62,210,130,.14); font-weight: 700; }
 
 /* catalog */
-.pl-catalog { display: flex; flex-direction: column; gap: 8px; }
-.pl-catalog-head { display: flex; gap: 6px; }
-.pl-search { flex: 1; font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; }
-.pl-filter { font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; }
+.pl-catalog { display: flex; flex-direction: column; gap: 10px; }
+.pl-catalog-controls { display: flex; flex-direction: column; gap: 8px; }
+.pl-control-group { display: flex; flex-direction: column; gap: 4px; }
+.pl-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.pl-search { font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; width: 100%; }
+.pl-filter { font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; width: 100%; }
 .pl-list { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
 
 /* catalog items */

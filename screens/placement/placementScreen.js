@@ -138,16 +138,20 @@ export function mountPlacementScreen({ root, runtime }) {
         ? ["player", "npc_template"]
         : [state.catalogFilter];
       const includeActive = state.catalogFilter === "npc_active" || state.catalogFilter === "all";
-      const res = await api.placement.getCharacterSpawnCatalog({
-        campaign_id: state.obr.campaignId || undefined,
-        room_id: state.obr.roomId || undefined,
-        scene_id: state.obr.sceneId || undefined,
-        search: state.catalogSearch || undefined,
-        buckets,
+      const payload = {
+        campaign_id: state.obr.campaignId,
+        room_id: state.obr.roomId,
+        scene_id: state.obr.sceneId,
         include_active_npc: includeActive,
         limit: 100,
-      }, settings());
+      };
+      if (state.catalogSearch) payload.search = state.catalogSearch;
+      const res = await api.placement.getCharacterSpawnCatalog(payload, settings());
       state.catalog = arr(res?.characters);
+      if (!res?.ok) {
+        setNotice("err", res?.message || "Catalog load failed.");
+        state.catalog = [];
+      }
     } catch (e) {
       setNotice("err", `Catalog error: ${esc(e.message)}`);
       state.catalog = [];
@@ -284,14 +288,20 @@ export function mountPlacementScreen({ root, runtime }) {
     const loading = state.catalogLoading;
     return `
       <div class="pl-catalog">
-        <div class="pl-catalog-head">
-          <input class="pl-search" type="text" placeholder="Search by name or key…" value="${esc(state.catalogSearch)}" data-ref="search">
-          <select class="pl-filter" data-ref="filter">
-            <option value="all" ${state.catalogFilter === "all" ? "selected" : ""}>All</option>
-            <option value="player" ${state.catalogFilter === "player" ? "selected" : ""}>Player</option>
-            <option value="npc_template" ${state.catalogFilter === "npc_template" ? "selected" : ""}>NPC Template</option>
-            <option value="npc_active" ${state.catalogFilter === "npc_active" ? "selected" : ""}>NPC Active</option>
-          </select>
+        <div class="pl-catalog-controls">
+          <div class="pl-control-group">
+            <label class="pl-label">Search</label>
+            <input class="pl-search" type="text" placeholder="Filter by character name or key…" value="${esc(state.catalogSearch)}" data-ref="search">
+          </div>
+          <div class="pl-control-group">
+            <label class="pl-label">Type</label>
+            <select class="pl-filter" data-ref="filter">
+              <option value="all" ${state.catalogFilter === "all" ? "selected" : ""}>All</option>
+              <option value="player" ${state.catalogFilter === "player" ? "selected" : ""}>Player</option>
+              <option value="npc_template" ${state.catalogFilter === "npc_template" ? "selected" : ""}>NPC Template</option>
+              <option value="npc_active" ${state.catalogFilter === "npc_active" ? "selected" : ""}>NPC Active</option>
+            </select>
+          </div>
         </div>
         ${loading ? `<div class="pl-muted">Loading…</div>` : !items.length ? `<div class="pl-empty">No characters found.</div>` : `
           <div class="pl-list">
