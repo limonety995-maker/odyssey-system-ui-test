@@ -147,7 +147,7 @@ export function mountPlacementScreen({ root, runtime }) {
         include_active_npc: includeActive,
         limit: 100,
       }, settings());
-      state.catalog = arr(res?.items);
+      state.catalog = arr(res?.characters);
     } catch (e) {
       setNotice("err", `Catalog error: ${esc(e.message)}`);
       state.catalog = [];
@@ -188,7 +188,7 @@ export function mountPlacementScreen({ root, runtime }) {
       if (res?.ok === false) { setNotice("err", res.message || "Bind failed."); }
       else {
         const action = res?.action ?? "linked";
-        setNotice("ok", actionLabel(action, res?.character?.display_name));
+        setNotice("ok", actionLabel(action, res?.character?.name));
         await loadSceneLink(state.selectedToken.id);
         await loadCatalog();
       }
@@ -278,12 +278,14 @@ export function mountPlacementScreen({ root, runtime }) {
   }
 
   function renderCatalog() {
-    const items = state.catalog;
+    const items = state.catalogFilter === "all"
+      ? state.catalog
+      : state.catalog.filter((c) => c.character_bucket === state.catalogFilter);
     const loading = state.catalogLoading;
     return `
       <div class="pl-catalog">
         <div class="pl-catalog-head">
-          <input class="pl-search" type="text" placeholder="Search…" value="${esc(state.catalogSearch)}" data-ref="search">
+          <input class="pl-search" type="text" placeholder="Search by name or key…" value="${esc(state.catalogSearch)}" data-ref="search">
           <select class="pl-filter" data-ref="filter">
             <option value="all" ${state.catalogFilter === "all" ? "selected" : ""}>All</option>
             <option value="player" ${state.catalogFilter === "player" ? "selected" : ""}>Player</option>
@@ -299,10 +301,9 @@ export function mountPlacementScreen({ root, runtime }) {
   }
 
   function renderCatalogItem(c) {
-    const isActive = c.character_bucket === "npc_active";
-    const isTemplate = c.character_bucket === "npc_template";
-    const isLinked = c.scene_link?.is_active;
+    const isLinked = !!c.linked_token_id;
     const canBind = !!state.selectedToken && !state.busy;
+    const displayName = c.name || c.character_key;
     const btnLabel = c.character_bucket === "player" ? "Bind Player"
       : c.character_bucket === "npc_template" ? "Spawn NPC"
       : "Rebind NPC";
@@ -310,11 +311,11 @@ export function mountPlacementScreen({ root, runtime }) {
     return `
       <div class="pl-item ${isLinked ? "pl-item-linked" : ""}">
         <div class="pl-item-head">
-          <span class="pl-item-name">${esc(c.display_name || c.character_key)}</span>
+          <span class="pl-item-name">${esc(displayName)}</span>
           ${bucketBadge(c.character_bucket)}
           ${isLinked ? `<span class="pl-badge pl-badge-on-scene">On scene</span>` : ""}
         </div>
-        ${c.summary?.status_summary ? `<div class="pl-item-status pl-muted">${esc(c.summary.status_summary)}</div>` : ""}
+        ${c.status_summary ? `<div class="pl-item-status pl-muted">${esc(c.status_summary)}</div>` : ""}
         <div class="pl-item-actions">
           <button class="pl-btn pl-btn-primary" data-action="bind" data-char="${esc(c.id)}" ${canBind ? "" : "disabled"}>${btnLabel}</button>
         </div>

@@ -4195,61 +4195,12 @@ async function mountBridgeShell({
     selectedTokens: await getSelectedOwlbearTokens(),
     connectionTest: null
   };
-  function setPlacementMessage(message = "") {
-    state.placement.resultMessage = String(message ?? "").trim();
-  }
   function syncSettingsInputs() {
     if (refs.supabaseUrl instanceof HTMLInputElement) {
       refs.supabaseUrl.value = state.settings.url;
     }
     if (refs.supabaseKey instanceof HTMLInputElement) {
       refs.supabaseKey.value = state.settings.apiKey;
-    }
-    if (refs.placementSearch instanceof HTMLInputElement) {
-      refs.placementSearch.value = state.placement.search;
-    }
-    if (refs.placementInstanceName instanceof HTMLInputElement) {
-      refs.placementInstanceName.value = state.placement.instanceName;
-    }
-    if (refs.includeActiveNpc instanceof HTMLInputElement) {
-      refs.includeActiveNpc.checked = state.placement.includeActiveNpc;
-    }
-  }
-  function renderPlacement(canManageRoomSettings, configured) {
-    if (!showTokenPlacementPanel) return;
-    const filteredCatalog = syncPlacementSelection(state);
-    const selectedCharacter = getSelectedCatalogCharacter(state);
-    const action = getPlacementAction(selectedCharacter);
-    const hasSingleToken = state.selectedTokens.length === 1;
-    const canExecuteLoad = Boolean(
-      canManageRoomSettings && configured && hasSingleToken && selectedCharacter && !state.placement.loadingCatalog && !state.placement.actionBusy
-    );
-    refs.placementSelectedToken.innerHTML = buildPlacementTokenRows(state, tokenRealtimeSync);
-    refs.placementSelectionInfo.innerHTML = buildPlacementSelectionRows(state, tokenRealtimeSync);
-    refs.placementHint.textContent = buildPlacementHint(state, canManageRoomSettings, configured);
-    if (refs.placementCharacterSelect instanceof HTMLSelectElement) {
-      refs.placementCharacterSelect.innerHTML = buildPlacementOptions(state);
-      refs.placementCharacterSelect.value = filteredCatalog.some((entry) => entry.id === state.placement.selectedCharacterId) ? state.placement.selectedCharacterId : "";
-      refs.placementCharacterSelect.disabled = !canManageRoomSettings || !configured || !filteredCatalog.length || state.placement.loadingCatalog || state.placement.actionBusy;
-    }
-    if (refs.placementSearch instanceof HTMLInputElement) {
-      refs.placementSearch.disabled = !canManageRoomSettings || !configured || state.placement.loadingCatalog || state.placement.actionBusy;
-    }
-    if (refs.placementInstanceName instanceof HTMLInputElement) {
-      refs.placementInstanceName.disabled = !canManageRoomSettings || !configured || state.placement.actionBusy;
-    }
-    if (refs.includeActiveNpc instanceof HTMLInputElement) {
-      refs.includeActiveNpc.disabled = !canManageRoomSettings || !configured || state.placement.loadingCatalog || state.placement.actionBusy;
-    }
-    if (buttons.refreshPlacement instanceof HTMLButtonElement) {
-      buttons.refreshPlacement.disabled = !canManageRoomSettings || !configured || state.placement.actionBusy;
-    }
-    if (buttons.loadCharacterToToken instanceof HTMLButtonElement) {
-      buttons.loadCharacterToToken.textContent = state.placement.actionBusy ? "Working..." : action.label;
-      buttons.loadCharacterToToken.disabled = !canExecuteLoad;
-    }
-    if (buttons.retryMetadataSync instanceof HTMLButtonElement) {
-      buttons.retryMetadataSync.disabled = !canManageRoomSettings || !state.placement.pendingMetadataSync || state.placement.actionBusy;
     }
   }
   function render() {
@@ -4275,7 +4226,6 @@ async function mountBridgeShell({
     buttons.clearSettings.disabled = !canManageRoomSettings;
     refs.supabaseUrl.disabled = !canManageRoomSettings;
     refs.supabaseKey.disabled = !canManageRoomSettings;
-    renderPlacement(canManageRoomSettings, configured);
   }
   const unsubscribeDiagnostics = subscribeDiagnostics((entries2) => {
     refs.diagnostics.innerHTML = buildDiagnosticsRows(entries2);
@@ -4303,9 +4253,6 @@ async function mountBridgeShell({
       state.connectionTest = null;
       addDiagnosticEntry("info", "Room Supabase settings saved", state.settings.url || "Configured without URL.");
       render();
-      if (showTokenPlacementPanel) {
-        await refreshPlacementData({ reason: "settings-saved", silent: true });
-      }
     } catch (error) {
       const normalized = normalizeError(error, "Unable to save room Supabase settings.");
       addDiagnosticEntry("error", normalized.name || "Save failed", normalized.message);
@@ -4319,9 +4266,6 @@ async function mountBridgeShell({
     try {
       state.settings = await clearRoomSupabaseSettings();
       state.connectionTest = null;
-      state.placement.catalog = [];
-      state.placement.selectedCharacterId = "";
-      state.placement.pendingMetadataSync = null;
       syncSettingsInputs();
       addDiagnosticEntry("info", "Room Supabase settings cleared");
       if (tokenRealtimeSync?.reconcileNow) {
@@ -4360,10 +4304,7 @@ async function mountBridgeShell({
     }
   });
   buttons.refreshShell.addEventListener("click", () => {
-    void refreshSnapshot().then(async () => {
-      if (showTokenPlacementPanel) {
-        await refreshPlacementData({ reason: "shell-refresh", silent: true });
-      }
+    void refreshSnapshot().then(() => {
       addDiagnosticEntry("info", "Shell status refreshed");
     }).catch((error) => {
       addDiagnosticEntry("error", "Refresh failed", toErrorMessage(error, "Unable to refresh shell state."));
@@ -4372,39 +4313,6 @@ async function mountBridgeShell({
   buttons.clearDiagnostics.addEventListener("click", () => {
     clearDiagnosticsEntries();
   });
-  if (showTokenPlacementPanel) {
-    refs.placementSearch?.addEventListener("input", (event) => {
-      state.placement.search = String(event.target?.value ?? "");
-      syncPlacementSelection(state);
-      render();
-    });
-    refs.placementCharacterSelect?.addEventListener("change", (event) => {
-      state.placement.selectedCharacterId = String(event.target?.value ?? "").trim();
-      state.placement.replaceExistingTokenLink = false;
-      render();
-    });
-    refs.placementInstanceName?.addEventListener("input", (event) => {
-      state.placement.instanceName = String(event.target?.value ?? "");
-    });
-    refs.includeActiveNpc?.addEventListener("change", async (event) => {
-      state.placement.includeActiveNpc = Boolean(event.target?.checked);
-      state.placement.replaceExistingTokenLink = false;
-      await refreshPlacementCatalog({ silent: true });
-    });
-    buttons.refreshPlacement?.addEventListener("click", () => {
-      void refreshPlacementData({ reason: "manual-refresh" }).then(() => {
-        addDiagnosticEntry("info", "Placement data refreshed");
-      }).catch((error) => {
-        addDiagnosticEntry("error", "Placement refresh failed", toErrorMessage(error, "Unable to refresh placement data."));
-      });
-    });
-    buttons.loadCharacterToToken?.addEventListener("click", () => {
-      void loadCharacterToSelectedToken();
-    });
-    buttons.retryMetadataSync?.addEventListener("click", () => {
-      void retryPendingMetadataSync();
-    });
-  }
   void subscribePlayerChanges(async (player) => {
     state.player = player;
     state.selectedTokens = await getSelectedOwlbearTokens().catch(() => state.selectedTokens);
@@ -4414,10 +4322,6 @@ async function mountBridgeShell({
     state.selectedTokens = await getSelectedOwlbearTokens().catch(() => state.selectedTokens);
     render();
   });
-  if (showTokenPlacementPanel) {
-    void refreshPlacementData({ reason: "mount", silent: true }).catch(() => {
-    });
-  }
   globalThis[globalName] = runtime2;
   addDiagnosticEntry(
     "info",
