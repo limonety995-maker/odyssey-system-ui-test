@@ -140,13 +140,10 @@ export function mountPlacementScreen({ root, runtime }) {
     try {
       const s = settings();
       const includeActive = state.catalogFilter === "npc_active" || state.catalogFilter === "all";
-      const payload = {
-        campaign_id: state.obr.campaignId,
-        room_id: state.obr.roomId,
-        scene_id: state.obr.sceneId,
-        include_active_npc: includeActive,
-        limit: 100,
-      };
+      // Only include IDs if non-empty to avoid triggering stale campaign_id filters in DB
+      const payload = { include_active_npc: includeActive, limit: 100 };
+      if (state.obr.roomId) payload.room_id = state.obr.roomId;
+      if (state.obr.sceneId) payload.scene_id = state.obr.sceneId;
       if (state.catalogSearch) payload.search = state.catalogSearch;
       const res = await api.placement.getCharacterSpawnCatalog(payload, s);
       state.catalog = arr(res?.characters);

@@ -26637,13 +26637,9 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
     try {
       const s = settings();
       const includeActive = state.catalogFilter === "npc_active" || state.catalogFilter === "all";
-      const payload = {
-        campaign_id: state.obr.campaignId,
-        room_id: state.obr.roomId,
-        scene_id: state.obr.sceneId,
-        include_active_npc: includeActive,
-        limit: 100
-      };
+      const payload = { include_active_npc: includeActive, limit: 100 };
+      if (state.obr.roomId) payload.room_id = state.obr.roomId;
+      if (state.obr.sceneId) payload.scene_id = state.obr.sceneId;
       if (state.catalogSearch) payload.search = state.catalogSearch;
       const res = await api.placement.getCharacterSpawnCatalog(payload, s);
       state.catalog = arr(res?.characters);
