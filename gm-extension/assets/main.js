@@ -26637,7 +26637,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
     state.catalogLoading = true;
     render();
     try {
-      const buckets = state.catalogFilter === "all" ? ["player", "npc_template"] : [state.catalogFilter];
+      const s = settings();
       const includeActive = state.catalogFilter === "npc_active" || state.catalogFilter === "all";
       const payload = {
         campaign_id: state.obr.campaignId,
@@ -26647,14 +26647,17 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
         limit: 100
       };
       if (state.catalogSearch) payload.search = state.catalogSearch;
-      const res = await api.placement.getCharacterSpawnCatalog(payload, settings());
+      console.log("[Placement] loadCatalog payload:", payload, "settings url:", s.url ? s.url.slice(0, 40) + "\u2026" : "EMPTY", "key:", s.apiKey ? "SET" : "EMPTY");
+      const res = await api.placement.getCharacterSpawnCatalog(payload, s);
+      console.log("[Placement] loadCatalog response:", JSON.stringify(res));
       state.catalog = arr(res?.characters);
       if (!res?.ok) {
         setNotice("err", res?.message || "Catalog load failed.");
         state.catalog = [];
       }
     } catch (e) {
-      setNotice("err", `Catalog error: ${esc(e.message)}`);
+      console.error("[Placement] loadCatalog error:", e);
+      setNotice("err", `Catalog error: ${e.message}`);
       state.catalog = [];
     }
     state.catalogLoading = false;
