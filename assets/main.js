@@ -27597,8 +27597,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     pools: [],
     armory: null,
     equipment: null,
-    inv: { ammoStock: [], items: [], fallback: false },
+    inv: { ammoStock: [], magazines: [], items: [], fallback: false },
     itemDefs: [],
+    skillDefs: [],
+    weaponDefs: [],
+    magazineDefs: [],
+    ammoDefs: [],
+    equipmentDefs: [],
     lastSlot: {},
     // equipmentItemId -> last equipped body_part id (for re-equip default)
     pinnedPartId: "",
@@ -27625,6 +27630,21 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       "Unable to read item defs."
     );
     return arr2(rows);
+  }
+  async function fetchGmDefs() {
+    const safe = (p) => p.catch(() => []);
+    const [skills, weapons, magazines, ammo, equipment] = await Promise.all([
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_skill_defs?select=id,code,name,category,max_level&order=name", settings(), "")),
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_weapon_model_defs?select=id,code,name&order=name", settings(), "")),
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_magazine_defs?select=id,code,name,capacity&order=name", settings(), "")),
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_ammo_type_defs?select=id,code,name&order=name", settings(), "")),
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_equipment_model_defs?select=id,code,name,item_type&order=name", settings(), ""))
+    ]);
+    state.skillDefs = arr2(skills);
+    state.weaponDefs = arr2(weapons);
+    state.magazineDefs = arr2(magazines);
+    state.ammoDefs = arr2(ammo);
+    state.equipmentDefs = arr2(equipment);
   }
   function applyBundle(bundle) {
     if (!bundle || bundle.ok === false || !bundle.character) return false;
@@ -27659,10 +27679,17 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       state.pools = arr2(s.abilities.resource_pools);
     }
     if (s.armory) state.armory = s.armory;
-    if (s.equipment !== void 0) state.equipment = s.equipment;
+    if (s.equipment !== void 0) {
+      state.equipment = arr2(s.equipment).map((it) => ({
+        ...it,
+        model: { item_type: it.item_type, can_equip: it.can_equip !== false },
+        body_part: it.is_equipped && it.equipped_body_part_id ? { id: it.equipped_body_part_id, name: it.equipped_body_part_name } : null
+      }));
+    }
     if (s.inventory) {
       state.inv = {
         ammoStock: arr2(s.inventory.ammo_stock),
+        magazines: arr2(s.inventory.magazines),
         items: arr2(s.inventory.items),
         fallback: false
       };
@@ -27691,10 +27718,12 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       if (!hasUsableSettings(settings())) {
         throw new Error("Supabase is not configured. Set URL/key in the Resolve Attack tab.");
       }
+      const gmMode = isGM();
       const [bundle, itemDefs] = await Promise.all([
         loadBundle(id, ALL_SECTIONS),
-        state.itemDefs.length ? Promise.resolve(state.itemDefs) : fetchItemDefs().catch(() => [])
+        gmMode && !state.itemDefs.length ? fetchItemDefs().catch(() => []) : Promise.resolve(state.itemDefs)
       ]);
+      if (gmMode && !state.skillDefs.length) fetchGmDefs();
       if (!bundle || bundle.ok === false || !bundle.character) throw new Error("Character not found: check character_id.");
       state.characterId = id;
       state.itemDefs = arr2(itemDefs);
@@ -28017,12 +28046,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       const eff = s.effective_level ?? s.level ?? 0;
       return eff > 0;
     });
-    if (!skills.length) return `<div class="cp-empty">No trained skills.</div>`;
+    const gmBlock = isGM() ? gmSkillsBlock() : "";
+    if (!skills.length) return `<div class="cp-empty">No trained skills.</div>${gmBlock}`;
     const byCat = {};
     for (const s of skills) (byCat[_a = s.category || "other"] || (byCat[_a] = [])).push(s);
     return Object.entries(byCat).map(([cat, list]) => `
       <div class="cp-section-title">${esc2(cat)}</div>
-      <div class="cp-list">${list.map(skillRow).join("")}</div>`).join("");
+      <div class="cp-list">${list.map(skillRow).join("")}</div>`).join("") + gmBlock;
   }
   function skillRow(s) {
     const max = s.max_level || 5;
@@ -28080,7 +28110,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   function renderInventory() {
     const armory = state.armory;
     const weapons = arr2(armory?.weapons);
-    const mags = arr2(armory?.magazines);
+    const mags = arr2(state.inv.magazines);
     const ammo = arr2(state.inv.ammoStock);
     const items = arr2(state.inv.items);
     return `
@@ -28101,7 +28131,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const fm = w.selected_fire_mode || w.active_profile?.selected_fire_mode || null;
     const profiles = arr2(w.profiles);
     const fireModes = arr2(w.available_fire_modes?.length ? w.available_fire_modes : w.active_profile?.available_fire_modes);
-    const compatMags = arr2(state.armory?.magazines).filter((m) => !w.model?.caliber || (m.magazine_def?.caliber || m.caliber) === w.model.caliber);
+    const compatMags = arr2(state.inv.magazines).filter((m) => !w.model?.caliber || (m.magazine_def?.caliber || m.caliber) === w.model.caliber);
     const ammoChips = isMelee ? `<span class="cp-chip">melee</span>` : mag ? `<span class="cp-chip ${(mag.current_rounds ?? 0) <= 0 ? "bad" : ""}">${dash2(mag.current_rounds)}/${dash2(mag.capacity || mag.magazine_def?.capacity)} \xB7 ${esc2(mag.ammo_type_name || mag.ammo_type?.name || "")}</span>` : `<span class="cp-chip bad">no magazine</span>`;
     return `<div class="cp-card" data-weapon="${esc2(w.id)}">
       <div class="cp-rowitem"><span><b>${esc2(w.name)}</b> <span class="cp-pill">${esc2(w.model?.weapon_class_name || w.model?.weapon_class || "")}</span></span>
@@ -28146,15 +28176,60 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     </div>`;
   }
   function gmInventoryBlock() {
-    const opts = state.itemDefs.length ? state.itemDefs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)}${d.item_type ? ` \xB7 ${esc2(d.item_type)}` : ""}</option>`).join("") : `<option value="">\u2014 no item defs \u2014</option>`;
-    return `<div class="cp-section-title">GM \xB7 add item</div>
-      <div class="cp-card">
-        <div class="cp-row" style="gap:8px">
-          <label class="cp-field"><span>Item</span><select data-ref="gmAddCode">${opts}</select></label>
-          <label class="cp-field" style="max-width:110px"><span>quantity</span><input data-ref="gmAddQty" type="number" min="1" value="1" class="cp-mono"></label>
-          <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="additem" type="button" ${state.itemDefs.length ? "" : "disabled"}>Add item</button></div>
-        </div>
-      </div>`;
+    const itemOpts = state.itemDefs.length ? state.itemDefs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)}${d.item_type ? ` \xB7 ${esc2(d.item_type)}` : ""}</option>`).join("") : `<option value="">\u2014 no item defs \u2014</option>`;
+    const weaponOpts = state.weaponDefs.length ? state.weaponDefs.map((d) => `<option value="${esc2(d.id)}">${esc2(d.name)}</option>`).join("") : `<option value="">\u2014 no weapon models \u2014</option>`;
+    const magOpts = state.magazineDefs.length ? state.magazineDefs.map((d) => `<option value="${esc2(d.id)}">${esc2(d.name)} (\xD7${esc2(d.capacity)})</option>`).join("") : `<option value="">\u2014 no magazine defs \u2014</option>`;
+    const ammoOpts = state.ammoDefs.length ? state.ammoDefs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)}</option>`).join("") : `<option value="">\u2014 no ammo types \u2014</option>`;
+    return `
+      <div class="cp-section-title">GM \xB7 add weapon</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Model</span><select data-ref="gmWeaponDef">${weaponOpts}</select></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addweapon" type="button" ${state.weaponDefs.length ? "" : "disabled"}>Add weapon</button></div>
+      </div></div>
+      <div class="cp-section-title">GM \xB7 add magazine</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Magazine</span><select data-ref="gmMagDef">${magOpts}</select></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addmag" type="button" ${state.magazineDefs.length ? "" : "disabled"}>Add magazine</button></div>
+      </div></div>
+      <div class="cp-section-title">GM \xB7 add ammo</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Ammo type</span><select data-ref="gmAmmoDef">${ammoOpts}</select></label>
+        <label class="cp-field" style="max-width:90px"><span>qty</span><input data-ref="gmAmmoQty" type="number" min="1" value="10" class="cp-mono"></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addammo" type="button" ${state.ammoDefs.length ? "" : "disabled"}>Add ammo</button></div>
+      </div></div>
+      <div class="cp-section-title">GM \xB7 add item</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Item</span><select data-ref="gmAddCode">${itemOpts}</select></label>
+        <label class="cp-field" style="max-width:90px"><span>qty</span><input data-ref="gmAddQty" type="number" min="1" value="1" class="cp-mono"></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="additem" type="button" ${state.itemDefs.length ? "" : "disabled"}>Add item</button></div>
+      </div></div>`;
+  }
+  function gmSkillsBlock() {
+    const opts = state.skillDefs.length ? state.skillDefs.map((d) => `<option value="${esc2(d.id)}">${esc2(d.name)} \xB7 ${esc2(d.category)}</option>`).join("") : `<option value="">\u2014 no skill defs \u2014</option>`;
+    return `<div class="cp-section-title">GM \xB7 add skill</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Skill</span><select data-ref="gmSkillDef">${opts}</select></label>
+        <label class="cp-field" style="max-width:80px"><span>Level</span><input data-ref="gmSkillLevel" type="number" min="1" max="10" value="1" class="cp-mono"></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addskill" type="button" ${state.skillDefs.length ? "" : "disabled"}>Add skill</button></div>
+      </div></div>`;
+  }
+  function gmArmorBlock() {
+    const defs = state.equipmentDefs.filter((d) => ARMOR_TYPES.has(d.item_type));
+    const opts = defs.length ? defs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)} \xB7 ${esc2(d.item_type)}</option>`).join("") : `<option value="">\u2014 no armor models \u2014</option>`;
+    return `<div class="cp-section-title">GM \xB7 add armor</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Model</span><select data-ref="gmArmorDef">${opts}</select></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addarmor" type="button" ${defs.length ? "" : "disabled"}>Add armor</button></div>
+      </div></div>`;
+  }
+  function gmImplantsBlock() {
+    const defs = state.equipmentDefs.filter((d) => IMPLANT_TYPES.has(d.item_type));
+    const opts = defs.length ? defs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)} \xB7 ${esc2(d.item_type)}</option>`).join("") : `<option value="">\u2014 no implant models \u2014</option>`;
+    return `<div class="cp-section-title">GM \xB7 add implant</div>
+      <div class="cp-card"><div class="cp-row" style="gap:8px">
+        <label class="cp-field"><span>Model</span><select data-ref="gmImplantDef">${opts}</select></label>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addimplant" type="button" ${defs.length ? "" : "disabled"}>Add implant</button></div>
+      </div></div>`;
   }
   function gmToolsBlock() {
     return `<div class="cp-section-title">GM \xB7 character tools</div>
@@ -28162,13 +28237,14 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       <button class="cp-btn-sm secondary" data-gmbtn="repair" type="button">Repair armor</button></div>`;
   }
   function equipmentItems() {
-    return arr2(state.equipment?.items);
+    return arr2(state.equipment);
   }
   function renderArmor() {
     const items = equipmentItems().filter((it) => ARMOR_TYPES.has(it.model?.item_type) || (it.armor_max_critical || 0) > 0 || (it.armor_value || 0) > 0);
-    if (!state.equipment) return `<div class="cp-empty">Equipment unavailable.</div>`;
-    if (!items.length) return `<div class="cp-empty">No armor.</div>`;
-    return `<div class="cp-list">${items.map(armorCard).join("")}</div>`;
+    const gmBlock = isGM() ? gmArmorBlock() : "";
+    if (!state.equipment) return `<div class="cp-empty">Equipment unavailable.</div>${gmBlock}`;
+    if (!items.length) return `<div class="cp-empty">No armor.</div>${gmBlock}`;
+    return `<div class="cp-list">${items.map(armorCard).join("")}</div>${gmBlock}`;
   }
   function armorCard(it) {
     const dest = it.armor_destroyed;
@@ -28195,10 +28271,11 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     </div>`;
   }
   function renderImplants() {
-    if (!state.equipment) return `<div class="cp-empty">Equipment unavailable.</div>`;
     const items = equipmentItems().filter((it) => IMPLANT_TYPES.has(it.model?.item_type));
-    if (!items.length) return `<div class="cp-empty">No installed implants</div>`;
-    return `<div class="cp-list">${items.map(implantCard).join("")}</div>`;
+    const gmBlock = isGM() ? gmImplantsBlock() : "";
+    if (!state.equipment) return `<div class="cp-empty">Equipment unavailable.</div>${gmBlock}`;
+    if (!items.length) return `<div class="cp-empty">No installed implants</div>${gmBlock}`;
+    return `<div class="cp-list">${items.map(implantCard).join("")}</div>${gmBlock}`;
   }
   function implantCard(it) {
     const eff = it.model?.effect_data;
@@ -28572,14 +28649,88 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const code = root2.querySelector('[data-ref="gmAddCode"]')?.value.trim();
     const qty = Math.max(Number(root2.querySelector('[data-ref="gmAddQty"]')?.value) || 1, 1);
     if (!code) {
-      setNotice("err", "Enter item_code.");
+      setNotice("err", "Select item.");
       render();
       return;
     }
-    runMutation("Add item", () => api.inventory.addCharacterItem({ character_id: state.characterId, item_code: code, quantity: qty }, settings()), () => refresh());
+    runMutation("Add item", () => api.inventory.addCharacterItem({ character_id: state.characterId, item_code: code, quantity: qty }, settings()), () => refresh({ sheet: false, equipment: false, abilities: false }));
+  }
+  function onGmAddSkill() {
+    const defId = root2.querySelector('[data-ref="gmSkillDef"]')?.value;
+    const level = Math.max(1, Number(root2.querySelector('[data-ref="gmSkillLevel"]')?.value) || 1);
+    if (!defId) {
+      setNotice("err", "Select a skill.");
+      render();
+      return;
+    }
+    runMutation("Add skill", () => bridges.supabase.mutateSupabaseRows(
+      "odyssey_character_skills",
+      { character_id: state.characterId, skill_def_id: defId, level },
+      settings(),
+      { method: "POST", prefer: "return=minimal" }
+    ), () => refresh({ armory: false, equipment: false, inventory: false }));
+  }
+  function onGmAddWeapon() {
+    const defId = root2.querySelector('[data-ref="gmWeaponDef"]')?.value;
+    if (!defId) {
+      setNotice("err", "Select a weapon model.");
+      render();
+      return;
+    }
+    runMutation("Add weapon", () => bridges.supabase.mutateSupabaseRows(
+      "odyssey_character_weapons",
+      { character_id: state.characterId, weapon_model_id: defId },
+      settings(),
+      { method: "POST", prefer: "return=minimal" }
+    ), () => refresh({ sheet: false, equipment: false, abilities: false }));
+  }
+  function onGmAddMagazine() {
+    const defId = root2.querySelector('[data-ref="gmMagDef"]')?.value;
+    if (!defId) {
+      setNotice("err", "Select a magazine type.");
+      render();
+      return;
+    }
+    runMutation("Add magazine", () => bridges.supabase.mutateSupabaseRows(
+      "odyssey_character_magazines",
+      { character_id: state.characterId, magazine_def_id: defId },
+      settings(),
+      { method: "POST", prefer: "return=minimal" }
+    ), () => refresh({ sheet: false, equipment: false, abilities: false }));
+  }
+  function onGmAddAmmo() {
+    const code = root2.querySelector('[data-ref="gmAmmoDef"]')?.value;
+    const qty = Math.max(1, Number(root2.querySelector('[data-ref="gmAmmoQty"]')?.value) || 1);
+    if (!code) {
+      setNotice("err", "Select an ammo type.");
+      render();
+      return;
+    }
+    runMutation("Add ammo", () => api.inventory.addCharacterAmmoStock(
+      { character_id: state.characterId, ammo_type_code: code, quantity: qty },
+      settings()
+    ), () => refresh({ sheet: false, equipment: false, abilities: false }));
+  }
+  function onGmAddEquipment(refKey, label) {
+    const code = root2.querySelector(`[data-ref="${refKey}"]`)?.value;
+    if (!code) {
+      setNotice("err", "Select a model.");
+      render();
+      return;
+    }
+    runMutation(label, () => api.equipment.createCharacterEquipmentItem(
+      { character_id: state.characterId, equipment_model_code: code },
+      settings()
+    ), () => refresh({ sheet: false, armory: false, inventory: false, abilities: false }));
   }
   function onGmTool(kind) {
     if (kind === "additem") return onGmAddItem();
+    if (kind === "addskill") return onGmAddSkill();
+    if (kind === "addweapon") return onGmAddWeapon();
+    if (kind === "addmag") return onGmAddMagazine();
+    if (kind === "addammo") return onGmAddAmmo();
+    if (kind === "addarmor") return onGmAddEquipment("gmArmorDef", "Add armor");
+    if (kind === "addimplant") return onGmAddEquipment("gmImplantDef", "Add implant");
     if (kind === "heal") return runMutation("GM heal", () => api.gm.gmHealCharacter(state.characterId, settings()), () => refresh());
     if (kind === "repair") return runMutation("GM repair", () => api.gm.gmRepairCharacterArmor(state.characterId, settings()), () => refresh());
   }
