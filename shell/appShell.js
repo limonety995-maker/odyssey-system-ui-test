@@ -1,6 +1,7 @@
 import { addDiagnosticEntry, clearDiagnosticsEntries, subscribeDiagnostics } from "../utils/diagnostics.js";
 import { normalizeError, toErrorMessage } from "../utils/errors.js";
 import { escapeHtml } from "../utils/json.js";
+import { mountCreatorMenu } from "./creatorMenu.js";
 import {
   getPlayerInfo,
   getRoomSceneContext,
@@ -117,6 +118,8 @@ function createShellMarkup(title, subtitle) {
       <div class="list" data-field="moduleList"></div>
     </section>
 
+    <div data-field="creatorHost"></div>
+
     <section class="panel">
       <div class="panel-title">Diagnostics</div>
       <div class="button-row">
@@ -223,13 +226,7 @@ export async function mountBridgeShell({
     selectedTokens: root.querySelector('[data-field="selectedTokens"]'),
     moduleList: root.querySelector('[data-field="moduleList"]'),
     diagnostics: root.querySelector('[data-field="diagnostics"]'),
-    placementSearch: root.querySelector('[data-field="placementSearch"]'),
-    placementCharacterSelect: root.querySelector('[data-field="placementCharacterSelect"]'),
-    placementInstanceName: root.querySelector('[data-field="placementInstanceName"]'),
-    includeActiveNpc: root.querySelector('[data-field="includeActiveNpc"]'),
-    placementSelectedToken: root.querySelector('[data-field="placementSelectedToken"]'),
-    placementSelectionInfo: root.querySelector('[data-field="placementSelectionInfo"]'),
-    placementHint: root.querySelector('[data-field="placementHint"]'),
+    creatorHost: root.querySelector('[data-field="creatorHost"]'),
   };
 
   const buttons = {
@@ -248,6 +245,16 @@ export async function mountBridgeShell({
     selectedTokens: await getSelectedOwlbearTokens(),
     connectionTest: null,
   };
+
+  const creatorController = features?.creatorTools && refs.creatorHost instanceof HTMLElement
+    ? mountCreatorMenu({
+        root: refs.creatorHost,
+        runtime,
+        getPlayer: () => state.player,
+        getSettings: () => state.settings,
+        onDiagnostic: (level, titleText, details) => addDiagnosticEntry(level, titleText, details),
+      })
+    : null;
 
   function syncSettingsInputs() {
     if (refs.supabaseUrl instanceof HTMLInputElement) {
@@ -287,7 +294,6 @@ export async function mountBridgeShell({
     buttons.clearSettings.disabled = !canManageRoomSettings;
     refs.supabaseUrl.disabled = !canManageRoomSettings;
     refs.supabaseKey.disabled = !canManageRoomSettings;
-
   }
 
   const unsubscribeDiagnostics = subscribeDiagnostics((entries) => {
@@ -304,6 +310,7 @@ export async function mountBridgeShell({
     state.selectedTokens = await getSelectedOwlbearTokens();
     syncSettingsInputs();
     render();
+    creatorController?.syncAccess();
   }
 
   buttons.saveSettings.addEventListener("click", async () => {
@@ -319,6 +326,7 @@ export async function mountBridgeShell({
       state.connectionTest = null;
       addDiagnosticEntry("info", "Room Supabase settings saved", state.settings.url || "Configured without URL.");
       render();
+      creatorController?.syncAccess();
     } catch (error) {
       const normalized = normalizeError(error, "Unable to save room Supabase settings.");
       addDiagnosticEntry("error", normalized.name || "Save failed", normalized.message);
@@ -339,6 +347,7 @@ export async function mountBridgeShell({
         await tokenRealtimeSync.reconcileNow("settings-cleared");
       }
       render();
+      creatorController?.syncAccess();
     } catch (error) {
       addDiagnosticEntry("error", "Clear failed", toErrorMessage(error, "Unable to clear room Supabase settings."));
     }
@@ -390,6 +399,7 @@ export async function mountBridgeShell({
     state.player = player;
     state.selectedTokens = await getSelectedOwlbearTokens().catch(() => state.selectedTokens);
     render();
+    creatorController?.syncAccess();
   });
 
   void subscribeSceneItems(async () => {

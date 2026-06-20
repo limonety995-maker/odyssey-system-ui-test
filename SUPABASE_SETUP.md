@@ -212,9 +212,14 @@ Stage 5B adds the Creator / Catalog backend:
 - `creator_list_weapon_feature_defs(text)`
 - `creator_get_weapon_feature_def(uuid)`
 - `creator_upsert_weapon_feature_def(jsonb)`
-- `creator_list_armor_models(text)`
-- `creator_get_armor_model(uuid)`
-- `creator_upsert_armor_model(jsonb)`
+- `creator_list_equipment_models(text, jsonb)`
+- `creator_get_equipment_model(uuid)`
+- `creator_upsert_equipment_model(jsonb)`
+- `creator_delete_equipment_model(uuid)`
+- `creator_list_skills(text, jsonb)`
+- `creator_get_skill(uuid)`
+- `creator_upsert_skill(jsonb)`
+- `creator_delete_skill(uuid)`
 - `creator_list_item_defs(text)`
 - `creator_get_item_def(uuid)`
 - `creator_upsert_item_def(jsonb)`
@@ -436,9 +441,14 @@ Important: the combined snapshot [supabase/odyssey_supabase.sql](/D:/Documents/O
 - `public.creator_list_weapon_feature_defs(text)`
 - `public.creator_get_weapon_feature_def(uuid)`
 - `public.creator_upsert_weapon_feature_def(jsonb)`
-- `public.creator_list_armor_models(text)`
-- `public.creator_get_armor_model(uuid)`
-- `public.creator_upsert_armor_model(jsonb)`
+- `public.creator_list_equipment_models(text, jsonb)`
+- `public.creator_get_equipment_model(uuid)`
+- `public.creator_upsert_equipment_model(jsonb)`
+- `public.creator_delete_equipment_model(uuid)`
+- `public.creator_list_skills(text, jsonb)`
+- `public.creator_get_skill(uuid)`
+- `public.creator_upsert_skill(jsonb)`
+- `public.creator_delete_skill(uuid)`
 - `public.creator_list_item_defs(text)`
 - `public.creator_get_item_def(uuid)`
 - `public.creator_upsert_item_def(jsonb)`

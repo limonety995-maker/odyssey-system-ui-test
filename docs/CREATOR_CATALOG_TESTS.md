@@ -177,12 +177,12 @@ select public.creator_upsert_weapon_feature_def(
 );
 ```
 
-## Armor / Shield
+## Equipment Models
 
 Create torso armor:
 
 ```sql
-select public.creator_upsert_armor_model(
+select public.creator_upsert_equipment_model(
   jsonb_build_object(
     'code', 'creator_test_medium_torso_armor',
     'name', 'Creator Test Medium Torso Armor',
@@ -214,7 +214,7 @@ select public.creator_upsert_armor_model(
 Create shield model:
 
 ```sql
-select public.creator_upsert_armor_model(
+select public.creator_upsert_equipment_model(
   jsonb_build_object(
     'code', 'creator_test_shield',
     'name', 'Creator Test Shield',
@@ -235,7 +235,7 @@ select public.creator_upsert_armor_model(
 
 Confirm:
 
-- armor and shield both appear in `creator_list_armor_models(...)`
+- armor and shield both appear in `creator_list_equipment_models(...)`
 - links were written only to `public.odyssey_equipment_model_abilities`
 - no `public.odyssey_character_equipment_items` rows were created
 

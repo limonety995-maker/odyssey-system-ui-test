@@ -83,3 +83,15 @@ export const CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
   unbindTokenCharacter: "unbind_token_character",
   purgeActiveNpcs: "purge_active_npcs",
 });
+
+export const CREATOR_RPC_NAMES = Object.freeze({
+  getCreatorReferenceData: "get_creator_reference_data",
+  listSkills: "creator_list_skills",
+  getSkill: "creator_get_skill",
+  upsertSkill: "creator_upsert_skill",
+  deleteSkill: "creator_delete_skill",
+  listEquipmentModels: "creator_list_equipment_models",
+  getEquipmentModel: "creator_get_equipment_model",
+  upsertEquipmentModel: "creator_upsert_equipment_model",
+  deleteEquipmentModel: "creator_delete_equipment_model",
+});

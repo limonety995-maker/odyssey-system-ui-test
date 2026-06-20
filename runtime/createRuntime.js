@@ -11,6 +11,7 @@ import {
   EQUIPMENT_RPC_NAMES,
   INVENTORY_RPC_NAMES,
   CHARACTER_PLACEMENT_RPC_NAMES,
+  CREATOR_RPC_NAMES,
 } from "../constants/rpcNames.js";
 import * as obrBridge from "../bridge/obrBridge.js";
 import * as settingsBridge from "../bridge/settingsBridge.js";
@@ -28,6 +29,7 @@ import * as equipmentApi from "../api/equipmentApi.js";
 import * as inventoryApi from "../api/inventoryApi.js";
 import * as logApi from "../api/logApi.js";
 import * as placementApi from "../api/characterPlacementApi.js";
+import * as creatorApi from "../api/creatorApi.js";
 
 export function createOdysseyRuntime() {
   return {
@@ -44,6 +46,7 @@ export function createOdysseyRuntime() {
       EQUIPMENT_RPC_NAMES,
       INVENTORY_RPC_NAMES,
       CHARACTER_PLACEMENT_RPC_NAMES,
+      CREATOR_RPC_NAMES,
     },
     bridges: {
       obr: obrBridge,
@@ -64,6 +67,7 @@ export function createOdysseyRuntime() {
       inventory: inventoryApi,
       log: logApi,
       placement: placementApi,
+      creator: creatorApi,
     },
   };
 }

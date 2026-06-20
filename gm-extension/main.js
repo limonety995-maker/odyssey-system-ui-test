@@ -40,7 +40,9 @@ const views = {
           "GM token placement, Supabase room settings, and token metadata reconciliation live here. Combat state remains server-authoritative.",
         runtime,
         globalName: "OdysseyGmToolsBridge",
-        features: {},
+        features: {
+          creatorTools: true,
+        },
         tokenRealtimeSync,
       }).catch((error) => {
         hosts.shell.innerHTML = `

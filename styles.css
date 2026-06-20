@@ -193,18 +193,25 @@ h1 {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border-radius: 10px;
   border: 1px solid rgba(61, 92, 129, 0.9);
   background: rgba(8, 17, 28, 0.9);
   color: var(--text);
   padding: 9px 11px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 88px;
 }
 
 button {
@@ -293,6 +300,201 @@ pre {
   padding: 10px 12px;
 }
 
+.creator-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.creator-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.creator-tab {
+  background: #16263a;
+}
+
+.creator-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: #d8eeff;
+  font-weight: 700;
+}
+
+.creator-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.creator-filter-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.creator-banner {
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.creator-banner.info {
+  background: rgba(62, 166, 255, 0.14);
+  border: 1px solid rgba(62, 166, 255, 0.35);
+  color: #d8eeff;
+}
+
+.creator-banner.error {
+  background: rgba(201, 75, 88, 0.16);
+  border: 1px solid rgba(201, 75, 88, 0.4);
+  color: #ffd9de;
+}
+
+.creator-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.creator-sidebar,
+.creator-editor {
+  background: rgba(21, 34, 53, 0.72);
+  border: 1px solid rgba(39, 65, 95, 0.9);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.creator-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 920px;
+}
+
+.creator-sidebar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.creator-count {
+  border: 1px solid rgba(62, 166, 255, 0.35);
+  background: rgba(62, 166, 255, 0.12);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
+.creator-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 820px;
+  overflow-y: auto;
+}
+
+.creator-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  text-align: left;
+  width: 100%;
+  padding: 10px 11px;
+  background: rgba(8, 17, 28, 0.9);
+  border: 1px solid rgba(61, 92, 129, 0.9);
+}
+
+.creator-list-item.active {
+  background: rgba(62, 166, 255, 0.14);
+  border-color: rgba(62, 166, 255, 0.55);
+}
+
+.creator-list-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.creator-list-code,
+.creator-list-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.creator-empty {
+  border: 1px dashed rgba(61, 92, 129, 0.8);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.creator-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.creator-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.creator-editor-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.creator-pill {
+  border-radius: 999px;
+  border: 1px solid rgba(62, 166, 255, 0.35);
+  background: rgba(62, 166, 255, 0.12);
+  color: #d8eeff;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.creator-pill.dirty {
+  border-color: rgba(255, 194, 75, 0.4);
+  background: rgba(255, 194, 75, 0.14);
+  color: #ffe6b3;
+}
+
+.creator-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.creator-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.creator-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.creator-check-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 100%;
+}
+
 @media (max-width: 640px) {
   html,
   body {
@@ -306,5 +508,12 @@ pre {
 
   .shell-header {
     flex-direction: column;
+  }
+
+  .creator-toolbar,
+  .creator-layout,
+  .creator-grid-2,
+  .creator-grid-4 {
+    grid-template-columns: 1fr;
   }
 }
