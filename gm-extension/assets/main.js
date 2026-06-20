@@ -26637,12 +26637,17 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
     try {
       const s = settings();
       const includeActive = state.catalogFilter === "npc_active" || state.catalogFilter === "all";
-      const payload = { include_active_npc: includeActive, limit: 100 };
+      const buckets = state.catalogFilter === "all" ? ["player", "npc_template"] : [state.catalogFilter];
+      const payload = {
+        include_active_npcs: includeActive,
+        buckets,
+        limit: 100
+      };
       if (state.obr.roomId) payload.room_id = state.obr.roomId;
       if (state.obr.sceneId) payload.scene_id = state.obr.sceneId;
       if (state.catalogSearch) payload.search = state.catalogSearch;
       const res = await api.placement.getCharacterSpawnCatalog(payload, s);
-      state.catalog = arr(res?.characters);
+      state.catalog = arr(res?.items);
       state._debug.lastResCount = state.catalog.length;
       state._debug.lastError = res?.ok === false ? res?.message || "ok=false" : "";
       if (!res?.ok) {
@@ -26827,9 +26832,10 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
       </div>`;
   }
   function renderCatalogItem(c) {
-    const isLinked = !!c.linked_token_id;
+    const isLinked = !!c.scene_link?.token_id;
     const canBind = !!state.selectedToken && !state.busy;
-    const displayName = c.name || c.character_key;
+    const displayName = c.display_name || c.character_key;
+    const statusSummary = c.summary?.status_summary;
     const btnLabel = c.character_bucket === "player" ? "Bind Player" : c.character_bucket === "npc_template" ? "Spawn NPC" : "Rebind NPC";
     return `
       <div class="pl-item ${isLinked ? "pl-item-linked" : ""}">
@@ -26838,7 +26844,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
           ${bucketBadge(c.character_bucket)}
           ${isLinked ? `<span class="pl-badge pl-badge-on-scene">On scene</span>` : ""}
         </div>
-        ${c.status_summary ? `<div class="pl-item-status pl-muted">${esc(c.status_summary)}</div>` : ""}
+        ${statusSummary ? `<div class="pl-item-status pl-muted">${esc(statusSummary)}</div>` : ""}
         <div class="pl-item-actions">
           <button class="pl-btn pl-btn-primary" data-action="bind" data-char="${esc(c.id)}" ${canBind ? "" : "disabled"}>${btnLabel}</button>
         </div>
