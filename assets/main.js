@@ -3680,10 +3680,27 @@ async function setRoomMetadata(patch) {
   await lib_default.room.setMetadata(patch ?? {});
   return getRoomMetadata();
 }
+var ODYSSEY_SCENE_ID_KEY = "odyssey-system/scene-id";
+function genSceneId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
 async function getRoomSceneContext() {
   await waitForObrReady();
   const roomId = String(lib_default.room?.id ?? "").trim();
-  const sceneId = String(lib_default.scene?.id ?? "").trim();
+  let sceneId = "";
+  try {
+    const sceneReady = await lib_default.scene.isReady();
+    if (sceneReady) {
+      const meta = await lib_default.scene.getMetadata();
+      sceneId = String(meta?.[ODYSSEY_SCENE_ID_KEY] ?? "").trim();
+      if (!sceneId) {
+        sceneId = genSceneId();
+        await lib_default.scene.setMetadata({ [ODYSSEY_SCENE_ID_KEY]: sceneId });
+      }
+    }
+  } catch {
+  }
   return {
     campaignId: roomId,
     roomId,
