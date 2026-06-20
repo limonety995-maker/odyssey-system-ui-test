@@ -1183,7 +1183,7 @@ function skeleton() {
     </section>
 
     <section class="panel">
-      <div class="panel-title">Combatants</div>
+      <div class="panel-title">Combat</div>
       <div class="ra-grid2">
         <label class="ra-field"><span>Attacker · character_id</span><input data-ref="attackerId" class="ra-mono" placeholder="uuid" autocomplete="off"></label>
         <label class="ra-field"><span>Target · character_id</span><input data-ref="targetId" class="ra-mono" placeholder="uuid" autocomplete="off"></label>

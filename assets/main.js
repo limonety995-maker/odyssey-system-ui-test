@@ -27430,7 +27430,7 @@ function skeleton() {
     </section>
 
     <section class="panel">
-      <div class="panel-title">Combatants</div>
+      <div class="panel-title">Combat</div>
       <div class="ra-grid2">
         <label class="ra-field"><span>Attacker \xB7 character_id</span><input data-ref="attackerId" class="ra-mono" placeholder="uuid" autocomplete="off"></label>
         <label class="ra-field"><span>Target \xB7 character_id</span><input data-ref="targetId" class="ra-mono" placeholder="uuid" autocomplete="off"></label>
@@ -27835,7 +27835,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         <div class="button-row"><button data-ref="retry" type="button">Retry</button></div></section>`;
     }
     if (!state.sheet) {
-      return `<section class="panel"><div class="cp-empty">Enter a character_id and press <b>Load character</b>.</div></section>`;
+      return `<section class="panel">${noticeHtml()}<div class="cp-empty">Enter a character_id and press <b>Load character</b>.</div></section>`;
     }
     return `<section class="panel">
       ${headerBlock()}

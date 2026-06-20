@@ -26117,6 +26117,7 @@ function createTokenRealtimeSync({ runtime: runtime2 }) {
     reconciling: false,
     playerUnsubscribe: null,
     sceneItemsUnsubscribe: null,
+    sceneReadyUnsubscribe: null,
     tokenLinksChannel: null,
     combatChannels: /* @__PURE__ */ new Map(),
     linksByTokenId: /* @__PURE__ */ new Map(),
@@ -26470,6 +26471,9 @@ function createTokenRealtimeSync({ runtime: runtime2 }) {
     state.sceneItemsUnsubscribe = await obrBridge.subscribeSceneItems(() => {
       scheduleReconcile("scene-items-change");
     });
+    state.sceneReadyUnsubscribe = obrBridge.OBR?.scene?.onReadyChange?.((ready) => {
+      if (ready) scheduleReconcile("scene-ready");
+    }) ?? null;
     scheduleReconcile("startup", 0);
     return api;
   }
@@ -26483,6 +26487,10 @@ function createTokenRealtimeSync({ runtime: runtime2 }) {
     if (typeof state.sceneItemsUnsubscribe === "function") {
       state.sceneItemsUnsubscribe();
       state.sceneItemsUnsubscribe = null;
+    }
+    if (typeof state.sceneReadyUnsubscribe === "function") {
+      state.sceneReadyUnsubscribe();
+      state.sceneReadyUnsubscribe = null;
     }
     clearRealtimeSubscriptions({ dropClient: true });
     resetLinkMaps();

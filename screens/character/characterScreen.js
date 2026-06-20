@@ -337,7 +337,7 @@ export function mountCharacterScreen({ root, runtime }) {
         <div class="button-row"><button data-ref="retry" type="button">Retry</button></div></section>`;
     }
     if (!state.sheet) {
-      return `<section class="panel"><div class="cp-empty">Enter a character_id and press <b>Load character</b>.</div></section>`;
+      return `<section class="panel">${noticeHtml()}<div class="cp-empty">Enter a character_id and press <b>Load character</b>.</div></section>`;
     }
     return `<section class="panel">
       ${headerBlock()}
