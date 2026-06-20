@@ -27636,8 +27636,8 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const [skills, weapons, magazines, ammo, equipment] = await Promise.all([
       safe(bridges.supabase.fetchSupabaseRows("odyssey_skill_defs?select=id,code,name,category,max_level&order=name", settings(), "")),
       safe(bridges.supabase.fetchSupabaseRows("odyssey_weapon_model_defs?select=id,code,name&order=name", settings(), "")),
-      safe(bridges.supabase.fetchSupabaseRows("odyssey_magazine_defs?select=id,code,name,capacity&order=name", settings(), "")),
-      safe(bridges.supabase.fetchSupabaseRows("odyssey_ammo_type_defs?select=id,code,name&order=name", settings(), "")),
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_magazine_defs?select=id,code,name,capacity,caliber_id&order=name", settings(), "")),
+      safe(bridges.supabase.fetchSupabaseRows("odyssey_ammo_type_defs?select=id,code,name,caliber_id,caliber:caliber_id(id,code)&order=name", settings(), "")),
       safe(bridges.supabase.fetchSupabaseRows("odyssey_equipment_model_defs?select=id,code,name,item_type&order=name", settings(), ""))
     ]);
     state.skillDefs = arr2(skills);
@@ -27678,7 +27678,6 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       state.abilities = arr2(s.abilities.abilities);
       state.pools = arr2(s.abilities.resource_pools);
     }
-    if (s.armory) state.armory = s.armory;
     if (s.equipment !== void 0) {
       state.equipment = arr2(s.equipment).map((it) => ({
         ...it,
@@ -27706,7 +27705,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     state.settings = resolved.settings;
     return resolved.settings;
   }
-  const ALL_SECTIONS = ["summary", "combat", "attributes", "skills", "equipment", "inventory", "armory", "abilities", "effects"];
+  const ALL_SECTIONS = ["summary", "combat", "attributes", "skills", "equipment", "inventory", "abilities", "effects"];
   async function loadCharacter(id) {
     state.loading = true;
     state.error = null;
@@ -27719,14 +27718,16 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         throw new Error("Supabase is not configured. Set URL/key in the Resolve Attack tab.");
       }
       const gmMode = isGM();
-      const [bundle, itemDefs] = await Promise.all([
+      const [bundle, itemDefs, armoryData] = await Promise.all([
         loadBundle(id, ALL_SECTIONS),
-        gmMode && !state.itemDefs.length ? fetchItemDefs().catch(() => []) : Promise.resolve(state.itemDefs)
+        gmMode && !state.itemDefs.length ? fetchItemDefs().catch(() => []) : Promise.resolve(state.itemDefs),
+        api.weapon.getCharacterArmory(id, settings()).catch(() => null)
       ]);
       if (gmMode && !state.skillDefs.length) fetchGmDefs();
       if (!bundle || bundle.ok === false || !bundle.character) throw new Error("Character not found: check character_id.");
       state.characterId = id;
       state.itemDefs = arr2(itemDefs);
+      if (armoryData) state.armory = armoryData;
       applyBundle(bundle);
       state.pinnedPartId = "";
       setupRealtimeSubscriptions(id);
@@ -27742,14 +27743,15 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     if (!id) return;
     const sections = [
       ...sheet ? ["summary", "combat", "attributes", "skills"] : [],
-      ...armory ? ["armory"] : [],
       ...equipment ? ["equipment"] : [],
       ...inventory ? ["inventory"] : [],
       ...abilities ? ["abilities"] : []
     ];
-    if (!sections.length) return;
-    const bundle = await loadBundle(id, sections).catch(() => null);
+    const bundlePromise = sections.length ? loadBundle(id, sections).catch(() => null) : Promise.resolve(null);
+    const armoryPromise = armory ? api.weapon.getCharacterArmory(id, settings()).catch(() => null) : Promise.resolve(null);
+    const [bundle, armoryData] = await Promise.all([bundlePromise, armoryPromise]);
     if (bundle) applyBundle(bundle);
+    if (armoryData) state.armory = armoryData;
     render();
   }
   function setupRealtimeSubscriptions(characterId) {
@@ -28067,10 +28069,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const isClickable = !passive && !isPsionics;
     const attrs_str = attrs ? ` <span class="cp-muted">(${esc2(attrs)})</span>` : "";
     const buyStr = purchased != null && purchased !== eff ? ` <span class="cp-muted cp-mono">buy ${esc2(purchased)}</span>` : "";
-    return `<div class="cp-card cp-rowitem"${isClickable ? ` role="button" tabindex="0" data-skill-roll="${esc2(s.code)}"` : ""} aria-label="Skill ${esc2(s.name)}" ${isClickable ? 'title="Skill check"' : ""}>
-      <span>${esc2(s.name)}${attrs_str}
-        <span class="cp-pill">${passive ? "passive" : "trained"}</span>${buyStr}</span>
-      <span class="cp-row" style="gap:6px">${perks}<span class="cp-pips" title="${dash2(eff)}/${max}">${pips}</span>${locked ? `<span class="cp-pill bad">locked</span>` : ""}</span>
+    return `<div class="cp-card"${isClickable ? ` role="button" tabindex="0" data-skill-roll="${esc2(s.code)}"` : ""} aria-label="Skill ${esc2(s.name)}" ${isClickable ? 'title="Skill check"' : ""}>
+      <div class="cp-rowitem">
+        <span>${esc2(s.name)}${attrs_str}
+          <span class="cp-pill">${passive ? "passive" : "trained"}</span>${buyStr}</span>
+        <span class="cp-row" style="gap:6px">${perks}<span class="cp-pips" title="${dash2(eff)}/${max}">${pips}</span>${locked ? `<span class="cp-pill bad">locked</span>` : ""}</span>
+      </div>
+      ${isGM() ? `<div class="button-row" style="margin-top:4px"><button class="cp-btn-sm secondary" data-gmdel="skill" data-id="${esc2(s.id)}" type="button">GM delete</button></div>` : ""}
     </div>`;
   }
   function renderAbilities() {
@@ -28110,7 +28115,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   function renderInventory() {
     const armory = state.armory;
     const weapons = arr2(armory?.weapons);
-    const mags = arr2(state.inv.magazines);
+    const mags = arr2(state.armory?.magazines);
     const ammo = arr2(state.inv.ammoStock);
     const items = arr2(state.inv.items);
     return `
@@ -28131,7 +28136,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const fm = w.selected_fire_mode || w.active_profile?.selected_fire_mode || null;
     const profiles = arr2(w.profiles);
     const fireModes = arr2(w.available_fire_modes?.length ? w.available_fire_modes : w.active_profile?.available_fire_modes);
-    const compatMags = arr2(state.inv.magazines).filter((m) => !w.model?.caliber || (m.magazine_def?.caliber || m.caliber) === w.model.caliber);
+    const compatMags = arr2(state.armory?.magazines).filter((m) => !w.model?.caliber || (m.magazine_def?.caliber || m.caliber) === w.model.caliber);
     const ammoChips = isMelee ? `<span class="cp-chip">melee</span>` : mag ? `<span class="cp-chip ${(mag.current_rounds ?? 0) <= 0 ? "bad" : ""}">${dash2(mag.current_rounds)}/${dash2(mag.capacity || mag.magazine_def?.capacity)} \xB7 ${esc2(mag.ammo_type_name || mag.ammo_type?.name || "")}</span>` : `<span class="cp-chip bad">no magazine</span>`;
     return `<div class="cp-card" data-weapon="${esc2(w.id)}">
       <div class="cp-rowitem"><span><b>${esc2(w.name)}</b> <span class="cp-pill">${esc2(w.model?.weapon_class_name || w.model?.weapon_class || "")}</span></span>
@@ -28141,7 +28146,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         ${fireModes.length && !isMelee ? `<label class="cp-field" style="min-width:130px"><span>Fire mode</span><select data-wact="firemode" data-weapon="${esc2(w.id)}">${fireModes.map((f) => `<option value="${esc2(f.id)}" ${f.id === fm?.id ? "selected" : ""}>${esc2(f.name || f.code)}</option>`).join("")}</select></label>` : ""}
         ${!isMelee ? `<label class="cp-field" style="min-width:150px"><span>Insert magazine</span><select data-wact="reloadmag" data-weapon="${esc2(w.id)}">${compatMags.length ? compatMags.map((m) => `<option value="${esc2(m.id)}">${esc2(m.name)} \xB7 ${dash2(m.current_rounds)}/${dash2(m.magazine_def?.capacity ?? m.capacity)}</option>`).join("") : `<option value="">\u2014 none \u2014</option>`}</select></label>` : ""}
       </div>
-      ${!isMelee ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm" data-wbtn="reload" data-weapon="${esc2(w.id)}" type="button" ${compatMags.length ? "" : "disabled"}>Reload (insert magazine)</button></div>${compatMags.length ? "" : `<div class="cp-muted">No compatible magazine to insert.</div>`}` : ""}
+      ${!isMelee ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm" data-wbtn="reload" data-weapon="${esc2(w.id)}" type="button" ${compatMags.length ? "" : "disabled"}>Reload (insert magazine)</button>${isGM() ? `<button class="cp-btn-sm secondary" data-gmdel="weapon" data-id="${esc2(w.id)}" type="button">GM delete</button>` : ""}</div>${compatMags.length ? "" : `<div class="cp-muted">No compatible magazine to insert.</div>`}` : `${isGM() ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-gmdel="weapon" data-id="${esc2(w.id)}" type="button">GM delete</button></div>` : ""}`}
     </div>`;
   }
   function magCard(m) {
@@ -28162,23 +28167,34 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         </div>
       </div>
       ${compatAmmo.length ? "" : `<div class="cp-muted">No compatible ammo in stock.</div>`}
+      ${isGM() ? `<div class="button-row" style="margin-top:6px"><button class="cp-btn-sm secondary" data-gmdel="mag" data-id="${esc2(m.id)}" type="button">GM delete</button></div>` : ""}
     </div>`;
   }
   function itemCard(i) {
-    const healable = i.use_action_type === "heal" || i.item_code === "basic_medkit";
+    const healable = i.use_action_type === "heal" || i.code === "basic_medkit";
     return `<div class="cp-card" data-item="${esc2(i.id)}">
       <div class="cp-rowitem"><span><b>${esc2(i.name)}</b> <span class="cp-pill">${esc2(i.item_type || "")}</span></span><span class="cp-mono">x${dash2(i.quantity)}</span></div>
       ${healable ? `<div class="cp-row" style="gap:8px;margin-top:8px">
         <label class="cp-field" style="min-width:160px"><span>Heal body part</span><select data-iact="part" data-item="${esc2(i.id)}">${arr2(state.sheet.body_parts).map((p) => `<option value="${esc2(p.id)}" ${p.destroyed ? "disabled" : ""}>${esc2(p.name)}${p.destroyed ? " (destroyed)" : ""}</option>`).join("")}</select></label>
         <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-ibtn="use" data-item="${esc2(i.id)}" type="button">Use</button></div>
       </div>` : ""}
-      ${isGM() ? `<div class="button-row" style="margin-top:6px"><button class="cp-btn-sm secondary" data-gmitem="remove" data-item="${esc2(i.id)}" data-code="${esc2(i.item_code || "")}" type="button" aria-label="Remove one ${esc2(i.name)}">GM remove \xD71</button></div>` : ""}
+      ${isGM() ? `<div class="cp-row" style="gap:6px;margin-top:6px;align-items:center">
+        <input data-gmqty="${esc2(i.id)}" type="number" min="1" max="${i.quantity}" value="1" class="cp-mono" style="width:46px;padding:3px 4px;font-size:11px">
+        <button class="cp-btn-sm secondary" data-gmitem="removeqty" data-item="${esc2(i.id)}" data-code="${esc2(i.code || "")}" type="button">GM \u2212N</button>
+        <button class="cp-btn-sm secondary" data-gmitem="removeall" data-item="${esc2(i.id)}" data-code="${esc2(i.code || "")}" data-maxqty="${i.quantity}" type="button">GM \u2212all</button>
+      </div>` : ""}
     </div>`;
   }
   function gmInventoryBlock() {
     const itemOpts = state.itemDefs.length ? state.itemDefs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)}${d.item_type ? ` \xB7 ${esc2(d.item_type)}` : ""}</option>`).join("") : `<option value="">\u2014 no item defs \u2014</option>`;
     const weaponOpts = state.weaponDefs.length ? state.weaponDefs.map((d) => `<option value="${esc2(d.id)}">${esc2(d.name)}</option>`).join("") : `<option value="">\u2014 no weapon models \u2014</option>`;
-    const magOpts = state.magazineDefs.length ? state.magazineDefs.map((d) => `<option value="${esc2(d.id)}">${esc2(d.name)} (\xD7${esc2(d.capacity)})</option>`).join("") : `<option value="">\u2014 no magazine defs \u2014</option>`;
+    const curMagId = root2?.querySelector('[data-ref="gmMagDef"]')?.value || state.magazineDefs[0]?.id || "";
+    const curMag = state.magazineDefs.find((d) => d.id === curMagId);
+    const magAmmoOpts = (() => {
+      const compatible = curMag ? state.ammoDefs.filter((a) => a.caliber_id === curMag.caliber_id) : state.ammoDefs;
+      return compatible.length ? compatible.map((a) => `<option value="${esc2(a.id)}">${esc2(a.name)}</option>`).join("") : `<option value="">\u2014 no compatible ammo \u2014</option>`;
+    })();
+    const magOpts = state.magazineDefs.length ? state.magazineDefs.map((d) => `<option value="${esc2(d.id)}" ${d.id === curMagId ? "selected" : ""}>${esc2(d.name)} (\xD7${esc2(d.capacity)})</option>`).join("") : `<option value="">\u2014 no magazine defs \u2014</option>`;
     const ammoOpts = state.ammoDefs.length ? state.ammoDefs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)}</option>`).join("") : `<option value="">\u2014 no ammo types \u2014</option>`;
     return `
       <div class="cp-section-title">GM \xB7 add weapon</div>
@@ -28187,8 +28203,9 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addweapon" type="button" ${state.weaponDefs.length ? "" : "disabled"}>Add weapon</button></div>
       </div></div>
       <div class="cp-section-title">GM \xB7 add magazine</div>
-      <div class="cp-card"><div class="cp-row" style="gap:8px">
-        <label class="cp-field"><span>Magazine</span><select data-ref="gmMagDef">${magOpts}</select></label>
+      <div class="cp-card"><div class="cp-row" style="gap:8px;flex-wrap:wrap">
+        <label class="cp-field"><span>Magazine</span><select data-ref="gmMagDef" data-gmmag="1">${magOpts}</select></label>
+        <label class="cp-field"><span>Ammo type (initial)</span><select data-ref="gmMagAmmo">${magAmmoOpts}</select></label>
         <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="addmag" type="button" ${state.magazineDefs.length ? "" : "disabled"}>Add magazine</button></div>
       </div></div>
       <div class="cp-section-title">GM \xB7 add ammo</div>
@@ -28263,10 +28280,10 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         <span class="cp-chip${(it.armor_serious || 0) > 0 ? " warn" : ""}">Serious ${dash2(it.armor_serious)}/${dash2(it.armor_max_serious)}</span>
         <span class="cp-chip${hasCrit ? " bad" : ""}">Crit ${dash2(it.armor_critical)}/${dash2(it.armor_max_critical)}</span>
       </div>
-      ${it.is_equipped ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-armorbtn="unequip" data-equip="${esc2(it.id)}" type="button">Unequip</button></div>` : `<div class="cp-row" style="gap:8px;margin-top:8px">
+      ${it.is_equipped ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-armorbtn="unequip" data-equip="${esc2(it.id)}" type="button">Unequip</button>${isGM() ? `<button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button>` : ""}</div>` : `<div class="cp-row" style="gap:8px;margin-top:8px">
             <label class="cp-field" style="min-width:150px"><span>Equip to body part</span>
               <select data-equip-part="${esc2(it.id)}">${armorSlotOptions(it)}</select></label>
-            <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-armorbtn="equip" data-equip="${esc2(it.id)}" type="button" ${it.model?.can_equip === false ? "disabled" : ""}>Equip</button></div>
+            <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-armorbtn="equip" data-equip="${esc2(it.id)}" type="button" ${it.model?.can_equip === false ? "disabled" : ""}>Equip</button>${isGM() ? `<button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button>` : ""}</div>
           </div>`}
     </div>`;
   }
@@ -28289,6 +28306,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         ${it.max_charges ? `<span class="cp-chip">charges ${dash2(it.current_charges)}/${dash2(it.max_charges)}</span>` : ""}
         ${effTxt ? `<span class="cp-chip">${esc2(effTxt)}</span>` : ""}
       </div>
+      ${isGM() ? `<div class="button-row" style="margin-top:6px"><button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button></div>` : ""}
     </div>`;
   }
   function bindStaticEvents() {
@@ -28454,11 +28472,24 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     }
     const gmItem = t.closest("[data-gmitem]");
     if (gmItem) {
-      onGmRemoveItem(gmItem.dataset.code);
+      const { code, item: itemId, maxqty } = gmItem.dataset;
+      if (gmItem.dataset.gmitem === "removeall") {
+        onGmRemoveItem(code, maxqty);
+      } else {
+        const qty = root2.querySelector(`[data-gmqty="${CSS.escape(itemId)}"]`)?.value ?? 1;
+        onGmRemoveItem(code, qty);
+      }
+      return;
+    }
+    const gmDel = t.closest("[data-gmdel]");
+    if (gmDel) {
+      onGmDelete(gmDel.dataset.gmdel, gmDel.dataset.id);
       return;
     }
     const gmBtn = t.closest("[data-gmbtn]");
     if (gmBtn) {
+      if (gmBtn.dataset.gmbtn === "addmag" && gmBtn.closest("[data-gmmag]") === null) {
+      }
       onGmTool(gmBtn.dataset.gmbtn);
       return;
     }
@@ -28467,6 +28498,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const sel = e.target;
     if (sel.dataset.wact === "profile") return onSwitchProfile(sel.dataset.weapon, sel.value);
     if (sel.dataset.wact === "firemode") return onSwitchFireMode(sel.dataset.weapon, sel.value);
+    if (sel.dataset.gmmag) return render();
   }
   function selVal(attr, key, val) {
     const el = root2.querySelector(`[data-${attr}="${CSS.escape(val)}"][data-${key}]`) || root2.querySelector(`select[data-${key}][data-${attr === "weapon" ? "weapon" : attr}="${CSS.escape(val)}"]`);
@@ -28637,13 +28669,14 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     if (it?.body_part?.id) state.lastSlot[equipId] = it.body_part.id;
     runMutation("Unequip", () => api.equipment.unequipCharacterEquipmentItem(equipId, settings()), () => refresh());
   }
-  function onGmRemoveItem(code) {
+  function onGmRemoveItem(code, qty) {
     if (!code) {
       setNotice("err", "Item has no code.");
       render();
       return;
     }
-    runMutation("Remove item", () => api.inventory.removeCharacterItemQuantity(state.characterId, code, 1, settings()), () => refresh());
+    const n = Math.max(1, Number(qty) || 1);
+    runMutation("Remove item", () => api.inventory.removeCharacterItemQuantity(state.characterId, code, n, settings()), () => refresh());
   }
   function onGmAddItem() {
     const code = root2.querySelector('[data-ref="gmAddCode"]')?.value.trim();
@@ -28686,14 +28719,20 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function onGmAddMagazine() {
     const defId = root2.querySelector('[data-ref="gmMagDef"]')?.value;
+    const ammoId = root2.querySelector('[data-ref="gmMagAmmo"]')?.value;
     if (!defId) {
       setNotice("err", "Select a magazine type.");
       render();
       return;
     }
+    if (!ammoId) {
+      setNotice("err", "Select an ammo type for the magazine.");
+      render();
+      return;
+    }
     runMutation("Add magazine", () => bridges.supabase.mutateSupabaseRows(
       "odyssey_character_magazines",
-      { character_id: state.characterId, magazine_def_id: defId },
+      { character_id: state.characterId, magazine_def_id: defId, ammo_type_id: ammoId },
       settings(),
       { method: "POST", prefer: "return=minimal" }
     ), () => refresh({ sheet: false, equipment: false, abilities: false }));
@@ -28706,10 +28745,64 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       render();
       return;
     }
+    const ammoDef = state.ammoDefs.find((d) => d.code === code);
+    if (!ammoDef) {
+      setNotice("err", "Ammo type definition not found.");
+      render();
+      return;
+    }
+    const caliberCode = ammoDef.caliber_code || ammoDef.caliber?.code || null;
+    if (!caliberCode) {
+      setNotice("err", "Ammo def is missing caliber \u2014 reload defs and retry.");
+      render();
+      return;
+    }
     runMutation("Add ammo", () => api.inventory.addCharacterAmmoStock(
-      { character_id: state.characterId, ammo_type_code: code, quantity: qty },
+      { character_id: state.characterId, ammo_type_code: code, caliber_code: caliberCode, quantity: qty },
       settings()
     ), () => refresh({ sheet: false, equipment: false, abilities: false }));
+  }
+  function onGmDelete(type, id) {
+    if (!id) {
+      setNotice("err", "Missing ID.");
+      render();
+      return;
+    }
+    const DEL = { method: "DELETE", prefer: "return=minimal" };
+    const charIdFilter = `character_id=eq.${encodeURIComponent(state.characterId)}`;
+    const idFilter = `id=eq.${encodeURIComponent(id)}`;
+    if (type === "skill") {
+      runMutation("Delete skill", () => bridges.supabase.mutateSupabaseRows(
+        `odyssey_character_skills?${idFilter}&${charIdFilter}`,
+        null,
+        settings(),
+        DEL
+      ), () => refresh({ armory: false, equipment: false, inventory: false }));
+    } else if (type === "weapon") {
+      runMutation("Delete weapon", () => bridges.supabase.mutateSupabaseRows(
+        `odyssey_character_weapons?${idFilter}&${charIdFilter}`,
+        null,
+        settings(),
+        DEL
+      ), () => refresh({ sheet: false, equipment: false, inventory: false, abilities: false }));
+    } else if (type === "mag") {
+      runMutation("Delete magazine", () => bridges.supabase.mutateSupabaseRows(
+        `odyssey_character_magazines?${idFilter}&${charIdFilter}`,
+        null,
+        settings(),
+        DEL
+      ), () => refresh({ sheet: false, equipment: false, abilities: false }));
+    } else if (type === "equip") {
+      runMutation("Delete equipment", () => bridges.supabase.mutateSupabaseRows(
+        `odyssey_character_equipment_items?${idFilter}&${charIdFilter}`,
+        null,
+        settings(),
+        DEL
+      ), () => refresh({ sheet: false, armory: false, inventory: false, abilities: false }));
+    } else {
+      setNotice("err", `Unknown delete type: ${type}`);
+      render();
+    }
   }
   function onGmAddEquipment(refKey, label) {
     const code = root2.querySelector(`[data-ref="${refKey}"]`)?.value;
