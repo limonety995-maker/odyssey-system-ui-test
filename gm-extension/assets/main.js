@@ -5175,15 +5175,11 @@ function buildEffectEditorMarkup(state, references) {
           <select data-creator-input="stackingMode">${stackingOptions}</select>
         </label>
       </div>
-      <div class="field-grid creator-grid-2">
+      <div class="field-grid creator-grid-1">
         <label class="field-stack">
           <span>Default Rounds</span>
           <input data-creator-input="defaultRounds" type="number" min="0" value="${escapeHtml(draft.defaultRounds)}"${draft.defaultDurationType === "rounds" ? "" : " disabled"}>
         </label>
-        <div class="creator-auto-meta creator-small-meta">
-          <div><strong>Negative:</strong> ${effectCategoryIsNegative(draft.uiCategory) ? "auto yes" : "auto no"}</div>
-          <div><strong>Narrative:</strong> hidden for now</div>
-        </div>
       </div>
       <label class="field-stack">
         <span>Description</span>
