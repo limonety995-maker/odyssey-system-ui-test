@@ -1,6 +1,6 @@
 {
   "name": "Odyssey GM Tools",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "manifest_version": 1,
   "description": "Minimal GM bridge shell for future Odyssey UI slices.",
   "author": "Codex",
