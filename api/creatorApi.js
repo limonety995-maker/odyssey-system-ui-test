@@ -43,6 +43,40 @@ export function deleteWeapon(weaponModelId, settings) {
   );
 }
 
+export function listItemDefs({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listItemDefs,
+    {
+      p_search: search || null,
+    },
+    settings,
+  );
+}
+
+export function getItemDef(itemDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getItemDef,
+    { p_item_def_id: itemDefId },
+    settings,
+  );
+}
+
+export function upsertItemDef(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertItemDef,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function deleteItemDef(itemDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteItemDef,
+    { p_item_def_id: itemDefId },
+    settings,
+  );
+}
+
 export function listCalibers({ search = null } = {}, settings) {
   return callSupabaseRpc(
     CREATOR_RPC_NAMES.listCalibers,

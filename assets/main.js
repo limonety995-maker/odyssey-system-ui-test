@@ -3791,6 +3791,7 @@ async function clearRoomSupabaseSettings() {
 // shell/creatorMenu.js
 var CREATOR_TABS = Object.freeze([
   { id: "weapons", label: "Weapons" },
+  { id: "items", label: "Items" },
   { id: "calibers", label: "Calibers" },
   { id: "ammo", label: "Ammo" },
   { id: "magazines", label: "Magazines" },
@@ -3803,6 +3804,22 @@ var RELOAD_MODES = Object.freeze([
   { value: "", label: "No reload item" },
   { value: "reset", label: "Reset" },
   { value: "per_charge", label: "Per Charge" }
+]);
+var ITEM_TYPE_OPTIONS = Object.freeze([
+  { value: "resource", label: "Resource" },
+  { value: "consumable", label: "Consumable" },
+  { value: "medical", label: "Medical" },
+  { value: "tool", label: "Tool" },
+  { value: "quest", label: "Quest" },
+  { value: "custom", label: "Custom" }
+]);
+var ITEM_USE_ACTION_OPTIONS = Object.freeze([
+  { value: "none", label: "None" },
+  { value: "consume", label: "Consume" },
+  { value: "heal", label: "Heal" },
+  { value: "reload_feature_resource", label: "Reload Feature Resource" },
+  { value: "manual", label: "Manual" },
+  { value: "custom", label: "Custom" }
 ]);
 var MODIFIER_TARGET_OPTIONS = Object.freeze([
   { value: "attack_accuracy", label: "Attack Accuracy" },
@@ -3980,6 +3997,23 @@ function createEmptyWeaponDraft() {
     profiles: [createEmptyWeaponProfileDraft(0)]
   };
 }
+function createEmptyItemDraft() {
+  return {
+    id: "",
+    name: "",
+    itemType: "consumable",
+    description: "",
+    isStackable: true,
+    defaultQuantity: "1",
+    maxStack: "",
+    defaultMaxCharges: "",
+    defaultCurrentCharges: "",
+    useActionType: "none",
+    dataExtraData: {},
+    effectDataExtraData: {},
+    abilityLinks: []
+  };
+}
 function createEmptyCaliberDraft() {
   return {
     id: "",
@@ -4132,6 +4166,7 @@ function createInitialState() {
     references: null,
     loadedTabs: {
       weapons: false,
+      items: false,
       calibers: false,
       ammo: false,
       magazines: false,
@@ -4143,6 +4178,10 @@ function createInitialState() {
     filters: {
       weapons: {
         search: ""
+      },
+      items: {
+        search: "",
+        itemType: ""
       },
       calibers: {
         search: ""
@@ -4173,6 +4212,7 @@ function createInitialState() {
     },
     lists: {
       weapons: [],
+      items: [],
       calibers: [],
       ammo: [],
       magazines: [],
@@ -4183,6 +4223,7 @@ function createInitialState() {
     },
     selectedIds: {
       weapons: "",
+      items: "",
       calibers: "",
       ammo: "",
       magazines: "",
@@ -4193,6 +4234,7 @@ function createInitialState() {
     },
     bundles: {
       weapons: null,
+      items: null,
       calibers: null,
       ammo: null,
       magazines: null,
@@ -4203,6 +4245,7 @@ function createInitialState() {
     },
     drafts: {
       weapons: createEmptyWeaponDraft(),
+      items: createEmptyItemDraft(),
       calibers: createEmptyCaliberDraft(),
       ammo: createEmptyAmmoDraft(),
       magazines: createEmptyMagazineDraft(),
@@ -4213,6 +4256,7 @@ function createInitialState() {
     },
     dirty: {
       weapons: false,
+      items: false,
       calibers: false,
       ammo: false,
       magazines: false,
@@ -4223,6 +4267,7 @@ function createInitialState() {
     },
     collapsed: {
       weaponsCatalog: true,
+      itemsCatalog: true,
       calibersCatalog: true,
       ammoCatalog: true,
       magazinesCatalog: true,
@@ -4231,6 +4276,7 @@ function createInitialState() {
       abilitiesCatalog: true,
       equipmentCatalog: true,
       weaponsPayload: true,
+      itemsPayload: true,
       calibersPayload: true,
       ammoPayload: true,
       magazinesPayload: true,
@@ -4677,6 +4723,38 @@ function normalizeWeaponDraft(bundle) {
     profiles
   };
 }
+function normalizeItemDraft(bundle) {
+  const item = bundle?.item_def ?? {};
+  return {
+    id: String(item.id ?? ""),
+    name: String(item.name ?? ""),
+    itemType: String(item.item_type ?? "custom"),
+    description: String(item.description ?? ""),
+    isStackable: Boolean(item.is_stackable ?? true),
+    defaultQuantity: String(item.default_quantity ?? 1),
+    maxStack: item.max_stack === null || item.max_stack === void 0 ? "" : String(item.max_stack),
+    defaultMaxCharges: item.default_max_charges === null || item.default_max_charges === void 0 ? "" : String(item.default_max_charges),
+    defaultCurrentCharges: item.default_current_charges === null || item.default_current_charges === void 0 ? "" : String(item.default_current_charges),
+    useActionType: String(item.use_action_type ?? "none"),
+    dataExtraData: cloneJson(item.data ?? {}),
+    effectDataExtraData: cloneJson(item.effect_data ?? {}),
+    abilityLinks: Array.isArray(bundle?.ability_links) ? bundle.ability_links.map((entry) => {
+      const data = toPlainObject(entry?.data);
+      return {
+        abilityDefId: String(entry?.ability_def_id ?? ""),
+        grantMode: String(entry?.grant_mode ?? "activated"),
+        durationRoundsMode: data.duration_rounds !== void 0 && data.duration_rounds !== null ? "set" : "none",
+        durationRounds: data.duration_rounds !== void 0 && data.duration_rounds !== null ? String(data.duration_rounds) : "",
+        chargesMode: data.default_max_charges !== void 0 && data.default_max_charges !== null ? "set" : "none",
+        charges: data.default_max_charges !== void 0 && data.default_max_charges !== null ? String(data.default_max_charges) : "",
+        cooldownRoundsMode: data.cooldown_rounds !== void 0 && data.cooldown_rounds !== null ? "set" : "none",
+        cooldownRounds: data.cooldown_rounds !== void 0 && data.cooldown_rounds !== null ? String(data.cooldown_rounds) : "",
+        reloadMode: String(toPlainObject(data.reload).mode ?? ""),
+        reloadItemCode: String(toPlainObject(data.reload).item_code ?? "")
+      };
+    }) : []
+  };
+}
 function normalizeSkillDraft(bundle) {
   const skill = bundle?.skill ?? {};
   const uiState = deriveSkillUiState(skill.category, skill.tags);
@@ -4920,6 +4998,14 @@ function makeWeaponDuplicateDraft(source) {
     })) : [createEmptyWeaponProfileDraft(0)]
   };
 }
+function makeItemDuplicateDraft(source) {
+  const name = String(source.name ?? "").trim();
+  return {
+    ...cloneJson(source),
+    id: "",
+    name: name ? `${name} Copy` : ""
+  };
+}
 function makeCaliberDuplicateDraft(source) {
   const name = String(source.name ?? "").trim();
   return {
@@ -5006,6 +5092,19 @@ function generatedWeaponPreview(draft, state) {
   const code = uniqueGeneratedCode(slugifyName(draft.name), existingCodes);
   const tags = ["weapon"];
   const sortOrder = draft.id ? Number.parseInt(String(state?.bundles?.weapons?.weapon?.sort_order ?? 0), 10) || 0 : nextFreeSortOrder(list);
+  return { code, tags, sortOrder };
+}
+function generatedItemPreview(draft, state) {
+  const list = Array.isArray(state?.lists?.items) ? state.lists.items : [];
+  const existingCodes = list.map((item) => item?.code);
+  const code = uniqueGeneratedCode(slugifyName(draft.name), existingCodes);
+  const tags = [
+    "item",
+    String(draft.itemType ?? "").trim(),
+    draft.isStackable ? "stackable" : "single",
+    String(draft.useActionType ?? "").trim() ? `use:${String(draft.useActionType ?? "").trim()}` : ""
+  ].filter(Boolean);
+  const sortOrder = draft.id ? Number.parseInt(String(state?.bundles?.items?.item_def?.sort_order ?? 0), 10) || 0 : nextFreeSortOrder(list);
   return { code, tags, sortOrder };
 }
 function generatedCaliberPreview(draft, state) {
@@ -5188,6 +5287,26 @@ function buildWeaponPayload(draft, auto, references) {
     profiles: payloadProfiles,
     feature_links: [],
     ability_links: []
+  };
+}
+function buildItemPayload(draft, auto) {
+  return {
+    id: draft.id || void 0,
+    code: String(auto.code ?? "").trim(),
+    name: String(draft.name ?? "").trim(),
+    item_type: String(draft.itemType ?? "custom").trim() || "custom",
+    description: String(draft.description ?? ""),
+    is_stackable: Boolean(draft.isStackable),
+    default_quantity: Math.max(0, coerceInteger(draft.defaultQuantity, 1)),
+    max_stack: draft.isStackable && String(draft.maxStack ?? "").trim() !== "" ? Math.max(1, coerceInteger(draft.maxStack, 1)) : null,
+    default_max_charges: String(draft.defaultMaxCharges ?? "").trim() !== "" ? Math.max(0, coerceInteger(draft.defaultMaxCharges, 0)) : null,
+    default_current_charges: String(draft.defaultCurrentCharges ?? "").trim() !== "" ? Math.max(0, coerceInteger(draft.defaultCurrentCharges, 0)) : null,
+    use_action_type: String(draft.useActionType ?? "none").trim() || "none",
+    effect_data: toPlainObject(cloneJson(draft.effectDataExtraData)),
+    data: toPlainObject(cloneJson(draft.dataExtraData)),
+    sort_order: auto.sortOrder,
+    tags: auto.tags,
+    ability_links: (Array.isArray(draft.abilityLinks) ? draft.abilityLinks : []).filter((entry) => String(entry?.abilityDefId ?? "").trim()).map((entry, index) => buildAbilityLinkPayload(entry, index))
   };
 }
 function buildCaliberPayload(draft, auto) {
@@ -5511,6 +5630,29 @@ function buildWeaponFilterMarkup(state) {
     </div>
   `;
 }
+function buildItemFilterMarkup(state) {
+  const typeOptions = ['<option value="">All item types</option>'].concat(
+    ITEM_TYPE_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}"${state.filters.items.itemType === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+  ).join("");
+  return `
+    <div class="creator-toolbar">
+      <label class="field-stack">
+        <span>Search</span>
+        <input data-creator-filter-search="items" type="text" value="${escapeHtml(state.filters.items.search)}" placeholder="code, name, type, tags">
+      </label>
+      <label class="field-stack">
+        <span>Item Type</span>
+        <select data-creator-filter-item-type="items">
+          ${typeOptions}
+        </select>
+      </label>
+      <div class="creator-filter-actions">
+        <button type="button" class="secondary" data-creator-action="applyFilters">Apply Filters</button>
+        <button type="button" class="secondary" data-creator-action="refreshList">Refresh</button>
+      </div>
+    </div>
+  `;
+}
 function buildAmmoFilterMarkup(state, references) {
   const calibers = Array.isArray(references?.calibers) ? references.calibers : [];
   const options = ['<option value="">All calibers</option>'];
@@ -5663,7 +5805,7 @@ function buildEquipmentFilterMarkup(state, references) {
 }
 function buildListMarkup(kind, items, selectedId) {
   if (!items.length) {
-    return `<div class="creator-empty">No ${kind === "weapons" ? "weapon models" : kind === "calibers" ? "calibers" : kind === "ammo" ? "ammo definitions" : kind === "magazines" ? "magazine definitions" : kind === "skills" ? "skills" : kind === "effects" ? "effects" : kind === "abilities" ? "abilities" : "equipment models"} found for the current filter.</div>`;
+    return `<div class="creator-empty">No ${kind === "weapons" ? "weapon models" : kind === "items" ? "item definitions" : kind === "calibers" ? "calibers" : kind === "ammo" ? "ammo definitions" : kind === "magazines" ? "magazine definitions" : kind === "skills" ? "skills" : kind === "effects" ? "effects" : kind === "abilities" ? "abilities" : "equipment models"} found for the current filter.</div>`;
   }
   return items.map((item) => {
     const isActive = selectedId && selectedId === item.id;
@@ -5671,6 +5813,9 @@ function buildListMarkup(kind, items, selectedId) {
       item.weapon_class_name || item.weapon_class_code || "no class",
       item.caliber_name || item.caliber_code || "melee / mixed",
       `${item.profile_count ?? 0} profile(s)`
+    ] : kind === "items" ? [
+      item.item_type || "no type",
+      item.is_stackable ? "stackable" : "single"
     ] : kind === "calibers" ? [
       `base damage ${item.base_damage_per_round ?? 0}`,
       Array.isArray(item.tags) && item.tags.length ? item.tags.join(", ") : "auto tags"
@@ -5767,6 +5912,12 @@ function buildRangeProfileOptions(references, selectedValue, { attackType = "" }
     );
   }
   return options.join("");
+}
+function buildItemTypeOptions(selectedValue) {
+  return ITEM_TYPE_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}"${selectedValue === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("");
+}
+function buildItemUseActionOptions(selectedValue) {
+  return ITEM_USE_ACTION_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}"${selectedValue === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("");
 }
 function buildWeaponFireModeCheckboxMarkup(references, profile, index) {
   const selectedSet = new Set((Array.isArray(profile.fireModeIds) ? profile.fireModeIds : []).map((entry) => String(entry ?? "")));
@@ -6191,6 +6342,93 @@ function buildWeaponEditorMarkup(state, references) {
     bodyMarkup: `
           <label class="field-stack">
             <textarea rows="20" readonly>${escapeHtml(payloadPreview)}</textarea>
+          </label>
+        `
+  })}
+    </form>
+  `;
+}
+function buildItemEditorMarkup(state, references) {
+  const draft = state.drafts.items;
+  const auto = generatedItemPreview(draft, state);
+  const payloadPreview = prettyJson(buildItemPayload(draft, auto));
+  return `
+    <div class="creator-editor-head">
+      <div>
+        <div class="creator-editor-title">${escapeHtml(draft.name || "New Item Draft")}</div>
+        <div class="muted">${draft.id ? "Editing saved definition." : "Draft is local until Save."}</div>
+      </div>
+      <div class="creator-pill${state.dirty.items ? " dirty" : ""}" data-creator-dirty-pill="items">${state.dirty.items ? "Unsaved" : "Saved / clean"}</div>
+    </div>
+    <div class="button-row">
+      <button type="button" data-creator-action="newDraft">Create New</button>
+      <button type="button" class="secondary" data-creator-action="duplicateDraft">Duplicate</button>
+      <button type="button" data-creator-action="saveDraft">Save</button>
+      <button type="button" class="secondary" data-creator-action="reloadSelected"${draft.id ? "" : " disabled"}>Reload</button>
+      <button type="button" class="secondary" data-creator-action="deleteSelected"${draft.id ? "" : " disabled"}>Delete</button>
+    </div>
+    <form class="creator-form" data-creator-form="items">
+      <label class="field-stack">
+        <span>Name</span>
+        <input data-creator-input="name" type="text" value="${escapeHtml(draft.name)}" placeholder="Field Medkit">
+      </label>
+      <div class="field-grid creator-grid-3">
+        <label class="field-stack">
+          <span>Item Type</span>
+          <select data-creator-input="itemType">${buildItemTypeOptions(draft.itemType)}</select>
+        </label>
+        <label class="field-stack">
+          <span>Use Action</span>
+          <select data-creator-input="useActionType">${buildItemUseActionOptions(draft.useActionType)}</select>
+        </label>
+        <label class="toggle-inline creator-toggle-card">
+          <input data-creator-input="isStackable" type="checkbox"${draft.isStackable ? " checked" : ""}>
+          <span>Stackable</span>
+        </label>
+      </div>
+      <div class="field-grid creator-grid-4">
+        <label class="field-stack">
+          <span>Default Quantity</span>
+          <input data-creator-input="defaultQuantity" type="number" min="0" value="${escapeHtml(draft.defaultQuantity)}">
+        </label>
+        <label class="field-stack">
+          <span>Max Stack</span>
+          <input data-creator-input="maxStack" type="number" min="1" value="${escapeHtml(draft.maxStack)}"${draft.isStackable ? "" : " disabled"} placeholder="blank = none">
+        </label>
+        <label class="field-stack">
+          <span>Default Max Charges</span>
+          <input data-creator-input="defaultMaxCharges" type="number" min="0" value="${escapeHtml(draft.defaultMaxCharges)}" placeholder="blank = none">
+        </label>
+        <label class="field-stack">
+          <span>Default Current Charges</span>
+          <input data-creator-input="defaultCurrentCharges" type="number" min="0" value="${escapeHtml(draft.defaultCurrentCharges)}" placeholder="blank = none">
+        </label>
+      </div>
+      <div class="field-grid creator-grid-2">
+        <label class="field-stack">
+          <span>Description</span>
+          <textarea data-creator-input="description" rows="4" placeholder="Short GM-facing description">${escapeHtml(draft.description)}</textarea>
+        </label>
+        <div class="creator-auto-meta">
+          <div><strong>Auto code:</strong> ${escapeHtml(auto.code)}</div>
+          <div><strong>Auto sort:</strong> ${escapeHtml(String(auto.sortOrder))}</div>
+          <div><strong>Auto tags:</strong> ${escapeHtml(auto.tags.join(", "))}</div>
+        </div>
+      </div>
+      <div class="creator-links-block">
+        <div class="creator-links-head">
+          <span>Ability Links</span>
+          <button type="button" data-creator-action="addItemAbilityLink">Add Ability Link</button>
+        </div>
+        ${buildAbilityLinksEditorMarkup(draft, references)}
+      </div>
+      ${buildDisclosureSection({
+    title: "Payload Preview",
+    collapsed: Boolean(state.collapsed.itemsPayload),
+    action: "toggleItemsPayload",
+    bodyMarkup: `
+          <label class="field-stack">
+            <textarea rows="16" readonly>${escapeHtml(payloadPreview)}</textarea>
           </label>
         `
   })}
@@ -7050,20 +7288,20 @@ function buildPanelMarkup(state, access) {
     return `
       <section class="panel">
         <div class="panel-title">Creator Menu</div>
-        <p class="muted">Configure Supabase room settings above, then the creator tabs for Weapons, Calibers, Ammo, Magazines, Skills, Effects, Abilities, and Equipment Models will unlock here.</p>
+        <p class="muted">Configure Supabase room settings above, then the creator tabs for Weapons, Items, Calibers, Ammo, Magazines, Skills, Effects, Abilities, and Equipment Models will unlock here.</p>
       </section>
     `;
   }
   const references = state.references ?? {};
-  const listMarkup = state.activeTab === "weapons" ? buildListMarkup("weapons", state.lists.weapons, state.selectedIds.weapons) : state.activeTab === "skills" ? buildListMarkup("skills", state.lists.skills, state.selectedIds.skills) : state.activeTab === "calibers" ? buildListMarkup("calibers", state.lists.calibers, state.selectedIds.calibers) : state.activeTab === "ammo" ? buildListMarkup("ammo", state.lists.ammo, state.selectedIds.ammo) : state.activeTab === "magazines" ? buildListMarkup("magazines", state.lists.magazines, state.selectedIds.magazines) : state.activeTab === "effects" ? buildListMarkup("effects", state.lists.effects, state.selectedIds.effects) : state.activeTab === "abilities" ? buildListMarkup("abilities", state.lists.abilities, state.selectedIds.abilities) : buildListMarkup("equipment", state.lists.equipment, state.selectedIds.equipment);
-  const filtersMarkup = state.activeTab === "weapons" ? buildWeaponFilterMarkup(state) : state.activeTab === "calibers" ? buildCaliberFilterMarkup(state) : state.activeTab === "ammo" ? buildAmmoFilterMarkup(state, references) : state.activeTab === "magazines" ? buildMagazineFilterMarkup(state, references) : state.activeTab === "skills" ? buildSkillFilterMarkup(state, references) : state.activeTab === "effects" ? buildEffectFilterMarkup(state) : state.activeTab === "abilities" ? buildAbilityFilterMarkup(state) : buildEquipmentFilterMarkup(state, references);
-  const editorMarkup = state.activeTab === "weapons" ? buildWeaponEditorMarkup(state, references) : state.activeTab === "calibers" ? buildCaliberEditorMarkup(state) : state.activeTab === "ammo" ? buildAmmoEditorMarkup(state, references) : state.activeTab === "magazines" ? buildMagazineEditorMarkup(state, references) : state.activeTab === "skills" ? buildSkillEditorMarkup(state, references) : state.activeTab === "effects" ? buildEffectEditorMarkup(state, references) : state.activeTab === "abilities" ? buildAbilityEditorMarkup(state, references) : buildEquipmentEditorMarkup(state, references);
-  const catalogCollapsed = state.activeTab === "weapons" ? Boolean(state.collapsed.weaponsCatalog) : state.activeTab === "calibers" ? Boolean(state.collapsed.calibersCatalog) : state.activeTab === "ammo" ? Boolean(state.collapsed.ammoCatalog) : state.activeTab === "magazines" ? Boolean(state.collapsed.magazinesCatalog) : state.activeTab === "skills" ? Boolean(state.collapsed.skillsCatalog) : state.activeTab === "effects" ? Boolean(state.collapsed.effectsCatalog) : state.activeTab === "abilities" ? Boolean(state.collapsed.abilitiesCatalog) : Boolean(state.collapsed.equipmentCatalog);
+  const listMarkup = state.activeTab === "weapons" ? buildListMarkup("weapons", state.lists.weapons, state.selectedIds.weapons) : state.activeTab === "items" ? buildListMarkup("items", state.lists.items, state.selectedIds.items) : state.activeTab === "skills" ? buildListMarkup("skills", state.lists.skills, state.selectedIds.skills) : state.activeTab === "calibers" ? buildListMarkup("calibers", state.lists.calibers, state.selectedIds.calibers) : state.activeTab === "ammo" ? buildListMarkup("ammo", state.lists.ammo, state.selectedIds.ammo) : state.activeTab === "magazines" ? buildListMarkup("magazines", state.lists.magazines, state.selectedIds.magazines) : state.activeTab === "effects" ? buildListMarkup("effects", state.lists.effects, state.selectedIds.effects) : state.activeTab === "abilities" ? buildListMarkup("abilities", state.lists.abilities, state.selectedIds.abilities) : buildListMarkup("equipment", state.lists.equipment, state.selectedIds.equipment);
+  const filtersMarkup = state.activeTab === "weapons" ? buildWeaponFilterMarkup(state) : state.activeTab === "items" ? buildItemFilterMarkup(state) : state.activeTab === "calibers" ? buildCaliberFilterMarkup(state) : state.activeTab === "ammo" ? buildAmmoFilterMarkup(state, references) : state.activeTab === "magazines" ? buildMagazineFilterMarkup(state, references) : state.activeTab === "skills" ? buildSkillFilterMarkup(state, references) : state.activeTab === "effects" ? buildEffectFilterMarkup(state) : state.activeTab === "abilities" ? buildAbilityFilterMarkup(state) : buildEquipmentFilterMarkup(state, references);
+  const editorMarkup = state.activeTab === "weapons" ? buildWeaponEditorMarkup(state, references) : state.activeTab === "items" ? buildItemEditorMarkup(state, references) : state.activeTab === "calibers" ? buildCaliberEditorMarkup(state) : state.activeTab === "ammo" ? buildAmmoEditorMarkup(state, references) : state.activeTab === "magazines" ? buildMagazineEditorMarkup(state, references) : state.activeTab === "skills" ? buildSkillEditorMarkup(state, references) : state.activeTab === "effects" ? buildEffectEditorMarkup(state, references) : state.activeTab === "abilities" ? buildAbilityEditorMarkup(state, references) : buildEquipmentEditorMarkup(state, references);
+  const catalogCollapsed = state.activeTab === "weapons" ? Boolean(state.collapsed.weaponsCatalog) : state.activeTab === "items" ? Boolean(state.collapsed.itemsCatalog) : state.activeTab === "calibers" ? Boolean(state.collapsed.calibersCatalog) : state.activeTab === "ammo" ? Boolean(state.collapsed.ammoCatalog) : state.activeTab === "magazines" ? Boolean(state.collapsed.magazinesCatalog) : state.activeTab === "skills" ? Boolean(state.collapsed.skillsCatalog) : state.activeTab === "effects" ? Boolean(state.collapsed.effectsCatalog) : state.activeTab === "abilities" ? Boolean(state.collapsed.abilitiesCatalog) : Boolean(state.collapsed.equipmentCatalog);
   const catalogMarkup = buildCatalogSection({
-    title: state.activeTab === "weapons" ? "Weapon Catalog" : state.activeTab === "calibers" ? "Caliber Catalog" : state.activeTab === "ammo" ? "Ammo Catalog" : state.activeTab === "magazines" ? "Magazine Catalog" : state.activeTab === "skills" ? "Skill Catalog" : state.activeTab === "effects" ? "Effect Catalog" : state.activeTab === "abilities" ? "Ability Catalog" : "Equipment Catalog",
-    count: state.activeTab === "weapons" ? state.lists.weapons.length : state.activeTab === "calibers" ? state.lists.calibers.length : state.activeTab === "ammo" ? state.lists.ammo.length : state.activeTab === "magazines" ? state.lists.magazines.length : state.activeTab === "skills" ? state.lists.skills.length : state.activeTab === "effects" ? state.lists.effects.length : state.activeTab === "abilities" ? state.lists.abilities.length : state.lists.equipment.length,
+    title: state.activeTab === "weapons" ? "Weapon Catalog" : state.activeTab === "items" ? "Item Catalog" : state.activeTab === "calibers" ? "Caliber Catalog" : state.activeTab === "ammo" ? "Ammo Catalog" : state.activeTab === "magazines" ? "Magazine Catalog" : state.activeTab === "skills" ? "Skill Catalog" : state.activeTab === "effects" ? "Effect Catalog" : state.activeTab === "abilities" ? "Ability Catalog" : "Equipment Catalog",
+    count: state.activeTab === "weapons" ? state.lists.weapons.length : state.activeTab === "items" ? state.lists.items.length : state.activeTab === "calibers" ? state.lists.calibers.length : state.activeTab === "ammo" ? state.lists.ammo.length : state.activeTab === "magazines" ? state.lists.magazines.length : state.activeTab === "skills" ? state.lists.skills.length : state.activeTab === "effects" ? state.lists.effects.length : state.activeTab === "abilities" ? state.lists.abilities.length : state.lists.equipment.length,
     collapsed: catalogCollapsed,
-    action: state.activeTab === "weapons" ? "toggleWeaponsCatalog" : state.activeTab === "calibers" ? "toggleCalibersCatalog" : state.activeTab === "ammo" ? "toggleAmmoCatalog" : state.activeTab === "magazines" ? "toggleMagazinesCatalog" : state.activeTab === "skills" ? "toggleSkillsCatalog" : state.activeTab === "effects" ? "toggleEffectsCatalog" : state.activeTab === "abilities" ? "toggleAbilitiesCatalog" : "toggleEquipmentCatalog",
+    action: state.activeTab === "weapons" ? "toggleWeaponsCatalog" : state.activeTab === "items" ? "toggleItemsCatalog" : state.activeTab === "calibers" ? "toggleCalibersCatalog" : state.activeTab === "ammo" ? "toggleAmmoCatalog" : state.activeTab === "magazines" ? "toggleMagazinesCatalog" : state.activeTab === "skills" ? "toggleSkillsCatalog" : state.activeTab === "effects" ? "toggleEffectsCatalog" : state.activeTab === "abilities" ? "toggleAbilitiesCatalog" : "toggleEquipmentCatalog",
     bodyMarkup: listMarkup
   });
   return `
@@ -7138,6 +7376,44 @@ function readWeaponDraftFromDom(root2, fallbackDraft = createEmptyWeaponDraft())
     name: String(query("name")?.value ?? fallbackDraft.name ?? ""),
     description: String(query("description")?.value ?? fallbackDraft.description ?? ""),
     profiles
+  };
+}
+function readItemDraftFromDom(root2, fallbackDraft = createEmptyItemDraft()) {
+  const form = root2.querySelector('[data-creator-form="items"]');
+  if (!(form instanceof HTMLElement)) {
+    return cloneJson(fallbackDraft);
+  }
+  const query = (field) => form.querySelector(`[data-creator-input="${field}"]`);
+  const linkRows = Array.from(form.querySelectorAll("[data-creator-link-row]"));
+  const abilityLinks = linkRows.length ? linkRows.map((row) => {
+    const index = String(row.getAttribute("data-creator-link-row") ?? "");
+    const fallbackLink = Array.isArray(fallbackDraft.abilityLinks) ? fallbackDraft.abilityLinks[Number.parseInt(index, 10)] ?? createEmptyAbilityLinkDraft() : createEmptyAbilityLinkDraft();
+    const linkQuery = (field) => form.querySelector(`[data-creator-link-input="${field}"][data-link-index="${index}"]`);
+    return {
+      abilityDefId: String(linkQuery("abilityDefId")?.value ?? fallbackLink.abilityDefId ?? ""),
+      grantMode: String(linkQuery("grantMode")?.value ?? fallbackLink.grantMode ?? "activated"),
+      durationRoundsMode: String(linkQuery("durationRoundsMode")?.value ?? fallbackLink.durationRoundsMode ?? "none"),
+      durationRounds: String(linkQuery("durationRounds")?.value ?? fallbackLink.durationRounds ?? ""),
+      chargesMode: String(linkQuery("chargesMode")?.value ?? fallbackLink.chargesMode ?? "none"),
+      charges: String(linkQuery("charges")?.value ?? fallbackLink.charges ?? ""),
+      cooldownRoundsMode: String(linkQuery("cooldownRoundsMode")?.value ?? fallbackLink.cooldownRoundsMode ?? "none"),
+      cooldownRounds: String(linkQuery("cooldownRounds")?.value ?? fallbackLink.cooldownRounds ?? ""),
+      reloadMode: String(linkQuery("reloadMode")?.value ?? fallbackLink.reloadMode ?? ""),
+      reloadItemCode: String(linkQuery("reloadItemCode")?.value ?? fallbackLink.reloadItemCode ?? "")
+    };
+  }) : cloneJson(fallbackDraft.abilityLinks ?? []);
+  return {
+    id: String(form.dataset.creatorEntityId ?? ""),
+    name: String(query("name")?.value ?? fallbackDraft.name ?? ""),
+    itemType: String(query("itemType")?.value ?? fallbackDraft.itemType ?? "custom"),
+    useActionType: String(query("useActionType")?.value ?? fallbackDraft.useActionType ?? "none"),
+    isStackable: Boolean(query("isStackable")?.checked ?? fallbackDraft.isStackable ?? true),
+    defaultQuantity: String(query("defaultQuantity")?.value ?? fallbackDraft.defaultQuantity ?? "1"),
+    maxStack: String(query("maxStack")?.value ?? fallbackDraft.maxStack ?? ""),
+    defaultMaxCharges: String(query("defaultMaxCharges")?.value ?? fallbackDraft.defaultMaxCharges ?? ""),
+    defaultCurrentCharges: String(query("defaultCurrentCharges")?.value ?? fallbackDraft.defaultCurrentCharges ?? ""),
+    description: String(query("description")?.value ?? fallbackDraft.description ?? ""),
+    abilityLinks
   };
 }
 function readAmmoDraftFromDom(root2, fallbackDraft = createEmptyAmmoDraft()) {
@@ -7385,6 +7661,8 @@ function mountCreatorMenu({
   function captureActiveDraft() {
     if (state.activeTab === "weapons") {
       state.drafts.weapons = readWeaponDraftFromDom(root2, state.drafts.weapons);
+    } else if (state.activeTab === "items") {
+      state.drafts.items = readItemDraftFromDom(root2, state.drafts.items);
     } else if (state.activeTab === "calibers") {
       state.drafts.calibers = readCaliberDraftFromDom(root2, state.drafts.calibers);
     } else if (state.activeTab === "ammo") {
@@ -7408,12 +7686,13 @@ function mountCreatorMenu({
   function resetLoadedData({ keepTab = true } = {}) {
     const activeTab = keepTab ? state.activeTab : "calibers";
     state.references = null;
-    state.loadedTabs = { weapons: false, calibers: false, ammo: false, magazines: false, skills: false, effects: false, abilities: false, equipment: false };
-    state.lists = { weapons: [], calibers: [], ammo: [], magazines: [], skills: [], effects: [], abilities: [], equipment: [] };
-    state.selectedIds = { weapons: "", calibers: "", ammo: "", magazines: "", skills: "", effects: "", abilities: "", equipment: "" };
-    state.bundles = { weapons: null, calibers: null, ammo: null, magazines: null, skills: null, effects: null, abilities: null, equipment: null };
+    state.loadedTabs = { weapons: false, items: false, calibers: false, ammo: false, magazines: false, skills: false, effects: false, abilities: false, equipment: false };
+    state.lists = { weapons: [], items: [], calibers: [], ammo: [], magazines: [], skills: [], effects: [], abilities: [], equipment: [] };
+    state.selectedIds = { weapons: "", items: "", calibers: "", ammo: "", magazines: "", skills: "", effects: "", abilities: "", equipment: "" };
+    state.bundles = { weapons: null, items: null, calibers: null, ammo: null, magazines: null, skills: null, effects: null, abilities: null, equipment: null };
     state.drafts = {
       weapons: createEmptyWeaponDraft(),
+      items: createEmptyItemDraft(),
       calibers: createEmptyCaliberDraft(),
       ammo: createEmptyAmmoDraft(),
       magazines: createEmptyMagazineDraft(),
@@ -7422,7 +7701,7 @@ function mountCreatorMenu({
       abilities: createEmptyAbilityDraft(),
       equipment: createEmptyEquipmentDraft()
     };
-    state.dirty = { weapons: false, calibers: false, ammo: false, magazines: false, skills: false, effects: false, abilities: false, equipment: false };
+    state.dirty = { weapons: false, items: false, calibers: false, ammo: false, magazines: false, skills: false, effects: false, abilities: false, equipment: false };
     state.activeTab = activeTab;
   }
   function render() {
@@ -7443,7 +7722,7 @@ function mountCreatorMenu({
         clearMessages();
         updateDirtyPill(root2, state.activeTab, true);
         const target = event.target;
-        if (target instanceof HTMLElement && (target.hasAttribute("data-creator-input") && ["skillGroup", "effectType", "defaultDurationType", "uiKind", "sourceLabel", "resolutionMode", "rangeMode", "attackType", "targetType", "caliberId"].includes(String(target.getAttribute("data-creator-input"))) || target.hasAttribute("data-creator-link-input") && ["grantMode", "reloadMode", "durationRoundsMode", "chargesMode", "cooldownRoundsMode"].includes(String(target.getAttribute("data-creator-link-input"))) || target.hasAttribute("data-creator-input") && ["itemType"].includes(String(target.getAttribute("data-creator-input"))) || target.hasAttribute("data-creator-modifier-input") || target.hasAttribute("data-creator-flag-input") || target.hasAttribute("data-creator-ability-effect-input") || target.hasAttribute("data-creator-ability-level-input") || target.hasAttribute("data-creator-weapon-profile-input") || target.hasAttribute("data-creator-weapon-profile-fire-mode") || target.hasAttribute("data-creator-weapon-profile-magazine"))) {
+        if (target instanceof HTMLElement && (target.hasAttribute("data-creator-input") && ["skillGroup", "effectType", "defaultDurationType", "uiKind", "sourceLabel", "resolutionMode", "rangeMode", "attackType", "targetType", "caliberId", "itemType", "useActionType", "isStackable"].includes(String(target.getAttribute("data-creator-input"))) || target.hasAttribute("data-creator-link-input") && ["grantMode", "reloadMode", "durationRoundsMode", "chargesMode", "cooldownRoundsMode"].includes(String(target.getAttribute("data-creator-link-input"))) || target.hasAttribute("data-creator-modifier-input") || target.hasAttribute("data-creator-flag-input") || target.hasAttribute("data-creator-ability-effect-input") || target.hasAttribute("data-creator-ability-level-input") || target.hasAttribute("data-creator-weapon-profile-input") || target.hasAttribute("data-creator-weapon-profile-fire-mode") || target.hasAttribute("data-creator-weapon-profile-magazine"))) {
           render();
         }
       });
@@ -7470,8 +7749,13 @@ function mountCreatorMenu({
         captureActiveDraft();
         const index = Number.parseInt(String(button.dataset.creatorLinkRemove ?? ""), 10);
         if (!Number.isFinite(index)) return;
-        state.drafts.equipment.abilityLinks.splice(index, 1);
-        state.dirty.equipment = true;
+        if (state.activeTab === "items") {
+          state.drafts.items.abilityLinks.splice(index, 1);
+          state.dirty.items = true;
+        } else {
+          state.drafts.equipment.abilityLinks.splice(index, 1);
+          state.dirty.equipment = true;
+        }
         clearMessages();
         render();
       });
@@ -7570,6 +7854,11 @@ function mountCreatorMenu({
             state.collapsed.weaponsCatalog = !state.collapsed.weaponsCatalog;
             render();
             break;
+          case "toggleItemsCatalog":
+            captureActiveDraft();
+            state.collapsed.itemsCatalog = !state.collapsed.itemsCatalog;
+            render();
+            break;
           case "toggleCalibersCatalog":
             captureActiveDraft();
             state.collapsed.calibersCatalog = !state.collapsed.calibersCatalog;
@@ -7608,6 +7897,11 @@ function mountCreatorMenu({
           case "toggleWeaponsPayload":
             captureActiveDraft();
             state.collapsed.weaponsPayload = !state.collapsed.weaponsPayload;
+            render();
+            break;
+          case "toggleItemsPayload":
+            captureActiveDraft();
+            state.collapsed.itemsPayload = !state.collapsed.itemsPayload;
             render();
             break;
           case "toggleCalibersPayload":
@@ -7679,6 +7973,13 @@ function mountCreatorMenu({
             captureActiveDraft();
             state.drafts.equipment.abilityLinks.push(createEmptyAbilityLinkDraft());
             state.dirty.equipment = true;
+            clearMessages();
+            render();
+            break;
+          case "addItemAbilityLink":
+            captureActiveDraft();
+            state.drafts.items.abilityLinks.push(createEmptyAbilityLinkDraft());
+            state.dirty.items = true;
             clearMessages();
             render();
             break;
@@ -7792,6 +8093,11 @@ function mountCreatorMenu({
     if (state.activeTab === "weapons") {
       const search = root2.querySelector('[data-creator-filter-search="weapons"]');
       state.filters.weapons.search = String(search?.value ?? "").trim();
+    } else if (state.activeTab === "items") {
+      const search = root2.querySelector('[data-creator-filter-search="items"]');
+      const itemType = root2.querySelector('[data-creator-filter-item-type="items"]');
+      state.filters.items.search = String(search?.value ?? "").trim();
+      state.filters.items.itemType = String(itemType?.value ?? "").trim();
     } else if (state.activeTab === "calibers") {
       const search = root2.querySelector('[data-creator-filter-search="calibers"]');
       state.filters.calibers.search = String(search?.value ?? "").trim();
@@ -7890,6 +8196,14 @@ function mountCreatorMenu({
         },
         settings
       );
+    } else if (kind === "items") {
+      const filters = state.filters.items;
+      result = await runtime2.api.creator.listItemDefs(
+        {
+          search: filters.search || null
+        },
+        settings
+      );
     } else if (kind === "calibers") {
       const filters = state.filters.calibers;
       result = await runtime2.api.creator.listCalibers(
@@ -7954,12 +8268,12 @@ function mountCreatorMenu({
     if (!result?.ok) {
       throw new Error(formatCreatorError(result, "Unable to load catalog list."));
     }
-    state.lists[kind] = kind === "skills" ? (Array.isArray(result.items) ? result.items : []).filter((item) => getAllowedSkillBackendCategories().includes(String(item?.category ?? ""))) : kind === "ammo" ? (Array.isArray(result.items) ? result.items : []).filter((item) => !state.filters.ammo.caliberId || String(item?.caliber_id ?? "") === state.filters.ammo.caliberId) : kind === "magazines" ? (Array.isArray(result.items) ? result.items : []).filter((item) => !state.filters.magazines.caliberId || String(item?.caliber_id ?? "") === state.filters.magazines.caliberId) : kind === "effects" ? Array.isArray(result.items) ? result.items : [] : kind === "abilities" ? Array.isArray(result.items) ? result.items : [] : kind === "equipment" ? (Array.isArray(result.items) ? result.items : []).filter((item) => String(item?.item_type ?? "") !== "device") : Array.isArray(result.items) ? result.items : [];
+    state.lists[kind] = kind === "skills" ? (Array.isArray(result.items) ? result.items : []).filter((item) => getAllowedSkillBackendCategories().includes(String(item?.category ?? ""))) : kind === "items" ? (Array.isArray(result.items) ? result.items : []).filter((item) => !state.filters.items.itemType || String(item?.item_type ?? "") === state.filters.items.itemType) : kind === "ammo" ? (Array.isArray(result.items) ? result.items : []).filter((item) => !state.filters.ammo.caliberId || String(item?.caliber_id ?? "") === state.filters.ammo.caliberId) : kind === "magazines" ? (Array.isArray(result.items) ? result.items : []).filter((item) => !state.filters.magazines.caliberId || String(item?.caliber_id ?? "") === state.filters.magazines.caliberId) : kind === "effects" ? Array.isArray(result.items) ? result.items : [] : kind === "abilities" ? Array.isArray(result.items) ? result.items : [] : kind === "equipment" ? (Array.isArray(result.items) ? result.items : []).filter((item) => String(item?.item_type ?? "") !== "device") : Array.isArray(result.items) ? result.items : [];
     state.loadedTabs[kind] = true;
     if (state.selectedIds[kind] && !state.lists[kind].some((item) => item.id === state.selectedIds[kind])) {
       state.selectedIds[kind] = "";
       state.bundles[kind] = null;
-      state.drafts[kind] = kind === "weapons" ? createEmptyWeaponDraft() : kind === "calibers" ? createEmptyCaliberDraft() : kind === "ammo" ? createEmptyAmmoDraft() : kind === "magazines" ? createEmptyMagazineDraft() : kind === "skills" ? createEmptySkillDraft() : kind === "effects" ? createEmptyEffectDraft() : kind === "abilities" ? createEmptyAbilityDraft() : createEmptyEquipmentDraft();
+      state.drafts[kind] = kind === "weapons" ? createEmptyWeaponDraft() : kind === "items" ? createEmptyItemDraft() : kind === "calibers" ? createEmptyCaliberDraft() : kind === "ammo" ? createEmptyAmmoDraft() : kind === "magazines" ? createEmptyMagazineDraft() : kind === "skills" ? createEmptySkillDraft() : kind === "effects" ? createEmptyEffectDraft() : kind === "abilities" ? createEmptyAbilityDraft() : createEmptyEquipmentDraft();
       state.dirty[kind] = false;
     }
   }
@@ -7980,7 +8294,7 @@ function mountCreatorMenu({
       }
       await loadListForTab(state.activeTab, access.settings, requestId);
       state.loading = false;
-      state.info = `${state.activeTab === "weapons" ? "Weapon" : state.activeTab === "calibers" ? "Caliber" : state.activeTab === "ammo" ? "Ammo" : state.activeTab === "magazines" ? "Magazine" : state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : state.activeTab === "abilities" ? "Ability" : "Equipment"} catalog refreshed.`;
+      state.info = `${state.activeTab === "weapons" ? "Weapon" : state.activeTab === "items" ? "Item" : state.activeTab === "calibers" ? "Caliber" : state.activeTab === "ammo" ? "Ammo" : state.activeTab === "magazines" ? "Magazine" : state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : state.activeTab === "abilities" ? "Ability" : "Equipment"} catalog refreshed.`;
       render();
     } catch (error) {
       state.loading = false;
@@ -7996,21 +8310,21 @@ function mountCreatorMenu({
     }
     const requestId = ++state.requestNonce;
     state.loading = true;
-    state.loadingLabel = `loading ${kind === "weapons" ? "weapon model" : kind === "calibers" ? "caliber" : kind === "ammo" ? "ammo definition" : kind === "magazines" ? "magazine definition" : kind === "skills" ? "skill" : kind === "effects" ? "effect" : kind === "abilities" ? "ability" : "equipment model"}`;
+    state.loadingLabel = `loading ${kind === "weapons" ? "weapon model" : kind === "items" ? "item definition" : kind === "calibers" ? "caliber" : kind === "ammo" ? "ammo definition" : kind === "magazines" ? "magazine definition" : kind === "skills" ? "skill" : kind === "effects" ? "effect" : kind === "abilities" ? "ability" : "equipment model"}`;
     clearMessages();
     render();
     try {
-      const result = kind === "weapons" ? await runtime2.api.creator.getWeapon(id, access.settings) : kind === "skills" ? await runtime2.api.creator.getSkill(id, access.settings) : kind === "calibers" ? await runtime2.api.creator.getCaliber(id, access.settings) : kind === "ammo" ? await runtime2.api.creator.getAmmoType(id, access.settings) : kind === "magazines" ? await runtime2.api.creator.getMagazineDef(id, access.settings) : kind === "effects" ? await runtime2.api.creator.getEffect(id, access.settings) : kind === "abilities" ? await runtime2.api.creator.getAbility(id, access.settings) : await runtime2.api.creator.getEquipmentModel(id, access.settings);
+      const result = kind === "weapons" ? await runtime2.api.creator.getWeapon(id, access.settings) : kind === "items" ? await runtime2.api.creator.getItemDef(id, access.settings) : kind === "skills" ? await runtime2.api.creator.getSkill(id, access.settings) : kind === "calibers" ? await runtime2.api.creator.getCaliber(id, access.settings) : kind === "ammo" ? await runtime2.api.creator.getAmmoType(id, access.settings) : kind === "magazines" ? await runtime2.api.creator.getMagazineDef(id, access.settings) : kind === "effects" ? await runtime2.api.creator.getEffect(id, access.settings) : kind === "abilities" ? await runtime2.api.creator.getAbility(id, access.settings) : await runtime2.api.creator.getEquipmentModel(id, access.settings);
       if (requestId !== state.requestNonce) return;
       if (!result?.ok) {
         throw new Error(formatCreatorError(result, "Unable to load creator record."));
       }
       state.selectedIds[kind] = id;
       state.bundles[kind] = result;
-      state.drafts[kind] = kind === "weapons" ? normalizeWeaponDraft(result) : kind === "calibers" ? normalizeCaliberDraft(result) : kind === "ammo" ? normalizeAmmoDraft(result) : kind === "magazines" ? normalizeMagazineDraft(result) : kind === "skills" ? normalizeSkillDraft(result) : kind === "effects" ? normalizeEffectDraft(result) : kind === "abilities" ? normalizeAbilityDraft(result) : normalizeEquipmentDraft(result);
+      state.drafts[kind] = kind === "weapons" ? normalizeWeaponDraft(result) : kind === "items" ? normalizeItemDraft(result) : kind === "calibers" ? normalizeCaliberDraft(result) : kind === "ammo" ? normalizeAmmoDraft(result) : kind === "magazines" ? normalizeMagazineDraft(result) : kind === "skills" ? normalizeSkillDraft(result) : kind === "effects" ? normalizeEffectDraft(result) : kind === "abilities" ? normalizeAbilityDraft(result) : normalizeEquipmentDraft(result);
       state.dirty[kind] = false;
       state.loading = false;
-      state.info = `${kind === "weapons" ? "Weapon" : kind === "calibers" ? "Caliber" : kind === "ammo" ? "Ammo" : kind === "magazines" ? "Magazine" : kind === "skills" ? "Skill" : kind === "effects" ? "Effect" : kind === "abilities" ? "Ability" : "Equipment model"} loaded into draft.`;
+      state.info = `${kind === "weapons" ? "Weapon" : kind === "items" ? "Item" : kind === "calibers" ? "Caliber" : kind === "ammo" ? "Ammo" : kind === "magazines" ? "Magazine" : kind === "skills" ? "Skill" : kind === "effects" ? "Effect" : kind === "abilities" ? "Ability" : "Equipment model"} loaded into draft.`;
       render();
     } catch (error) {
       if (requestId !== state.requestNonce) return;
@@ -8028,6 +8342,12 @@ function mountCreatorMenu({
       state.drafts.weapons = createEmptyWeaponDraft();
       state.dirty.weapons = false;
       state.info = "New weapon draft created.";
+    } else if (state.activeTab === "items") {
+      state.selectedIds.items = "";
+      state.bundles.items = null;
+      state.drafts.items = createEmptyItemDraft();
+      state.dirty.items = false;
+      state.info = "New item draft created.";
     } else if (state.activeTab === "calibers") {
       state.selectedIds.calibers = "";
       state.bundles.calibers = null;
@@ -8081,6 +8401,12 @@ function mountCreatorMenu({
       state.drafts.weapons = makeWeaponDuplicateDraft(state.drafts.weapons);
       state.dirty.weapons = true;
       state.info = "Weapon draft duplicated as a new record.";
+    } else if (state.activeTab === "items") {
+      state.selectedIds.items = "";
+      state.bundles.items = null;
+      state.drafts.items = makeItemDuplicateDraft(state.drafts.items);
+      state.dirty.items = true;
+      state.info = "Item draft duplicated as a new record.";
     } else if (state.activeTab === "calibers") {
       state.selectedIds.calibers = "";
       state.bundles.calibers = null;
@@ -8140,6 +8466,24 @@ function mountCreatorMenu({
         tags: ["weapon"]
       };
       return buildWeaponPayload(draft, auto2, state.references);
+    }
+    if (kind === "items") {
+      const allItems = await runtime2.api.creator.listItemDefs({ search: null }, settings);
+      if (!allItems?.ok) {
+        throw new Error(formatCreatorError(allItems, "Unable to calculate automatic item fields."));
+      }
+      const list2 = Array.isArray(allItems.items) ? allItems.items : [];
+      const existingCodes2 = list2.filter((item) => item.id !== draft.id).map((item) => item.code);
+      const auto2 = {
+        code: uniqueGeneratedCode(slugifyName(draft.name), existingCodes2),
+        sortOrder: draft.id ? Number.parseInt(String(state.bundles.items?.item_def?.sort_order ?? 0), 10) || 0 : nextFreeSortOrder(list2),
+        tags: [
+          String(draft.itemType ?? "").trim(),
+          String(draft.useActionType ?? "").trim() && String(draft.useActionType ?? "").trim() !== "none" ? `use:${String(draft.useActionType ?? "").trim()}` : "",
+          draft.isStackable ? "stackable" : "single"
+        ].filter(Boolean)
+      };
+      return buildItemPayload(draft, auto2);
     }
     if (kind === "calibers") {
       const allCalibers = await runtime2.api.creator.listCalibers({ search: null }, settings);
@@ -8255,9 +8599,9 @@ function mountCreatorMenu({
     state.loadingLabel = "saving draft";
     render();
     try {
-      const draft = state.activeTab === "weapons" ? state.drafts.weapons : state.activeTab === "skills" ? state.drafts.skills : state.activeTab === "calibers" ? state.drafts.calibers : state.activeTab === "ammo" ? state.drafts.ammo : state.activeTab === "magazines" ? state.drafts.magazines : state.activeTab === "effects" ? state.drafts.effects : state.activeTab === "abilities" ? state.drafts.abilities : state.drafts.equipment;
+      const draft = state.activeTab === "weapons" ? state.drafts.weapons : state.activeTab === "items" ? state.drafts.items : state.activeTab === "skills" ? state.drafts.skills : state.activeTab === "calibers" ? state.drafts.calibers : state.activeTab === "ammo" ? state.drafts.ammo : state.activeTab === "magazines" ? state.drafts.magazines : state.activeTab === "effects" ? state.drafts.effects : state.activeTab === "abilities" ? state.drafts.abilities : state.drafts.equipment;
       const payload = await buildSavePayload(state.activeTab, draft, access.settings);
-      const result = state.activeTab === "weapons" ? await runtime2.api.creator.upsertWeapon(payload, access.settings) : state.activeTab === "calibers" ? await runtime2.api.creator.upsertCaliber(payload, access.settings) : state.activeTab === "ammo" ? await runtime2.api.creator.upsertAmmoType(payload, access.settings) : state.activeTab === "magazines" ? await runtime2.api.creator.upsertMagazineDef(payload, access.settings) : state.activeTab === "skills" ? await runtime2.api.creator.upsertSkill(payload, access.settings) : state.activeTab === "effects" ? await runtime2.api.creator.upsertEffect(payload, access.settings) : state.activeTab === "abilities" ? await runtime2.api.creator.upsertAbility(payload, access.settings) : await runtime2.api.creator.upsertEquipmentModel(payload, access.settings);
+      const result = state.activeTab === "weapons" ? await runtime2.api.creator.upsertWeapon(payload, access.settings) : state.activeTab === "items" ? await runtime2.api.creator.upsertItemDef(payload, access.settings) : state.activeTab === "calibers" ? await runtime2.api.creator.upsertCaliber(payload, access.settings) : state.activeTab === "ammo" ? await runtime2.api.creator.upsertAmmoType(payload, access.settings) : state.activeTab === "magazines" ? await runtime2.api.creator.upsertMagazineDef(payload, access.settings) : state.activeTab === "skills" ? await runtime2.api.creator.upsertSkill(payload, access.settings) : state.activeTab === "effects" ? await runtime2.api.creator.upsertEffect(payload, access.settings) : state.activeTab === "abilities" ? await runtime2.api.creator.upsertAbility(payload, access.settings) : await runtime2.api.creator.upsertEquipmentModel(payload, access.settings);
       if (!result?.ok) {
         throw new Error(formatCreatorError(result, "Unable to save draft."));
       }
@@ -8270,6 +8614,11 @@ function mountCreatorMenu({
         state.bundles.weapons = bundle;
         state.drafts.weapons = normalizeWeaponDraft(bundle);
         state.dirty.weapons = false;
+      } else if (state.activeTab === "items") {
+        state.selectedIds.items = String(result.entity_id ?? "");
+        state.bundles.items = bundle;
+        state.drafts.items = normalizeItemDraft(bundle);
+        state.dirty.items = false;
       } else if (state.activeTab === "calibers") {
         state.selectedIds.calibers = String(result.entity_id ?? "");
         state.bundles.calibers = bundle;
@@ -8308,7 +8657,7 @@ function mountCreatorMenu({
       }
       await loadListForTab(state.activeTab, access.settings);
       state.loading = false;
-      state.info = `${state.activeTab === "weapons" ? "Weapon" : state.activeTab === "calibers" ? "Caliber" : state.activeTab === "ammo" ? "Ammo" : state.activeTab === "magazines" ? "Magazine" : state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : state.activeTab === "abilities" ? "Ability" : "Equipment model"} saved to Supabase.`;
+      state.info = `${state.activeTab === "weapons" ? "Weapon" : state.activeTab === "items" ? "Item" : state.activeTab === "calibers" ? "Caliber" : state.activeTab === "ammo" ? "Ammo" : state.activeTab === "magazines" ? "Magazine" : state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : state.activeTab === "abilities" ? "Ability" : "Equipment model"} saved to Supabase.`;
       onDiagnostic("info", "Creator save complete", state.info);
       render();
     } catch (error) {
@@ -8331,7 +8680,7 @@ function mountCreatorMenu({
     if (!access.isGm || !access.configured || !id) {
       return;
     }
-    const label = state.activeTab === "weapons" ? "weapon model" : state.activeTab === "calibers" ? "caliber" : state.activeTab === "ammo" ? "ammo definition" : state.activeTab === "magazines" ? "magazine definition" : state.activeTab === "skills" ? "skill" : state.activeTab === "effects" ? "effect" : state.activeTab === "abilities" ? "ability" : "equipment model";
+    const label = state.activeTab === "weapons" ? "weapon model" : state.activeTab === "items" ? "item definition" : state.activeTab === "calibers" ? "caliber" : state.activeTab === "ammo" ? "ammo definition" : state.activeTab === "magazines" ? "magazine definition" : state.activeTab === "skills" ? "skill" : state.activeTab === "effects" ? "effect" : state.activeTab === "abilities" ? "ability" : "equipment model";
     if (!globalThis.confirm(`Delete this ${label} definition from the catalog?`)) {
       return;
     }
@@ -8340,7 +8689,7 @@ function mountCreatorMenu({
     state.loadingLabel = `deleting ${label}`;
     render();
     try {
-      const result = state.activeTab === "weapons" ? await runtime2.api.creator.deleteWeapon(id, access.settings) : state.activeTab === "calibers" ? await runtime2.api.creator.deleteCaliber(id, access.settings) : state.activeTab === "ammo" ? await runtime2.api.creator.deleteAmmoType(id, access.settings) : state.activeTab === "magazines" ? await runtime2.api.creator.deleteMagazineDef(id, access.settings) : state.activeTab === "skills" ? await runtime2.api.creator.deleteSkill(id, access.settings) : state.activeTab === "effects" ? await runtime2.api.creator.deleteEffect(id, access.settings) : state.activeTab === "abilities" ? await runtime2.api.creator.deleteAbility(id, access.settings) : await runtime2.api.creator.deleteEquipmentModel(id, access.settings);
+      const result = state.activeTab === "weapons" ? await runtime2.api.creator.deleteWeapon(id, access.settings) : state.activeTab === "items" ? await runtime2.api.creator.deleteItemDef(id, access.settings) : state.activeTab === "calibers" ? await runtime2.api.creator.deleteCaliber(id, access.settings) : state.activeTab === "ammo" ? await runtime2.api.creator.deleteAmmoType(id, access.settings) : state.activeTab === "magazines" ? await runtime2.api.creator.deleteMagazineDef(id, access.settings) : state.activeTab === "skills" ? await runtime2.api.creator.deleteSkill(id, access.settings) : state.activeTab === "effects" ? await runtime2.api.creator.deleteEffect(id, access.settings) : state.activeTab === "abilities" ? await runtime2.api.creator.deleteAbility(id, access.settings) : await runtime2.api.creator.deleteEquipmentModel(id, access.settings);
       if (!result?.ok) {
         throw new Error(formatCreatorError(result, `Unable to delete ${label}.`));
       }
@@ -8349,6 +8698,11 @@ function mountCreatorMenu({
         state.bundles.weapons = null;
         state.drafts.weapons = createEmptyWeaponDraft();
         state.dirty.weapons = false;
+      } else if (state.activeTab === "items") {
+        state.selectedIds.items = "";
+        state.bundles.items = null;
+        state.drafts.items = createEmptyItemDraft();
+        state.dirty.items = false;
       } else if (state.activeTab === "calibers") {
         state.selectedIds.calibers = "";
         state.bundles.calibers = null;
@@ -9049,6 +9403,10 @@ var CREATOR_RPC_NAMES = Object.freeze({
   getWeapon: "creator_get_weapon",
   upsertWeapon: "creator_upsert_weapon",
   deleteWeapon: "creator_delete_weapon",
+  listItemDefs: "creator_list_item_defs",
+  getItemDef: "creator_get_item_def",
+  upsertItemDef: "creator_upsert_item_def",
+  deleteItemDef: "creator_delete_item_def",
   listCalibers: "creator_list_calibers",
   getCaliber: "creator_get_caliber",
   upsertCaliber: "creator_upsert_caliber",
@@ -9623,6 +9981,7 @@ __export(creatorApi_exports, {
   deleteCaliber: () => deleteCaliber,
   deleteEffect: () => deleteEffect,
   deleteEquipmentModel: () => deleteEquipmentModel,
+  deleteItemDef: () => deleteItemDef,
   deleteMagazineDef: () => deleteMagazineDef,
   deleteSkill: () => deleteSkill,
   deleteWeapon: () => deleteWeapon,
@@ -9632,6 +9991,7 @@ __export(creatorApi_exports, {
   getCreatorReferenceData: () => getCreatorReferenceData,
   getEffect: () => getEffect,
   getEquipmentModel: () => getEquipmentModel,
+  getItemDef: () => getItemDef,
   getMagazineDef: () => getMagazineDef,
   getSkill: () => getSkill,
   getWeapon: () => getWeapon,
@@ -9640,6 +10000,7 @@ __export(creatorApi_exports, {
   listCalibers: () => listCalibers,
   listEffects: () => listEffects,
   listEquipmentModels: () => listEquipmentModels,
+  listItemDefs: () => listItemDefs,
   listMagazineDefs: () => listMagazineDefs,
   listSkills: () => listSkills,
   listWeapons: () => listWeapons,
@@ -9648,6 +10009,7 @@ __export(creatorApi_exports, {
   upsertCaliber: () => upsertCaliber,
   upsertEffect: () => upsertEffect,
   upsertEquipmentModel: () => upsertEquipmentModel,
+  upsertItemDef: () => upsertItemDef,
   upsertMagazineDef: () => upsertMagazineDef,
   upsertSkill: () => upsertSkill,
   upsertWeapon: () => upsertWeapon
@@ -9686,6 +10048,36 @@ function deleteWeapon(weaponModelId, settings) {
   return callSupabaseRpc(
     CREATOR_RPC_NAMES.deleteWeapon,
     { p_weapon_model_id: weaponModelId },
+    settings
+  );
+}
+function listItemDefs({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listItemDefs,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getItemDef(itemDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getItemDef,
+    { p_item_def_id: itemDefId },
+    settings
+  );
+}
+function upsertItemDef(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertItemDef,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteItemDef(itemDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteItemDef,
+    { p_item_def_id: itemDefId },
     settings
   );
 }
