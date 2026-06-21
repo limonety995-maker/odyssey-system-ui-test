@@ -9,6 +9,108 @@ export function getCreatorReferenceData(settings) {
   );
 }
 
+export function listCalibers({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listCalibers,
+    {
+      p_search: search || null,
+    },
+    settings,
+  );
+}
+
+export function getCaliber(caliberId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getCaliber,
+    { p_caliber_id: caliberId },
+    settings,
+  );
+}
+
+export function upsertCaliber(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertCaliber,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function deleteCaliber(caliberId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteCaliber,
+    { p_caliber_id: caliberId },
+    settings,
+  );
+}
+
+export function listAmmoTypes({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listAmmoTypes,
+    {
+      p_search: search || null,
+    },
+    settings,
+  );
+}
+
+export function getAmmoType(ammoTypeId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getAmmoType,
+    { p_ammo_type_id: ammoTypeId },
+    settings,
+  );
+}
+
+export function upsertAmmoType(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertAmmoType,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function deleteAmmoType(ammoTypeId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteAmmoType,
+    { p_ammo_type_id: ammoTypeId },
+    settings,
+  );
+}
+
+export function listMagazineDefs({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listMagazineDefs,
+    {
+      p_search: search || null,
+    },
+    settings,
+  );
+}
+
+export function getMagazineDef(magazineDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getMagazineDef,
+    { p_magazine_def_id: magazineDefId },
+    settings,
+  );
+}
+
+export function upsertMagazineDef(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertMagazineDef,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function deleteMagazineDef(magazineDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteMagazineDef,
+    { p_magazine_def_id: magazineDefId },
+    settings,
+  );
+}
+
 export function listSkills({ search = null, categories = [] } = {}, settings) {
   return callSupabaseRpc(
     CREATOR_RPC_NAMES.listSkills,
