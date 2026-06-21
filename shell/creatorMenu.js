@@ -232,13 +232,13 @@ function createEmptyAbilityLevelDraft(level = 1) {
 }
 
 function createEmptyAbilityDraft() {
-  return {
+  return normalizeAbilityEditorDraft({
     id: "",
     name: "",
     uiKind: "attack",
     sourceLabel: "psionic",
-    resolutionMode: "attack",
-    targetType: "body_part",
+    resolutionMode: getDefaultResolutionForAbilityKind("attack"),
+    targetType: getDefaultTargetTypeForAbilityKind("attack", "attack"),
     attackType: "ranged",
     rangeMode: "none",
     maxDistanceM: "",
@@ -247,7 +247,7 @@ function createEmptyAbilityDraft() {
     levels: [createEmptyAbilityLevelDraft(1)],
     dataExtraData: {},
     effectDataExtraData: {},
-  };
+  });
 }
 
 function createEmptyAbilityLinkDraft() {
@@ -673,12 +673,144 @@ function getDefaultAttackTypeForAbilityKind(uiKind) {
   return String(uiKind ?? "").trim() === "attack" ? "ranged" : "melee";
 }
 
+function getAbilityOptionLabel(options, value, fallback = "") {
+  const normalized = String(value ?? "").trim();
+  const match = Array.isArray(options)
+    ? options.find((entry) => String(entry?.value ?? "").trim() === normalized)
+    : null;
+  if (match?.label) {
+    return String(match.label);
+  }
+  return fallback || normalized;
+}
+
+function getAllowedTargetTypesForAbility(uiKind, resolutionMode) {
+  if (abilityUsesAttackFields(uiKind, resolutionMode)) {
+    return ["body_part"];
+  }
+  if (abilityUsesSpecialFields(resolutionMode)) {
+    return ["self"];
+  }
+  if (abilityIsPassive(uiKind)) {
+    return ["self"];
+  }
+  if (String(resolutionMode ?? "").trim() === "apply_effect") {
+    return ["self", "character"];
+  }
+  if (String(resolutionMode ?? "").trim() === "narrative") {
+    return ["none"];
+  }
+  return [getDefaultTargetTypeForAbilityKind(uiKind, resolutionMode)];
+}
+
+function normalizeAbilityLevels(levels, { technical = false } = {}) {
+  const sourceLevels = Array.isArray(levels) && levels.length
+    ? levels.map((entry) => ({ ...cloneJson(entry) }))
+    : [createEmptyAbilityLevelDraft(1)];
+  const effectiveLevels = technical ? [sourceLevels[0] ?? createEmptyAbilityLevelDraft(1)] : sourceLevels;
+  return effectiveLevels.map((entry, index) => ({
+    ...createEmptyAbilityLevelDraft(index + 1),
+    ...entry,
+    id: String(entry?.id ?? ""),
+    abilityLevel: String(index + 1),
+  }));
+}
+
+function normalizeAbilityEditorDraft(draft) {
+  const uiKind = ABILITY_UI_KIND_OPTIONS.some((entry) => entry.value === String(draft?.uiKind ?? "").trim())
+    ? String(draft.uiKind).trim()
+    : "utility";
+  const sourceLabel = ABILITY_SOURCE_LABEL_OPTIONS.some((entry) => entry.value === String(draft?.sourceLabel ?? "").trim())
+    ? String(draft.sourceLabel).trim()
+    : "technical";
+  const resolutionMode = getDefaultResolutionForAbilityKind(uiKind);
+  const showAttackFields = abilityUsesAttackFields(uiKind, resolutionMode);
+  const attackType = showAttackFields
+    ? (
+        ABILITY_ATTACK_TYPE_OPTIONS.some((entry) => entry.value === String(draft?.attackType ?? "").trim())
+          ? String(draft.attackType).trim()
+          : getDefaultAttackTypeForAbilityKind(uiKind)
+      )
+    : getDefaultAttackTypeForAbilityKind(uiKind);
+  const allowedTargets = getAllowedTargetTypesForAbility(uiKind, resolutionMode);
+  const targetType = allowedTargets.includes(String(draft?.targetType ?? "").trim())
+    ? String(draft.targetType).trim()
+    : allowedTargets[0];
+  const rangeMode = showAttackFields && attackType === "melee"
+    ? "limited"
+    : String(draft?.rangeMode ?? "").trim() === "limited"
+    ? "limited"
+    : "none";
+  const maxDistanceM = showAttackFields && attackType === "melee"
+    ? "2"
+    : String(draft?.maxDistanceM ?? "").trim();
+  const technical = abilityIsTechnical(sourceLabel);
+  return {
+    ...cloneJson(draft ?? {}),
+    uiKind,
+    sourceLabel,
+    resolutionMode,
+    targetType,
+    attackType,
+    rangeMode,
+    maxDistanceM,
+    effectLinks: Array.isArray(draft?.effectLinks)
+      ? draft.effectLinks.map((entry) => ({ ...cloneJson(entry) }))
+      : [],
+    levels: normalizeAbilityLevels(draft?.levels, { technical }),
+    dataExtraData: cloneJson(draft?.dataExtraData ?? {}),
+    effectDataExtraData: cloneJson(draft?.effectDataExtraData ?? {}),
+  };
+}
+
+function getAbilityPayloadSummary(draft) {
+  const normalized = normalizeAbilityEditorDraft(draft);
+  const sourceLabel = getAbilityOptionLabel(ABILITY_SOURCE_LABEL_OPTIONS, normalized.sourceLabel, "Technical");
+  const resolutionLabel = getAbilityOptionLabel(ABILITY_RESOLUTION_OPTIONS, normalized.resolutionMode, "Narrative / Utility");
+  const targetLabel = getAbilityOptionLabel(ABILITY_TARGET_OPTIONS, normalized.targetType, "No Target");
+  const attackTypeLabel = abilityUsesAttackFields(normalized.uiKind, normalized.resolutionMode)
+    ? getAbilityOptionLabel(ABILITY_ATTACK_TYPE_OPTIONS, normalized.attackType, "Ranged")
+    : "n/a";
+  const levelsLabel = abilityIsTechnical(normalized.sourceLabel)
+    ? "internal Level 1"
+    : `${Array.isArray(normalized.levels) ? normalized.levels.length : 0} level(s)`;
+  return [
+    { label: "Source", value: sourceLabel },
+    { label: "Resolution", value: resolutionLabel },
+    { label: "Target", value: targetLabel },
+    { label: "Attack Type", value: attackTypeLabel },
+    { label: "Levels", value: levelsLabel },
+  ];
+}
+
+function findEffectReferenceById(references, effectDefId) {
+  const normalizedId = String(effectDefId ?? "").trim();
+  if (!normalizedId) {
+    return null;
+  }
+  const list = Array.isArray(references?.effects) ? references.effects : [];
+  return list.find((entry) => String(entry?.id ?? "").trim() === normalizedId) ?? null;
+}
+
+function buildEffectReferenceSummary(effectReference) {
+  if (!effectReference) {
+    return "No effect selected yet.";
+  }
+  const category = String(effectReference.ui_category ?? effectReference.category ?? "").trim();
+  const effectType = String(effectReference.effect_type ?? effectReference.effectType ?? "").trim();
+  const targetScope = String(effectReference.target_scope ?? effectReference.targetScope ?? "").trim();
+  const durationType = String(effectReference.default_duration_type ?? effectReference.defaultDurationType ?? "").trim();
+  const parts = [category, effectType, targetScope, durationType].filter(Boolean);
+  return parts.length ? parts.join(" / ") : "Saved effect template";
+}
+
 function buildAbilityAutoTags(draft) {
+  const normalized = normalizeAbilityEditorDraft(draft);
   const tags = new Set();
-  if (draft.uiKind) tags.add(`ability_kind:${String(draft.uiKind).trim()}`);
-  if (draft.sourceLabel) tags.add(`ability_source:${String(draft.sourceLabel).trim()}`);
-  if (draft.resolutionMode) tags.add(`ability_resolution:${String(draft.resolutionMode).trim()}`);
-  if (draft.rangeMode) tags.add(`ability_range:${String(draft.rangeMode).trim()}`);
+  if (normalized.uiKind) tags.add(`ability_kind:${String(normalized.uiKind).trim()}`);
+  if (normalized.sourceLabel) tags.add(`ability_source:${String(normalized.sourceLabel).trim()}`);
+  if (normalized.resolutionMode) tags.add(`ability_resolution:${String(normalized.resolutionMode).trim()}`);
+  if (normalized.rangeMode) tags.add(`ability_range:${String(normalized.rangeMode).trim()}`);
   return Array.from(tags);
 }
 
@@ -892,7 +1024,7 @@ function normalizeAbilityDraft(bundle) {
     range: ignoredRange,
     ...dataExtraData
   } = abilityData;
-  return {
+  return normalizeAbilityEditorDraft({
     id: String(ability.id ?? ""),
     name: String(ability.name ?? ""),
     uiKind,
@@ -911,7 +1043,7 @@ function normalizeAbilityDraft(bundle) {
     levels: normalizedLevels,
     dataExtraData,
     effectDataExtraData: toPlainObject(ability.effect_data),
-  };
+  });
 }
 
 function normalizeAbilityLinkDraft(entry) {
@@ -1023,7 +1155,7 @@ function makeEffectDuplicateDraft(source) {
 
 function makeAbilityDuplicateDraft(source) {
   const name = String(source.name ?? "").trim();
-  return {
+  return normalizeAbilityEditorDraft({
     ...cloneJson(source),
     id: "",
     name: name ? `${name} Copy` : "",
@@ -1039,7 +1171,7 @@ function makeAbilityDuplicateDraft(source) {
       : [createEmptyAbilityLevelDraft(1)],
     dataExtraData: cloneJson(source.dataExtraData ?? {}),
     effectDataExtraData: cloneJson(source.effectDataExtraData ?? {}),
-  };
+  });
 }
 
 function makeEquipmentDuplicateDraft(source) {
@@ -1248,47 +1380,68 @@ function buildEffectPayload(draft, auto) {
 }
 
 function buildAbilityLevelPayload(levelDraft, fallbackLevel) {
+  const options = arguments[2] ?? {};
+  const showResourceCost = Boolean(options.showResourceCost);
+  const showDuration = Boolean(options.showDuration);
+  const showAttackFields = Boolean(options.showAttackFields);
+  const showSpecialFields = Boolean(options.showSpecialFields);
   return {
     id: levelDraft.id || undefined,
     ability_level: coerceInteger(levelDraft.abilityLevel, fallbackLevel),
-    resource_cost: coerceInteger(levelDraft.resourceCost, 0),
-    cooldown_rounds: String(levelDraft.cooldownRounds ?? "").trim() === "" ? null : coerceInteger(levelDraft.cooldownRounds, 0),
+    resource_cost: showResourceCost ? coerceInteger(levelDraft.resourceCost, 0) : 0,
+    cooldown_rounds: null,
     range_profile_id: null,
-    attack_accuracy_bonus: coerceInteger(levelDraft.attackAccuracyBonus, 0),
-    attack_damage_bonus: coerceInteger(levelDraft.attackDamageBonus, 0),
-    attack_armor_pierce: coerceInteger(levelDraft.attackArmorPierce, 0),
-    ignore_armor: Boolean(levelDraft.ignoreArmor),
-    special_armor_value: String(levelDraft.specialArmorValue ?? "").trim() === "" ? null : coerceInteger(levelDraft.specialArmorValue, 0),
-    special_max_critical: String(levelDraft.specialMaxCritical ?? "").trim() === "" ? null : coerceInteger(levelDraft.specialMaxCritical, 0),
-    duration_rounds: String(levelDraft.durationRounds ?? "").trim() === "" ? null : coerceInteger(levelDraft.durationRounds, 0),
+    attack_accuracy_bonus: showAttackFields ? coerceInteger(levelDraft.attackAccuracyBonus, 0) : 0,
+    attack_damage_bonus: showAttackFields ? coerceInteger(levelDraft.attackDamageBonus, 0) : 0,
+    attack_armor_pierce: showAttackFields ? coerceInteger(levelDraft.attackArmorPierce, 0) : 0,
+    ignore_armor: false,
+    special_armor_value: showSpecialFields && String(levelDraft.specialArmorValue ?? "").trim() !== ""
+      ? coerceInteger(levelDraft.specialArmorValue, 0)
+      : null,
+    special_max_critical: showSpecialFields && String(levelDraft.specialMaxCritical ?? "").trim() !== ""
+      ? coerceInteger(levelDraft.specialMaxCritical, 0)
+      : null,
+    duration_rounds: showDuration && String(levelDraft.durationRounds ?? "").trim() !== ""
+      ? coerceInteger(levelDraft.durationRounds, 0)
+      : null,
     data: toPlainObject(cloneJson(levelDraft.dataExtraData)),
     effect_data: toPlainObject(cloneJson(levelDraft.effectDataExtraData)),
   };
 }
 
 function buildAbilityPayload(draft, auto) {
-  const uiKind = String(draft.uiKind ?? "utility").trim() || "utility";
-  const sourceLabel = String(draft.sourceLabel ?? "technical").trim() || "technical";
-  const resolutionMode = String(draft.resolutionMode ?? getDefaultResolutionForAbilityKind(uiKind)).trim() || getDefaultResolutionForAbilityKind(uiKind);
-  const targetType = String(draft.targetType ?? getDefaultTargetTypeForAbilityKind(uiKind, resolutionMode)).trim() || getDefaultTargetTypeForAbilityKind(uiKind, resolutionMode);
+  const normalizedDraft = normalizeAbilityEditorDraft(draft);
+  const uiKind = String(normalizedDraft.uiKind ?? "utility").trim() || "utility";
+  const sourceLabel = String(normalizedDraft.sourceLabel ?? "technical").trim() || "technical";
+  const resolutionMode = String(normalizedDraft.resolutionMode ?? getDefaultResolutionForAbilityKind(uiKind)).trim() || getDefaultResolutionForAbilityKind(uiKind);
+  const targetType = String(normalizedDraft.targetType ?? getDefaultTargetTypeForAbilityKind(uiKind, resolutionMode)).trim() || getDefaultTargetTypeForAbilityKind(uiKind, resolutionMode);
   const attackType = abilityUsesAttackFields(uiKind, resolutionMode)
-    ? String(draft.attackType ?? getDefaultAttackTypeForAbilityKind(uiKind)).trim() || getDefaultAttackTypeForAbilityKind(uiKind)
+    ? String(normalizedDraft.attackType ?? getDefaultAttackTypeForAbilityKind(uiKind)).trim() || getDefaultAttackTypeForAbilityKind(uiKind)
     : null;
   const sourceType = sourceLabel === "psionic" ? "psionic" : "equipment";
   const abilityKind = uiKind === "support" ? "support" : uiKind;
   const activationType = abilityIsPassive(uiKind) ? "passive" : "manual";
-  const data = toPlainObject(cloneJson(draft.dataExtraData));
-  const effectData = toPlainObject(cloneJson(draft.effectDataExtraData));
-  if (String(draft.rangeMode ?? "").trim() === "limited" && String(draft.maxDistanceM ?? "").trim() !== "") {
+  const data = toPlainObject(cloneJson(normalizedDraft.dataExtraData));
+  const effectData = toPlainObject(cloneJson(normalizedDraft.effectDataExtraData));
+  const showSpecialFields = abilityUsesSpecialFields(resolutionMode);
+  const showAttackFields = abilityUsesAttackFields(uiKind, resolutionMode) && !showSpecialFields;
+  const showResourceCost = !abilityIsTechnical(sourceLabel);
+  const showDuration = !abilityIsTechnical(sourceLabel) && !showSpecialFields;
+  if (attackType === "melee") {
     data.range = {
       mode: "limited",
-      max_distance_m: coerceInteger(draft.maxDistanceM, 0),
+      max_distance_m: 2,
+    };
+  } else if (String(normalizedDraft.rangeMode ?? "").trim() === "limited" && String(normalizedDraft.maxDistanceM ?? "").trim() !== "") {
+    data.range = {
+      mode: "limited",
+      max_distance_m: coerceInteger(normalizedDraft.maxDistanceM, 0),
     };
   } else {
     delete data.range;
   }
   if (abilityUsesEffectLinks(resolutionMode)) {
-    data.effect_links = (Array.isArray(draft.effectLinks) ? draft.effectLinks : [])
+    data.effect_links = (Array.isArray(normalizedDraft.effectLinks) ? normalizedDraft.effectLinks : [])
       .map((entry) => String(entry?.effectDefId ?? "").trim())
       .filter(Boolean)
       .map((effectDefId, index) => ({
@@ -1300,14 +1453,22 @@ function buildAbilityPayload(draft, auto) {
   }
   data.creator_source_label = sourceLabel;
   const levels = abilityIsTechnical(sourceLabel)
-    ? [buildAbilityLevelPayload((Array.isArray(draft.levels) && draft.levels[0]) ? draft.levels[0] : createEmptyAbilityLevelDraft(1), 1)]
-    : (Array.isArray(draft.levels) ? draft.levels : [])
-        .map((entry, index) => buildAbilityLevelPayload(entry, index + 1))
+    ? [buildAbilityLevelPayload(
+        (Array.isArray(normalizedDraft.levels) && normalizedDraft.levels[0]) ? normalizedDraft.levels[0] : createEmptyAbilityLevelDraft(1),
+        1,
+        { showResourceCost, showDuration, showAttackFields, showSpecialFields },
+      )]
+    : (Array.isArray(normalizedDraft.levels) ? normalizedDraft.levels : [])
+        .map((entry, index) => buildAbilityLevelPayload(
+          entry,
+          index + 1,
+          { showResourceCost, showDuration, showAttackFields, showSpecialFields },
+        ))
         .sort((left, right) => coerceInteger(left.ability_level, 0) - coerceInteger(right.ability_level, 0));
   return {
-    id: draft.id || undefined,
+    id: normalizedDraft.id || undefined,
     code: String(auto.code ?? "").trim(),
-    name: String(draft.name ?? "").trim(),
+    name: String(normalizedDraft.name ?? "").trim(),
     ability_kind: abilityKind,
     source_type: sourceType,
     activation_type: activationType,
@@ -1318,7 +1479,7 @@ function buildAbilityPayload(draft, auto) {
     resource_mode: sourceLabel === "psionic" ? "pool" : "none",
     resource_pool_code: sourceLabel === "psionic" ? "psionic_energy" : null,
     resource_item_code: null,
-    description: String(draft.description ?? ""),
+    description: String(normalizedDraft.description ?? ""),
     data,
     effect_data: effectData,
     tags: auto.tags,
@@ -2109,6 +2270,9 @@ function buildAbilityEffectLinksEditorMarkup(draft, references) {
             ${buildEffectOptions(references, link.effectDefId, selectedIds)}
           </select>
         </label>
+        <div class="creator-auto-meta creator-small-meta">
+          <div><strong>Summary:</strong> ${escapeHtml(buildEffectReferenceSummary(findEffectReferenceById(references, link.effectDefId)))}</div>
+        </div>
       </div>
     `)
     .join("");
@@ -2116,6 +2280,8 @@ function buildAbilityEffectLinksEditorMarkup(draft, references) {
 
 function buildAbilitySingleLevelFields(level, index, {
   isTechnical = false,
+  showResourceCost = true,
+  showDuration = true,
   showAttackFields = false,
   showSpecialFields = false,
 } = {}) {
@@ -2131,21 +2297,21 @@ function buildAbilitySingleLevelFields(level, index, {
           <div><strong>Level:</strong> internal Level 1 only</div>
         </div>
       `}
-      <label class="field-stack">
-        <span>Resource Cost</span>
-        <input data-creator-ability-level-input="resourceCost" data-ability-level-index="${index}" type="number" min="0" value="${escapeHtml(level.resourceCost)}">
-      </label>
-      <label class="field-stack">
-        <span>Cooldown</span>
-        <input data-creator-ability-level-input="cooldownRounds" data-ability-level-index="${index}" type="number" min="0" value="${escapeHtml(level.cooldownRounds)}" placeholder="blank = none">
-      </label>
-      <label class="field-stack">
-        <span>Duration</span>
-        <input data-creator-ability-level-input="durationRounds" data-ability-level-index="${index}" type="number" min="0" value="${escapeHtml(level.durationRounds)}" placeholder="blank = none">
-      </label>
+      ${showResourceCost ? `
+        <label class="field-stack">
+          <span>Resource Cost</span>
+          <input data-creator-ability-level-input="resourceCost" data-ability-level-index="${index}" type="number" min="0" value="${escapeHtml(level.resourceCost)}">
+        </label>
+      ` : ""}
+      ${showDuration ? `
+        <label class="field-stack">
+          <span>Duration</span>
+          <input data-creator-ability-level-input="durationRounds" data-ability-level-index="${index}" type="number" min="0" value="${escapeHtml(level.durationRounds)}" placeholder="blank = none">
+        </label>
+      ` : ""}
     </div>
     ${showAttackFields ? `
-      <div class="field-grid creator-grid-4">
+      <div class="field-grid creator-grid-3">
         <label class="field-stack">
           <span>Attack Accuracy</span>
           <input data-creator-ability-level-input="attackAccuracyBonus" data-ability-level-index="${index}" type="number" value="${escapeHtml(level.attackAccuracyBonus)}">
@@ -2157,10 +2323,6 @@ function buildAbilitySingleLevelFields(level, index, {
         <label class="field-stack">
           <span>Armor Pierce</span>
           <input data-creator-ability-level-input="attackArmorPierce" data-ability-level-index="${index}" type="number" value="${escapeHtml(level.attackArmorPierce)}">
-        </label>
-        <label class="field-stack">
-          <span>Ignore Armor</span>
-          <input data-creator-ability-level-input="ignoreArmor" data-ability-level-index="${index}" type="checkbox"${level.ignoreArmor ? " checked" : ""}>
         </label>
       </div>
     ` : ""}
@@ -2180,18 +2342,21 @@ function buildAbilitySingleLevelFields(level, index, {
 }
 
 function buildAbilityLevelsEditorMarkup(draft) {
-  const levels = Array.isArray(draft.levels) ? draft.levels : [createEmptyAbilityLevelDraft(1)];
-  const isTechnical = abilityIsTechnical(draft.sourceLabel);
-  const showAttackFields = abilityUsesAttackFields(draft.uiKind, draft.resolutionMode);
-  const showSpecialFields = abilityUsesSpecialFields(draft.resolutionMode);
+  const normalizedDraft = normalizeAbilityEditorDraft(draft);
+  const levels = Array.isArray(normalizedDraft.levels) ? normalizedDraft.levels : [createEmptyAbilityLevelDraft(1)];
+  const isTechnical = abilityIsTechnical(normalizedDraft.sourceLabel);
+  const showSpecialFields = abilityUsesSpecialFields(normalizedDraft.resolutionMode);
+  const showAttackFields = abilityUsesAttackFields(normalizedDraft.uiKind, normalizedDraft.resolutionMode) && !showSpecialFields;
+  const showResourceCost = !isTechnical;
+  const showDuration = !isTechnical && !showSpecialFields;
   if (isTechnical) {
     const level = levels[0] ?? createEmptyAbilityLevelDraft(1);
     return `
       <div class="creator-link-card" data-creator-ability-level-row="0">
         <div class="creator-link-head">
-          <strong>Technical Runtime</strong>
+          <strong>Technical Settings</strong>
         </div>
-        ${buildAbilitySingleLevelFields(level, 0, { isTechnical: true, showAttackFields, showSpecialFields })}
+        ${buildAbilitySingleLevelFields(level, 0, { isTechnical: true, showResourceCost, showDuration, showAttackFields, showSpecialFields })}
       </div>
     `;
   }
@@ -2202,14 +2367,14 @@ function buildAbilityLevelsEditorMarkup(draft) {
           <strong>Level ${escapeHtml(level.abilityLevel || String(index + 1))}</strong>
           <button type="button" class="secondary" data-creator-ability-level-remove="${index}"${levels.length > 1 ? "" : " disabled"}>Remove</button>
         </div>
-        ${buildAbilitySingleLevelFields(level, index, { showAttackFields, showSpecialFields })}
+        ${buildAbilitySingleLevelFields(level, index, { showResourceCost, showDuration, showAttackFields, showSpecialFields })}
       </div>
     `)
     .join("");
 }
 
 function buildAbilityEditorMarkup(state, references) {
-  const draft = state.drafts.abilities;
+  const draft = normalizeAbilityEditorDraft(state.drafts.abilities);
   const auto = generatedAbilityPreview(draft, state);
   const kindOptions = ABILITY_UI_KIND_OPTIONS
     .map((option) => `<option value="${escapeHtml(option.value)}"${draft.uiKind === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
@@ -2217,10 +2382,9 @@ function buildAbilityEditorMarkup(state, references) {
   const sourceOptions = ABILITY_SOURCE_LABEL_OPTIONS
     .map((option) => `<option value="${escapeHtml(option.value)}"${draft.sourceLabel === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
     .join("");
-  const resolutionOptions = ABILITY_RESOLUTION_OPTIONS
-    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.resolutionMode === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
-    .join("");
+  const allowedTargetTypes = getAllowedTargetTypesForAbility(draft.uiKind, draft.resolutionMode);
   const targetOptions = ABILITY_TARGET_OPTIONS
+    .filter((option) => allowedTargetTypes.includes(option.value))
     .map((option) => `<option value="${escapeHtml(option.value)}"${draft.targetType === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
     .join("");
   const attackTypeOptions = ABILITY_ATTACK_TYPE_OPTIONS
@@ -2231,9 +2395,11 @@ function buildAbilityEditorMarkup(state, references) {
     .join("");
   const payloadCollapsed = Boolean(state.collapsed.abilitiesPayload);
   const levelsCollapsed = Boolean(state.collapsed.abilitiesLevels);
-  const showAttackFields = abilityUsesAttackFields(draft.uiKind, draft.resolutionMode);
-  const showEffectLinks = abilityUsesEffectLinks(draft.resolutionMode);
   const showSpecialFields = abilityUsesSpecialFields(draft.resolutionMode);
+  const showAttackFields = abilityUsesAttackFields(draft.uiKind, draft.resolutionMode) && !showSpecialFields;
+  const showEffectLinks = abilityUsesEffectLinks(draft.resolutionMode);
+  const hideRangeForMelee = showAttackFields && String(draft.attackType ?? "").trim() === "melee";
+  const summaryItems = getAbilityPayloadSummary(draft);
 
   return `
     <div class="creator-editor-head">
@@ -2264,14 +2430,28 @@ function buildAbilityEditorMarkup(state, references) {
           <span>Source</span>
           <select data-creator-input="sourceLabel">${sourceOptions}</select>
         </label>
-        <label class="field-stack">
+        <div class="field-stack">
           <span>Resolution</span>
-          <select data-creator-input="resolutionMode">${resolutionOptions}</select>
-        </label>
-        <label class="field-stack">
-          <span>Target</span>
-          <select data-creator-input="targetType">${targetOptions}</select>
-        </label>
+          <div class="creator-auto-meta creator-small-meta">
+            <div><strong>Auto:</strong> ${escapeHtml(getAbilityOptionLabel(ABILITY_RESOLUTION_OPTIONS, draft.resolutionMode, "Narrative / Utility"))}</div>
+          </div>
+        </div>
+        ${allowedTargetTypes.length <= 1 ? `
+          <div class="field-stack">
+            <span>Target</span>
+            <div class="creator-auto-meta creator-small-meta">
+            <div><strong>Target:</strong> ${escapeHtml(getAbilityOptionLabel(ABILITY_TARGET_OPTIONS, draft.targetType, "No Target"))}</div>
+            </div>
+          </div>
+        ` : `
+          <label class="field-stack">
+            <span>Target</span>
+            <select data-creator-input="targetType">${targetOptions}</select>
+          </label>
+        `}
+      </div>
+      <div class="creator-auto-meta">
+        ${summaryItems.map((item) => `<div><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.value)}</div>`).join("")}
       </div>
       <div class="field-grid creator-grid-3">
         ${showAttackFields ? `
@@ -2280,18 +2460,30 @@ function buildAbilityEditorMarkup(state, references) {
             <select data-creator-input="attackType">${attackTypeOptions}</select>
           </label>
         ` : `
-          <div class="creator-auto-meta creator-small-meta">
-            <div><strong>Attack Type:</strong> not used by this ability.</div>
-          </div>
+            <div class="creator-auto-meta creator-small-meta">
+              <div><strong>Attack Type:</strong> not used by this ability.</div>
+            </div>
         `}
-        <label class="field-stack">
-          <span>Range</span>
-          <select data-creator-input="rangeMode">${rangeModeOptions}</select>
-        </label>
-        <label class="field-stack">
-          <span>Max Distance (m)</span>
-          <input data-creator-input="maxDistanceM" type="number" min="0" value="${escapeHtml(draft.maxDistanceM)}"${draft.rangeMode === "limited" ? "" : " disabled"} placeholder="blank = no limit">
-        </label>
+        ${hideRangeForMelee ? `
+          <div class="creator-auto-meta creator-small-meta">
+            <div><strong>Range:</strong> melee uses fixed 2m.</div>
+          </div>
+        ` : `
+          <label class="field-stack">
+            <span>Range</span>
+            <select data-creator-input="rangeMode">${rangeModeOptions}</select>
+          </label>
+        `}
+        ${hideRangeForMelee ? `
+          <div class="creator-auto-meta creator-small-meta">
+            <div><strong>Max Distance:</strong> 2m fixed.</div>
+          </div>
+        ` : `
+          <label class="field-stack">
+            <span>Max Distance (m)</span>
+            <input data-creator-input="maxDistanceM" type="number" min="0" value="${escapeHtml(draft.maxDistanceM)}"${draft.rangeMode === "limited" ? "" : " disabled"} placeholder="blank = no limit">
+          </label>
+        `}
       </div>
       <label class="field-stack">
         <span>Description</span>
@@ -2311,15 +2503,18 @@ function buildAbilityEditorMarkup(state, references) {
         </div>
       `}
       ${buildDisclosureSection({
-        title: abilityIsTechnical(draft.sourceLabel) ? "Technical Runtime" : "Levels",
+        title: abilityIsTechnical(draft.sourceLabel) ? "Technical Settings" : "Levels",
         collapsed: levelsCollapsed,
         action: "toggleAbilitiesLevels",
-        summary: abilityIsTechnical(draft.sourceLabel) ? "single internal level" : `${Array.isArray(draft.levels) ? draft.levels.length : 0} level(s)`,
+        summary: abilityIsTechnical(draft.sourceLabel) ? "single internal runtime block" : `${Array.isArray(draft.levels) ? draft.levels.length : 0} level(s)`,
         actionsMarkup: abilityIsTechnical(draft.sourceLabel)
           ? ""
           : `
             <div class="button-row compact">
               <button type="button" class="secondary" data-creator-action="addAbilityLevel">Add Level</button>
+              <button type="button" class="secondary" data-creator-action="fillAbilityLevels">Fill 1-5</button>
+              <button type="button" class="secondary" data-creator-action="copyAbilityLevelsDown">Copy Level Down</button>
+              <button type="button" class="secondary" data-creator-action="clearAbilityLevels">Clear Levels</button>
             </div>
           `,
         bodyMarkup: buildAbilityLevelsEditorMarkup(draft),
@@ -2329,6 +2524,9 @@ function buildAbilityEditorMarkup(state, references) {
         collapsed: payloadCollapsed,
         action: "toggleAbilitiesPayload",
         bodyMarkup: `
+          <div class="creator-auto-meta">
+            ${summaryItems.map((item) => `<div><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.value)}</div>`).join("")}
+          </div>
           <label class="field-stack">
             <textarea rows="16" readonly>${escapeHtml(prettyJson(buildAbilityPayload(draft, auto)))}</textarea>
           </label>
@@ -2728,12 +2926,10 @@ function readAbilityDraftFromDom(root, fallbackDraft = createEmptyAbilityDraft()
           id: String(fallbackLevel.id ?? ""),
           abilityLevel: String(levelQuery("abilityLevel")?.value ?? fallbackLevel.abilityLevel ?? String(index + 1)),
           resourceCost: String(levelQuery("resourceCost")?.value ?? fallbackLevel.resourceCost ?? "0"),
-          cooldownRounds: String(levelQuery("cooldownRounds")?.value ?? fallbackLevel.cooldownRounds ?? ""),
           durationRounds: String(levelQuery("durationRounds")?.value ?? fallbackLevel.durationRounds ?? ""),
           attackAccuracyBonus: String(levelQuery("attackAccuracyBonus")?.value ?? fallbackLevel.attackAccuracyBonus ?? "0"),
           attackDamageBonus: String(levelQuery("attackDamageBonus")?.value ?? fallbackLevel.attackDamageBonus ?? "0"),
           attackArmorPierce: String(levelQuery("attackArmorPierce")?.value ?? fallbackLevel.attackArmorPierce ?? "0"),
-          ignoreArmor: Boolean(levelQuery("ignoreArmor")?.checked ?? fallbackLevel.ignoreArmor ?? false),
           specialArmorValue: String(levelQuery("specialArmorValue")?.value ?? fallbackLevel.specialArmorValue ?? ""),
           specialMaxCritical: String(levelQuery("specialMaxCritical")?.value ?? fallbackLevel.specialMaxCritical ?? ""),
           dataExtraData: cloneJson(fallbackLevel.dataExtraData ?? {}),
@@ -2743,22 +2939,28 @@ function readAbilityDraftFromDom(root, fallbackDraft = createEmptyAbilityDraft()
     : cloneJson(fallbackDraft.levels ?? [createEmptyAbilityLevelDraft(1)]);
   const uiKind = String(query("uiKind")?.value ?? fallbackDraft.uiKind ?? "utility");
   const resolutionMode = String(query("resolutionMode")?.value ?? fallbackDraft.resolutionMode ?? getDefaultResolutionForAbilityKind(uiKind));
-  return {
+  const attackType = String(query("attackType")?.value ?? fallbackDraft.attackType ?? getDefaultAttackTypeForAbilityKind(uiKind));
+  const isMelee = attackType === "melee";
+  return normalizeAbilityEditorDraft({
     id: String(form.dataset.creatorEntityId ?? ""),
     name: String(query("name")?.value ?? ""),
     uiKind,
     sourceLabel: String(query("sourceLabel")?.value ?? fallbackDraft.sourceLabel ?? "technical"),
     resolutionMode,
     targetType: String(query("targetType")?.value ?? fallbackDraft.targetType ?? getDefaultTargetTypeForAbilityKind(uiKind, resolutionMode)),
-    attackType: String(query("attackType")?.value ?? fallbackDraft.attackType ?? getDefaultAttackTypeForAbilityKind(uiKind)),
-    rangeMode: String(query("rangeMode")?.value ?? fallbackDraft.rangeMode ?? "none"),
-    maxDistanceM: String(query("maxDistanceM")?.value ?? fallbackDraft.maxDistanceM ?? ""),
+    attackType,
+    rangeMode: isMelee
+      ? "limited"
+      : String(query("rangeMode")?.value ?? fallbackDraft.rangeMode ?? "none"),
+    maxDistanceM: isMelee
+      ? "2"
+      : String(query("maxDistanceM")?.value ?? fallbackDraft.maxDistanceM ?? ""),
     description: String(query("description")?.value ?? fallbackDraft.description ?? ""),
     effectLinks,
     levels,
     dataExtraData: cloneJson(fallbackDraft.dataExtraData ?? {}),
     effectDataExtraData: cloneJson(fallbackDraft.effectDataExtraData ?? {}),
-  };
+  });
 }
 
 function readEquipmentDraftFromDom(root, fallbackDraft = createEmptyEquipmentDraft()) {
@@ -2917,7 +3119,7 @@ export function mountCreatorMenu({
           && (
             (
               target.hasAttribute("data-creator-input")
-              && ["skillGroup", "effectType", "defaultDurationType", "uiKind", "sourceLabel", "resolutionMode", "rangeMode"].includes(String(target.getAttribute("data-creator-input")))
+              && ["skillGroup", "effectType", "defaultDurationType", "uiKind", "sourceLabel", "resolutionMode", "rangeMode", "attackType", "targetType"].includes(String(target.getAttribute("data-creator-input")))
             )
             || (
               target.hasAttribute("data-creator-link-input")
@@ -3133,6 +3335,64 @@ export function mountCreatorMenu({
           case "addAbilityLevel":
             captureActiveDraft();
             state.drafts.abilities.levels.push(createEmptyAbilityLevelDraft((state.drafts.abilities.levels?.length ?? 0) + 1));
+            state.drafts.abilities = normalizeAbilityEditorDraft(state.drafts.abilities);
+            state.dirty.abilities = true;
+            state.collapsed.abilitiesLevels = false;
+            clearMessages();
+            render();
+            break;
+          case "fillAbilityLevels":
+            captureActiveDraft();
+            {
+              const existingLevels = Array.isArray(state.drafts.abilities.levels) ? state.drafts.abilities.levels : [];
+              const nextLevels = [];
+              for (let index = 0; index < 5; index += 1) {
+                const sourceLevel = existingLevels[index] ?? existingLevels[existingLevels.length - 1] ?? createEmptyAbilityLevelDraft(index + 1);
+                nextLevels.push({
+                  ...cloneJson(sourceLevel),
+                  id: index < existingLevels.length ? String(sourceLevel?.id ?? "") : "",
+                  abilityLevel: String(index + 1),
+                });
+              }
+              state.drafts.abilities.levels = nextLevels;
+              state.drafts.abilities = normalizeAbilityEditorDraft(state.drafts.abilities);
+              state.dirty.abilities = true;
+              state.collapsed.abilitiesLevels = false;
+              clearMessages();
+              render();
+            }
+            break;
+          case "copyAbilityLevelsDown":
+            captureActiveDraft();
+            {
+              const existingLevels = Array.isArray(state.drafts.abilities.levels) && state.drafts.abilities.levels.length
+                ? state.drafts.abilities.levels.map((entry) => ({ ...cloneJson(entry) }))
+                : [createEmptyAbilityLevelDraft(1)];
+              const nextLevels = existingLevels.map((entry, index) => {
+                if (index === 0) {
+                  return {
+                    ...cloneJson(entry),
+                    abilityLevel: "1",
+                  };
+                }
+                return {
+                  ...cloneJson(existingLevels[index - 1]),
+                  id: String(entry?.id ?? ""),
+                  abilityLevel: String(index + 1),
+                };
+              });
+              state.drafts.abilities.levels = nextLevels;
+              state.drafts.abilities = normalizeAbilityEditorDraft(state.drafts.abilities);
+              state.dirty.abilities = true;
+              state.collapsed.abilitiesLevels = false;
+              clearMessages();
+              render();
+            }
+            break;
+          case "clearAbilityLevels":
+            captureActiveDraft();
+            state.drafts.abilities.levels = [createEmptyAbilityLevelDraft(1)];
+            state.drafts.abilities = normalizeAbilityEditorDraft(state.drafts.abilities);
             state.dirty.abilities = true;
             state.collapsed.abilitiesLevels = false;
             clearMessages();
