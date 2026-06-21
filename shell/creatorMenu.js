@@ -4,6 +4,7 @@ import { escapeHtml, prettyJson, safeJsonParse } from "../utils/json.js";
 
 const CREATOR_TABS = Object.freeze([
   { id: "skills", label: "Skills" },
+  { id: "effects", label: "Effects" },
   { id: "equipment", label: "Equipment Models" },
 ]);
 
@@ -59,6 +60,75 @@ const SKILL_UI_GROUP_OPTIONS = Object.freeze([
   { value: "passive", label: "Passive" },
 ]);
 
+const EFFECT_UI_CATEGORY_OPTIONS = Object.freeze([
+  { value: "buff", label: "Buff" },
+  { value: "debuff", label: "Debuff" },
+  { value: "condition", label: "Condition" },
+  { value: "recovery", label: "Recovery" },
+  { value: "damage", label: "Damage" },
+  { value: "utility", label: "Utility" },
+]);
+
+const EFFECT_TYPE_OPTIONS = Object.freeze([
+  { value: "modifiers_flags", label: "Modifiers / Flags" },
+  { value: "periodic_damage", label: "Periodic Damage" },
+  { value: "periodic_heal", label: "Periodic Heal" },
+  { value: "body_part_heal", label: "Body Part Heal" },
+  { value: "armor_repair", label: "Armor Repair" },
+  { value: "resource_restore", label: "Resource Restore" },
+  { value: "custom", label: "Custom Payload" },
+]);
+
+const EFFECT_DURATION_TYPE_OPTIONS = Object.freeze([
+  { value: "manual", label: "Manual" },
+  { value: "rounds", label: "Rounds" },
+  { value: "until_turn_start", label: "Until Turn Start" },
+  { value: "until_turn_end", label: "Until Turn End" },
+  { value: "scene", label: "Scene" },
+  { value: "until_used", label: "Until Used" },
+]);
+
+const EFFECT_STACKING_MODE_OPTIONS = Object.freeze([
+  { value: "replace", label: "Replace" },
+  { value: "stack", label: "Stack" },
+  { value: "highest", label: "Highest Only" },
+  { value: "lowest", label: "Lowest Only" },
+  { value: "unique", label: "Unique" },
+]);
+
+const EFFECT_TARGET_SCOPE_OPTIONS = Object.freeze([
+  { value: "character", label: "Character" },
+  { value: "selected_body_part", label: "Selected Body Part" },
+  { value: "selected_armor_item", label: "Selected Armor Item" },
+]);
+
+const EFFECT_TICK_PHASE_OPTIONS = Object.freeze([
+  { value: "turn_start", label: "Turn Start" },
+  { value: "turn_end", label: "Turn End" },
+]);
+
+const EFFECT_AMOUNT_METRIC_OPTIONS = Object.freeze([
+  { value: "points", label: "Points" },
+  { value: "hp", label: "HP" },
+  { value: "minor", label: "Minor" },
+  { value: "serious", label: "Serious" },
+  { value: "critical", label: "Critical" },
+]);
+
+const EFFECT_FLAG_OPTIONS = Object.freeze([
+  { value: "helpless", label: "Helpless" },
+  { value: "skip_main_action", label: "Skip Main Action" },
+  { value: "skip_movement", label: "Skip Movement" },
+  { value: "consumes_full_turn", label: "Consumes Full Turn" },
+  { value: "suppress_movement", label: "Suppress Movement" },
+  { value: "cannot_leave_cover", label: "Cannot Leave Cover" },
+  { value: "requires_concentration", label: "Requires Concentration" },
+  { value: "expires_after_attack", label: "Expires After Attack" },
+  { value: "expires_after_turn", label: "Expires After Turn" },
+  { value: "fatal_on_any_damage_if_unprotected", label: "Fatal If Unprotected" },
+  { value: "custom", label: "Custom Flag" },
+]);
+
 function createEmptySkillDraft() {
   return {
     id: "",
@@ -70,6 +140,32 @@ function createEmptySkillDraft() {
     mainAttributeId: "",
     secondaryAttributeId: "",
     description: "",
+  };
+}
+
+function createEmptyEffectDraft() {
+  return {
+    id: "",
+    name: "",
+    uiCategory: "buff",
+    description: "",
+    defaultDurationType: "manual",
+    defaultRounds: "",
+    stackingMode: "replace",
+    isNegative: false,
+    isNarrative: false,
+    effectType: "modifiers_flags",
+    targetScope: "character",
+    amountMetric: "minor",
+    scaleBase: "0",
+    scalePerLevel: "0",
+    tickPhase: "turn_end",
+    resourcePoolId: "",
+    restoreDisabled: false,
+    modifiers: [],
+    flags: [],
+    dataExtraData: {},
+    payloadExtraData: {},
   };
 }
 
@@ -117,6 +213,14 @@ function createEmptyModifierDraft() {
   };
 }
 
+function createEmptyFlagDraft() {
+  return {
+    key: "helpless",
+    customKey: "",
+    enabled: true,
+  };
+}
+
 function createInitialState() {
   return {
     activeTab: "skills",
@@ -128,10 +232,15 @@ function createInitialState() {
     references: null,
     loadedTabs: {
       skills: false,
+      effects: false,
       equipment: false,
     },
     filters: {
       skills: {
+        search: "",
+        category: "",
+      },
+      effects: {
         search: "",
         category: "",
       },
@@ -142,28 +251,36 @@ function createInitialState() {
     },
     lists: {
       skills: [],
+      effects: [],
       equipment: [],
     },
     selectedIds: {
       skills: "",
+      effects: "",
       equipment: "",
     },
     bundles: {
       skills: null,
+      effects: null,
       equipment: null,
     },
     drafts: {
       skills: createEmptySkillDraft(),
+      effects: createEmptyEffectDraft(),
       equipment: createEmptyEquipmentDraft(),
     },
     dirty: {
       skills: false,
+      effects: false,
       equipment: false,
     },
     collapsed: {
       skillsCatalog: true,
+      effectsCatalog: true,
       equipmentCatalog: true,
       skillsPayload: true,
+      effectsPayload: true,
+      effectsBehavior: true,
       equipmentPayload: true,
       equipmentDataModifiers: true,
     },
@@ -310,6 +427,101 @@ function buildEquipmentAutoTags(draft) {
   return Array.from(tags);
 }
 
+function deriveEffectUiCategory(category) {
+  const normalized = String(category ?? "").trim().toLowerCase();
+  if (EFFECT_UI_CATEGORY_OPTIONS.some((entry) => entry.value === normalized)) {
+    return normalized;
+  }
+  switch (normalized) {
+    case "combat":
+    case "psionic":
+    case "equipment":
+    case "weapon":
+    case "armor":
+    case "narrative":
+    case "custom":
+      return "utility";
+    default:
+      return "utility";
+  }
+}
+
+function getDefaultTargetScopeForEffectType(effectType) {
+  switch (String(effectType ?? "").trim()) {
+    case "body_part_heal":
+      return "selected_body_part";
+    case "armor_repair":
+      return "selected_armor_item";
+    default:
+      return "character";
+  }
+}
+
+function getDefaultMetricForEffectType(effectType) {
+  switch (String(effectType ?? "").trim()) {
+    case "resource_restore":
+      return "points";
+    case "body_part_heal":
+      return "hp";
+    case "armor_repair":
+      return "critical";
+    case "periodic_heal":
+      return "hp";
+    case "periodic_damage":
+      return "minor";
+    default:
+      return "minor";
+  }
+}
+
+function effectTypeUsesScale(effectType) {
+  return [
+    "periodic_damage",
+    "periodic_heal",
+    "body_part_heal",
+    "armor_repair",
+    "resource_restore",
+  ].includes(String(effectType ?? "").trim());
+}
+
+function effectTypeUsesTickPhase(effectType) {
+  return ["periodic_damage", "periodic_heal"].includes(String(effectType ?? "").trim());
+}
+
+function effectTypeUsesResourcePool(effectType) {
+  return String(effectType ?? "").trim() === "resource_restore";
+}
+
+function effectTypeUsesRestoreDisabled(effectType) {
+  return String(effectType ?? "").trim() === "body_part_heal";
+}
+
+function getEffectMetricOptions(effectType) {
+  switch (String(effectType ?? "").trim()) {
+    case "resource_restore":
+      return EFFECT_AMOUNT_METRIC_OPTIONS.filter((entry) => entry.value === "points");
+    case "periodic_heal":
+    case "body_part_heal":
+      return EFFECT_AMOUNT_METRIC_OPTIONS.filter((entry) => ["hp", "minor", "serious", "critical"].includes(entry.value));
+    case "armor_repair":
+      return EFFECT_AMOUNT_METRIC_OPTIONS.filter((entry) => ["minor", "serious", "critical"].includes(entry.value));
+    case "periodic_damage":
+      return EFFECT_AMOUNT_METRIC_OPTIONS.filter((entry) => ["minor", "serious", "critical"].includes(entry.value));
+    default:
+      return EFFECT_AMOUNT_METRIC_OPTIONS;
+  }
+}
+
+function buildEffectAutoTags(draft) {
+  const tags = new Set();
+  if (draft.uiCategory) tags.add(String(draft.uiCategory).trim());
+  if (draft.effectType) tags.add(`effect_type:${String(draft.effectType).trim()}`);
+  if (draft.targetScope) tags.add(`target_scope:${String(draft.targetScope).trim()}`);
+  if (draft.isNegative) tags.add("negative");
+  if (draft.isNarrative) tags.add("narrative");
+  return Array.from(tags);
+}
+
 function toPlainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -395,6 +607,75 @@ function normalizeSkillDraft(bundle) {
     mainAttributeId: String(skill.main_attribute_id ?? ""),
     secondaryAttributeId: String(skill.secondary_attribute_id ?? ""),
     description: String(skill.description ?? ""),
+  };
+}
+
+function normalizeFlagDraft(entry) {
+  const rawKey = String(entry?.key ?? "").trim();
+  const known = EFFECT_FLAG_OPTIONS.some((option) => option.value === rawKey && option.value !== "custom")
+    ? rawKey
+    : "custom";
+  return {
+    key: known,
+    customKey: known === "custom" ? rawKey : "",
+    enabled: Boolean(entry?.enabled ?? entry?.value ?? true),
+  };
+}
+
+function normalizeEffectDraft(bundle) {
+  const effect = bundle?.effect ?? {};
+  const data = toPlainObject(effect.data);
+  const payload = toPlainObject(data.payload);
+  const {
+    modifiers: modifiersRaw,
+    flags: flagsRaw,
+    payload: payloadRaw,
+    ...dataExtraData
+  } = data;
+  const {
+    type: payloadTypeRaw,
+    target_scope: targetScopeRaw,
+    scale: scaleRaw,
+    tick_phase: tickPhaseRaw,
+    resource_pool_id: resourcePoolIdRaw,
+    restore_disabled: restoreDisabledRaw,
+    ...payloadExtraData
+  } = payload;
+  const scale = toPlainObject(scaleRaw);
+  const effectType = EFFECT_TYPE_OPTIONS.some((entry) => entry.value === String(payloadTypeRaw ?? "").trim())
+    ? String(payloadTypeRaw ?? "").trim()
+    : "modifiers_flags";
+  const targetScope = EFFECT_TARGET_SCOPE_OPTIONS.some((entry) => entry.value === String(targetScopeRaw ?? "").trim())
+    ? String(targetScopeRaw ?? "").trim()
+    : getDefaultTargetScopeForEffectType(effectType);
+  const metricOptions = getEffectMetricOptions(effectType);
+  const amountMetric = metricOptions.some((entry) => entry.value === String(scale.metric ?? "").trim())
+    ? String(scale.metric ?? "").trim()
+    : getDefaultMetricForEffectType(effectType);
+  return {
+    id: String(effect.id ?? ""),
+    name: String(effect.name ?? ""),
+    uiCategory: deriveEffectUiCategory(effect.category),
+    description: String(effect.description ?? ""),
+    defaultDurationType: String(effect.default_duration_type ?? "manual"),
+    defaultRounds: effect.default_rounds === null || effect.default_rounds === undefined ? "" : String(effect.default_rounds),
+    stackingMode: String(effect.stacking_mode ?? "replace"),
+    isNegative: Boolean(effect.is_negative),
+    isNarrative: Boolean(effect.is_narrative),
+    effectType,
+    targetScope,
+    amountMetric,
+    scaleBase: scale.base === null || scale.base === undefined ? "0" : String(scale.base),
+    scalePerLevel: scale.per_level === null || scale.per_level === undefined ? "0" : String(scale.per_level),
+    tickPhase: String(tickPhaseRaw ?? "turn_end"),
+    resourcePoolId: String(resourcePoolIdRaw ?? ""),
+    restoreDisabled: Boolean(restoreDisabledRaw),
+    modifiers: Array.isArray(modifiersRaw)
+      ? modifiersRaw.map(normalizeModifierDraft)
+      : [],
+    flags: Object.entries(toPlainObject(flagsRaw)).map(([key, value]) => normalizeFlagDraft({ key, value })),
+    dataExtraData,
+    payloadExtraData,
   };
 }
 
@@ -484,6 +765,27 @@ function makeSkillDuplicateDraft(source) {
   };
 }
 
+function makeEffectDuplicateDraft(source) {
+  const name = String(source.name ?? "").trim();
+  return {
+    ...cloneJson(source),
+    id: "",
+    name: name ? `${name} Copy` : "",
+    modifiers: Array.isArray(source.modifiers)
+      ? source.modifiers.map((entry) => ({
+          ...cloneJson(entry),
+        }))
+      : [],
+    flags: Array.isArray(source.flags)
+      ? source.flags.map((entry) => ({
+          ...cloneJson(entry),
+        }))
+      : [],
+    dataExtraData: cloneJson(source.dataExtraData ?? {}),
+    payloadExtraData: cloneJson(source.payloadExtraData ?? {}),
+  };
+}
+
 function makeEquipmentDuplicateDraft(source) {
   const name = String(source.name ?? "").trim();
   return {
@@ -512,6 +814,17 @@ function generatedSkillPreview(draft, references, state) {
   const tags = buildSkillAutoTags(draft, references);
   const sortOrder = draft.id
     ? Number.parseInt(String(state?.bundles?.skills?.skill?.sort_order ?? 0), 10) || 0
+    : nextFreeSortOrder(list);
+  return { code, tags, sortOrder };
+}
+
+function generatedEffectPreview(draft, state) {
+  const list = Array.isArray(state?.lists?.effects) ? state.lists.effects : [];
+  const existingCodes = list.map((item) => item?.code);
+  const code = uniqueGeneratedCode(slugifyName(draft.name), existingCodes);
+  const tags = buildEffectAutoTags(draft);
+  const sortOrder = draft.id
+    ? Number.parseInt(String(state?.bundles?.effects?.effect?.sort_order ?? 0), 10) || 0
     : nextFreeSortOrder(list);
   return { code, tags, sortOrder };
 }
@@ -565,6 +878,16 @@ function buildAbilityLinkPayload(link, index) {
   };
 }
 
+function buildFlagPayload(entry) {
+  const key = String(entry?.key ?? "").trim() === "custom"
+    ? String(entry?.customKey ?? "").trim()
+    : String(entry?.key ?? "").trim();
+  if (!key) {
+    return null;
+  }
+  return [key, Boolean(entry?.enabled)];
+}
+
 function buildSkillPayload(draft, auto) {
   const skillConfig = getSkillSubcategoryConfig(draft.skillGroup, draft.skillSubcategory);
   return {
@@ -578,6 +901,82 @@ function buildSkillPayload(draft, auto) {
     sort_order: auto.sortOrder,
     description: String(draft.description ?? ""),
     tags: auto.tags,
+  };
+}
+
+function buildEffectPayload(draft, auto) {
+  const data = toPlainObject(cloneJson(draft.dataExtraData));
+  const payload = toPlainObject(cloneJson(draft.payloadExtraData));
+  const modifiers = (Array.isArray(draft.modifiers) ? draft.modifiers : [])
+    .map(buildModifierPayload)
+    .filter(Boolean);
+  const flags = Object.fromEntries(
+    (Array.isArray(draft.flags) ? draft.flags : [])
+      .map(buildFlagPayload)
+      .filter(Boolean),
+  );
+
+  if (modifiers.length) {
+    data.modifiers = modifiers;
+  } else {
+    delete data.modifiers;
+  }
+
+  if (Object.keys(flags).length) {
+    data.flags = flags;
+  } else {
+    delete data.flags;
+  }
+
+  const effectType = String(draft.effectType ?? "modifiers_flags").trim() || "modifiers_flags";
+  if (effectType === "modifiers_flags") {
+    delete data.payload;
+  } else {
+    payload.type = effectType;
+    payload.target_scope = String(draft.targetScope ?? getDefaultTargetScopeForEffectType(effectType)).trim() || getDefaultTargetScopeForEffectType(effectType);
+    if (effectTypeUsesScale(effectType)) {
+      payload.scale = {
+        base: coerceInteger(draft.scaleBase, 0),
+        per_level: coerceInteger(draft.scalePerLevel, 0),
+        metric: String(draft.amountMetric ?? getDefaultMetricForEffectType(effectType)).trim() || getDefaultMetricForEffectType(effectType),
+      };
+    } else {
+      delete payload.scale;
+    }
+    if (effectTypeUsesTickPhase(effectType)) {
+      payload.tick_phase = String(draft.tickPhase ?? "turn_end").trim() || "turn_end";
+    } else {
+      delete payload.tick_phase;
+    }
+    if (effectTypeUsesResourcePool(effectType)) {
+      payload.resource_pool_id = String(draft.resourcePoolId ?? "").trim() || null;
+    } else {
+      delete payload.resource_pool_id;
+    }
+    if (effectTypeUsesRestoreDisabled(effectType)) {
+      payload.restore_disabled = Boolean(draft.restoreDisabled);
+    } else {
+      delete payload.restore_disabled;
+    }
+    data.payload = payload;
+  }
+
+  return {
+    id: draft.id || undefined,
+    code: String(auto.code ?? "").trim(),
+    name: String(draft.name ?? "").trim(),
+    category: String(draft.uiCategory ?? "utility").trim() || "utility",
+    description: String(draft.description ?? ""),
+    default_duration_type: String(draft.defaultDurationType ?? "manual").trim() || "manual",
+    default_rounds: String(draft.defaultDurationType ?? "manual") === "rounds"
+      ? coerceInteger(draft.defaultRounds, 1)
+      : null,
+    stacking_mode: String(draft.stackingMode ?? "replace").trim() || "replace",
+    is_negative: Boolean(draft.isNegative),
+    is_narrative: Boolean(draft.isNarrative),
+    sort_order: auto.sortOrder,
+    tags: auto.tags,
+    data,
   };
 }
 
@@ -721,6 +1120,34 @@ function buildSkillFilterMarkup(state, references) {
   `;
 }
 
+function buildEffectFilterMarkup(state) {
+  const selected = state.filters.effects.category;
+  const options = [
+    '<option value="">All categories</option>',
+    ...EFFECT_UI_CATEGORY_OPTIONS.map(
+      (category) => `<option value="${escapeHtml(category.value)}"${selected === category.value ? " selected" : ""}>${escapeHtml(category.label)}</option>`,
+    ),
+  ];
+  return `
+    <div class="creator-toolbar">
+      <label class="field-stack">
+        <span>Search</span>
+        <input data-creator-filter-search="effects" type="text" value="${escapeHtml(state.filters.effects.search)}" placeholder="code, name, tags">
+      </label>
+      <label class="field-stack">
+        <span>Category</span>
+        <select data-creator-filter-category="effects">
+          ${options.join("")}
+        </select>
+      </label>
+      <div class="creator-filter-actions">
+        <button type="button" class="secondary" data-creator-action="applyFilters">Apply Filters</button>
+        <button type="button" class="secondary" data-creator-action="refreshList">Refresh</button>
+      </div>
+    </div>
+  `;
+}
+
 function buildEquipmentFilterMarkup(state, references) {
   const selected = state.filters.equipment.itemType;
   const types = getEquipmentUiTypes(references);
@@ -752,7 +1179,13 @@ function buildEquipmentFilterMarkup(state, references) {
 
 function buildListMarkup(kind, items, selectedId) {
   if (!items.length) {
-    return `<div class="creator-empty">No ${kind === "skills" ? "skills" : "equipment models"} found for the current filter.</div>`;
+    return `<div class="creator-empty">No ${
+      kind === "skills"
+        ? "skills"
+        : kind === "effects"
+        ? "effects"
+        : "equipment models"
+    } found for the current filter.</div>`;
   }
   return items
     .map((item) => {
@@ -766,6 +1199,12 @@ function buildListMarkup(kind, items, selectedId) {
             item.secondary_attribute_name || item.secondary_attribute_code || "no secondary attribute",
           ];
           })()
+        : kind === "effects"
+        ? [
+            deriveEffectUiCategory(item.category),
+            item.default_duration_type || "manual",
+            item.stacking_mode || "replace",
+          ]
         : [
             item.item_type || "unknown",
             item.default_body_part_code || "no body part",
@@ -792,6 +1231,17 @@ function buildAttributeOptions(references, selectedValue) {
   for (const attribute of attributes) {
     options.push(
       `<option value="${escapeHtml(attribute.id)}"${selectedValue === attribute.id ? " selected" : ""}>${escapeHtml(attribute.name || attribute.code || attribute.id)}</option>`,
+    );
+  }
+  return options.join("");
+}
+
+function buildResourcePoolOptions(references, selectedValue) {
+  const pools = Array.isArray(references?.resource_pools) ? references.resource_pools : [];
+  const options = ['<option value="">Select resource</option>'];
+  for (const pool of pools) {
+    options.push(
+      `<option value="${escapeHtml(pool.id)}"${selectedValue === pool.id ? " selected" : ""}>${escapeHtml(pool.name || pool.code || pool.id)}</option>`,
     );
   }
   return options.join("");
@@ -976,6 +1426,54 @@ function buildModifierEditorMarkup(draft, references) {
     .join("");
 }
 
+function buildFlagOptions(selectedValue) {
+  return EFFECT_FLAG_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${selectedValue === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+}
+
+function buildFlagEditorMarkup(draft) {
+  const flags = Array.isArray(draft.flags) ? draft.flags : [];
+  if (!flags.length) {
+    return `<div class="creator-empty">No flags yet. Add one if this effect should set a combat or control state.</div>`;
+  }
+  return flags
+    .map((flag, index) => {
+      const resolvedKey = String(flag.key ?? "helpless");
+      return `
+        <div class="creator-link-card" data-creator-flag-row="${index}">
+          <div class="creator-link-head">
+            <strong>Flag ${index + 1}</strong>
+            <button type="button" class="secondary" data-creator-flag-remove="${index}">Remove</button>
+          </div>
+          <div class="field-grid creator-grid-3">
+            <label class="field-stack">
+              <span>Flag</span>
+              <select data-creator-flag-input="key" data-flag-index="${index}">
+                ${buildFlagOptions(resolvedKey)}
+              </select>
+            </label>
+            ${resolvedKey === "custom" ? `
+              <label class="field-stack">
+                <span>Custom Key</span>
+                <input data-creator-flag-input="customKey" data-flag-index="${index}" type="text" value="${escapeHtml(flag.customKey)}" placeholder="custom_flag">
+              </label>
+            ` : `
+              <div class="creator-auto-meta creator-small-meta">
+                <div><strong>Resolved Key:</strong> ${escapeHtml(resolvedKey)}</div>
+              </div>
+            `}
+            <label class="field-stack">
+              <span>Enabled</span>
+              <input data-creator-flag-input="enabled" data-flag-index="${index}" type="checkbox"${flag.enabled ? " checked" : ""}>
+            </label>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 function buildSkillEditorMarkup(state, references) {
   const draft = state.drafts.skills;
   const auto = generatedSkillPreview(draft, references, state);
@@ -1036,6 +1534,177 @@ function buildSkillEditorMarkup(state, references) {
         bodyMarkup: `
           <label class="field-stack">
             <textarea rows="10" readonly>${escapeHtml(prettyJson(buildSkillPayload(draft, auto)))}</textarea>
+          </label>
+        `,
+      })}
+    </form>
+  `;
+}
+
+function buildEffectEditorMarkup(state, references) {
+  const draft = state.drafts.effects;
+  const auto = generatedEffectPreview(draft, state);
+  const categoryOptions = EFFECT_UI_CATEGORY_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.uiCategory === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const effectTypeOptions = EFFECT_TYPE_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.effectType === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const durationOptions = EFFECT_DURATION_TYPE_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.defaultDurationType === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const stackingOptions = EFFECT_STACKING_MODE_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.stackingMode === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const targetScopeOptions = EFFECT_TARGET_SCOPE_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.targetScope === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const metricOptions = getEffectMetricOptions(draft.effectType)
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.amountMetric === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const tickPhaseOptions = EFFECT_TICK_PHASE_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.value)}"${draft.tickPhase === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`)
+    .join("");
+  const behaviorCollapsed = Boolean(state.collapsed.effectsBehavior);
+  const payloadCollapsed = Boolean(state.collapsed.effectsPayload);
+
+  return `
+    <div class="creator-editor-head">
+      <div>
+        <div class="creator-editor-title">${escapeHtml(draft.name || "New Effect Draft")}</div>
+        <div class="muted">${draft.id ? "Editing saved definition." : "Draft is local until Save."}</div>
+      </div>
+      <div class="creator-pill${state.dirty.effects ? " dirty" : ""}" data-creator-dirty-pill="effects">${state.dirty.effects ? "Unsaved" : "Saved / clean"}</div>
+    </div>
+    <div class="button-row">
+      <button type="button" data-creator-action="newDraft">Create New</button>
+      <button type="button" class="secondary" data-creator-action="duplicateDraft">Duplicate</button>
+      <button type="button" data-creator-action="saveDraft">Save</button>
+      <button type="button" class="secondary" data-creator-action="reloadSelected"${draft.id ? "" : " disabled"}>Reload</button>
+      <button type="button" class="secondary" data-creator-action="deleteSelected"${draft.id ? "" : " disabled"}>Delete</button>
+    </div>
+    <form class="creator-form" data-creator-form="effects">
+      <label class="field-stack">
+        <span>Name</span>
+        <input data-creator-input="name" type="text" value="${escapeHtml(draft.name)}" placeholder="Hemostatic Surge">
+      </label>
+      <div class="field-grid creator-grid-4">
+        <label class="field-stack">
+          <span>Category</span>
+          <select data-creator-input="uiCategory">${categoryOptions}</select>
+        </label>
+        <label class="field-stack">
+          <span>Effect Type</span>
+          <select data-creator-input="effectType">${effectTypeOptions}</select>
+        </label>
+        <label class="field-stack">
+          <span>Duration</span>
+          <select data-creator-input="defaultDurationType">${durationOptions}</select>
+        </label>
+        <label class="field-stack">
+          <span>Stacking Mode</span>
+          <select data-creator-input="stackingMode">${stackingOptions}</select>
+        </label>
+      </div>
+      <div class="field-grid creator-grid-3">
+        <label class="field-stack">
+          <span>Default Rounds</span>
+          <input data-creator-input="defaultRounds" type="number" min="0" value="${escapeHtml(draft.defaultRounds)}"${draft.defaultDurationType === "rounds" ? "" : " disabled"}>
+        </label>
+        <label class="field-stack">
+          <span>Negative</span>
+          <input data-creator-input="isNegative" type="checkbox"${draft.isNegative ? " checked" : ""}>
+        </label>
+        <label class="field-stack">
+          <span>Narrative</span>
+          <input data-creator-input="isNarrative" type="checkbox"${draft.isNarrative ? " checked" : ""}>
+        </label>
+      </div>
+      <label class="field-stack">
+        <span>Description</span>
+        <textarea data-creator-input="description" rows="4" placeholder="Short GM-facing description">${escapeHtml(draft.description)}</textarea>
+      </label>
+      ${buildDisclosureSection({
+        title: "Behavior",
+        collapsed: behaviorCollapsed,
+        action: "toggleEffectsBehavior",
+        actionsMarkup: `
+          <div class="button-row compact">
+            <button type="button" class="secondary" data-creator-action="addModifier">Add Modifier</button>
+            <button type="button" class="secondary" data-creator-action="addFlag">Add Flag</button>
+          </div>
+        `,
+        bodyMarkup: `
+          <div class="field-grid creator-grid-2">
+            <label class="field-stack">
+              <span>Target Scope</span>
+              <select data-creator-input="targetScope">${targetScopeOptions}</select>
+            </label>
+            ${effectTypeUsesTickPhase(draft.effectType) ? `
+              <label class="field-stack">
+                <span>Tick Phase</span>
+                <select data-creator-input="tickPhase">${tickPhaseOptions}</select>
+              </label>
+            ` : `
+              <div class="creator-auto-meta creator-small-meta">
+                <div><strong>Tick Phase:</strong> not used by this effect type.</div>
+              </div>
+            `}
+          </div>
+          ${effectTypeUsesScale(draft.effectType) ? `
+            <div class="field-grid creator-grid-4">
+              <label class="field-stack">
+                <span>Base</span>
+                <input data-creator-input="scaleBase" type="number" value="${escapeHtml(draft.scaleBase)}">
+              </label>
+              <label class="field-stack">
+                <span>Per Level</span>
+                <input data-creator-input="scalePerLevel" type="number" value="${escapeHtml(draft.scalePerLevel)}">
+              </label>
+              <label class="field-stack">
+                <span>Metric</span>
+                <select data-creator-input="amountMetric">${metricOptions}</select>
+              </label>
+              ${effectTypeUsesResourcePool(draft.effectType) ? `
+                <label class="field-stack">
+                  <span>Resource Pool</span>
+                  <select data-creator-input="resourcePoolId">${buildResourcePoolOptions(references, draft.resourcePoolId)}</select>
+                </label>
+              ` : effectTypeUsesRestoreDisabled(draft.effectType) ? `
+                <label class="field-stack">
+                  <span>Restore Disabled</span>
+                  <input data-creator-input="restoreDisabled" type="checkbox"${draft.restoreDisabled ? " checked" : ""}>
+                </label>
+              ` : `
+                <div class="creator-auto-meta creator-small-meta">
+                  <div><strong>Scale:</strong> base + per_level</div>
+                </div>
+              `}
+            </div>
+          ` : `
+            <div class="creator-auto-meta creator-small-meta">
+              <div><strong>Scale:</strong> not used by this effect type.</div>
+            </div>
+          `}
+          <div class="field-grid creator-grid-2">
+            <div>
+              <strong>Modifiers</strong>
+              ${buildModifierEditorMarkup(draft, references)}
+            </div>
+            <div>
+              <strong>Flags</strong>
+              ${buildFlagEditorMarkup(draft)}
+            </div>
+          </div>
+        `,
+      })}
+      ${buildDisclosureSection({
+        title: "Payload Preview",
+        collapsed: payloadCollapsed,
+        action: "toggleEffectsPayload",
+        bodyMarkup: `
+          <label class="field-stack">
+            <textarea rows="14" readonly>${escapeHtml(prettyJson(buildEffectPayload(draft, auto)))}</textarea>
           </label>
         `,
       })}
@@ -1259,7 +1928,7 @@ function buildPanelMarkup(state, access) {
     return `
       <section class="panel">
         <div class="panel-title">Creator Menu</div>
-        <p class="muted">Configure Supabase room settings above, then the creator tabs for Skills and Equipment Models will unlock here.</p>
+        <p class="muted">Configure Supabase room settings above, then the creator tabs for Skills, Effects, and Equipment Models will unlock here.</p>
       </section>
     `;
   }
@@ -1267,21 +1936,29 @@ function buildPanelMarkup(state, access) {
   const references = state.references ?? {};
   const listMarkup = state.activeTab === "skills"
     ? buildListMarkup("skills", state.lists.skills, state.selectedIds.skills)
+    : state.activeTab === "effects"
+    ? buildListMarkup("effects", state.lists.effects, state.selectedIds.effects)
     : buildListMarkup("equipment", state.lists.equipment, state.selectedIds.equipment);
   const filtersMarkup = state.activeTab === "skills"
     ? buildSkillFilterMarkup(state, references)
+    : state.activeTab === "effects"
+    ? buildEffectFilterMarkup(state)
     : buildEquipmentFilterMarkup(state, references);
   const editorMarkup = state.activeTab === "skills"
     ? buildSkillEditorMarkup(state, references)
+    : state.activeTab === "effects"
+    ? buildEffectEditorMarkup(state, references)
     : buildEquipmentEditorMarkup(state, references);
   const catalogCollapsed = state.activeTab === "skills"
     ? Boolean(state.collapsed.skillsCatalog)
+    : state.activeTab === "effects"
+    ? Boolean(state.collapsed.effectsCatalog)
     : Boolean(state.collapsed.equipmentCatalog);
   const catalogMarkup = buildCatalogSection({
-    title: state.activeTab === "skills" ? "Skill Catalog" : "Equipment Catalog",
-    count: state.activeTab === "skills" ? state.lists.skills.length : state.lists.equipment.length,
+    title: state.activeTab === "skills" ? "Skill Catalog" : state.activeTab === "effects" ? "Effect Catalog" : "Equipment Catalog",
+    count: state.activeTab === "skills" ? state.lists.skills.length : state.activeTab === "effects" ? state.lists.effects.length : state.lists.equipment.length,
     collapsed: catalogCollapsed,
-    action: state.activeTab === "skills" ? "toggleSkillsCatalog" : "toggleEquipmentCatalog",
+    action: state.activeTab === "skills" ? "toggleSkillsCatalog" : state.activeTab === "effects" ? "toggleEffectsCatalog" : "toggleEquipmentCatalog",
     bodyMarkup: listMarkup,
   });
 
@@ -1322,6 +1999,70 @@ function readSkillDraftFromDom(root) {
     mainAttributeId: String(query("mainAttributeId")?.value ?? ""),
     secondaryAttributeId: String(query("secondaryAttributeId")?.value ?? ""),
     description: String(query("description")?.value ?? ""),
+  };
+}
+
+function readEffectDraftFromDom(root, fallbackDraft = createEmptyEffectDraft()) {
+  const form = root.querySelector('[data-creator-form="effects"]');
+  if (!(form instanceof HTMLElement)) {
+    return cloneJson(fallbackDraft);
+  }
+  const query = (field) => form.querySelector(`[data-creator-input="${field}"]`);
+  const modifierRows = Array.from(form.querySelectorAll("[data-creator-modifier-row]"));
+  const modifiers = modifierRows.length
+    ? modifierRows.map((row) => {
+        const index = String(row.getAttribute("data-creator-modifier-row") ?? "");
+        const fallbackModifier = Array.isArray(fallbackDraft.modifiers)
+          ? fallbackDraft.modifiers[Number.parseInt(index, 10)] ?? createEmptyModifierDraft()
+          : createEmptyModifierDraft();
+        const modifierQuery = (field) => form.querySelector(`[data-creator-modifier-input="${field}"][data-modifier-index="${index}"]`);
+        return {
+          target: String(modifierQuery("target")?.value ?? fallbackModifier.target ?? "attack_accuracy"),
+          customTarget: String(modifierQuery("customTarget")?.value ?? fallbackModifier.customTarget ?? ""),
+          attributeCode: String(modifierQuery("attributeCode")?.value ?? fallbackModifier.attributeCode ?? ""),
+          skillCode: String(modifierQuery("skillCode")?.value ?? fallbackModifier.skillCode ?? ""),
+          value: String(modifierQuery("value")?.value ?? fallbackModifier.value ?? "0"),
+        };
+      })
+    : cloneJson(fallbackDraft.modifiers ?? []);
+  const flagRows = Array.from(form.querySelectorAll("[data-creator-flag-row]"));
+  const flags = flagRows.length
+    ? flagRows.map((row) => {
+        const index = String(row.getAttribute("data-creator-flag-row") ?? "");
+        const fallbackFlag = Array.isArray(fallbackDraft.flags)
+          ? fallbackDraft.flags[Number.parseInt(index, 10)] ?? createEmptyFlagDraft()
+          : createEmptyFlagDraft();
+        const flagQuery = (field) => form.querySelector(`[data-creator-flag-input="${field}"][data-flag-index="${index}"]`);
+        return {
+          key: String(flagQuery("key")?.value ?? fallbackFlag.key ?? "helpless"),
+          customKey: String(flagQuery("customKey")?.value ?? fallbackFlag.customKey ?? ""),
+          enabled: Boolean(flagQuery("enabled")?.checked ?? fallbackFlag.enabled ?? true),
+        };
+      })
+    : cloneJson(fallbackDraft.flags ?? []);
+  const effectType = String(query("effectType")?.value ?? fallbackDraft.effectType ?? "modifiers_flags");
+  return {
+    id: String(form.dataset.creatorEntityId ?? ""),
+    name: String(query("name")?.value ?? ""),
+    uiCategory: String(query("uiCategory")?.value ?? fallbackDraft.uiCategory ?? "utility"),
+    description: String(query("description")?.value ?? fallbackDraft.description ?? ""),
+    defaultDurationType: String(query("defaultDurationType")?.value ?? fallbackDraft.defaultDurationType ?? "manual"),
+    defaultRounds: String(query("defaultRounds")?.value ?? fallbackDraft.defaultRounds ?? ""),
+    stackingMode: String(query("stackingMode")?.value ?? fallbackDraft.stackingMode ?? "replace"),
+    isNegative: Boolean(query("isNegative")?.checked ?? fallbackDraft.isNegative),
+    isNarrative: Boolean(query("isNarrative")?.checked ?? fallbackDraft.isNarrative),
+    effectType,
+    targetScope: String(query("targetScope")?.value ?? fallbackDraft.targetScope ?? getDefaultTargetScopeForEffectType(effectType)),
+    amountMetric: String(query("amountMetric")?.value ?? fallbackDraft.amountMetric ?? getDefaultMetricForEffectType(effectType)),
+    scaleBase: String(query("scaleBase")?.value ?? fallbackDraft.scaleBase ?? "0"),
+    scalePerLevel: String(query("scalePerLevel")?.value ?? fallbackDraft.scalePerLevel ?? "0"),
+    tickPhase: String(query("tickPhase")?.value ?? fallbackDraft.tickPhase ?? "turn_end"),
+    resourcePoolId: String(query("resourcePoolId")?.value ?? fallbackDraft.resourcePoolId ?? ""),
+    restoreDisabled: Boolean(query("restoreDisabled")?.checked ?? fallbackDraft.restoreDisabled),
+    modifiers,
+    flags,
+    dataExtraData: cloneJson(fallbackDraft.dataExtraData ?? {}),
+    payloadExtraData: cloneJson(fallbackDraft.payloadExtraData ?? {}),
   };
 }
 
@@ -1426,6 +2167,8 @@ export function mountCreatorMenu({
   function captureActiveDraft() {
     if (state.activeTab === "skills") {
       state.drafts.skills = readSkillDraftFromDom(root);
+    } else if (state.activeTab === "effects") {
+      state.drafts.effects = readEffectDraftFromDom(root, state.drafts.effects);
     } else {
       state.drafts.equipment = readEquipmentDraftFromDom(root, state.drafts.equipment);
     }
@@ -1439,15 +2182,16 @@ export function mountCreatorMenu({
   function resetLoadedData({ keepTab = true } = {}) {
     const activeTab = keepTab ? state.activeTab : "skills";
     state.references = null;
-    state.loadedTabs = { skills: false, equipment: false };
-    state.lists = { skills: [], equipment: [] };
-    state.selectedIds = { skills: "", equipment: "" };
-    state.bundles = { skills: null, equipment: null };
+    state.loadedTabs = { skills: false, effects: false, equipment: false };
+    state.lists = { skills: [], effects: [], equipment: [] };
+    state.selectedIds = { skills: "", effects: "", equipment: "" };
+    state.bundles = { skills: null, effects: null, equipment: null };
     state.drafts = {
       skills: createEmptySkillDraft(),
+      effects: createEmptyEffectDraft(),
       equipment: createEmptyEquipmentDraft(),
     };
-    state.dirty = { skills: false, equipment: false };
+    state.dirty = { skills: false, effects: false, equipment: false };
     state.activeTab = activeTab;
   }
 
@@ -1475,7 +2219,7 @@ export function mountCreatorMenu({
           && (
             (
               target.hasAttribute("data-creator-input")
-              && ["skillGroup"].includes(String(target.getAttribute("data-creator-input")))
+              && ["skillGroup", "effectType", "defaultDurationType"].includes(String(target.getAttribute("data-creator-input")))
             )
             || (
               target.hasAttribute("data-creator-link-input")
@@ -1486,6 +2230,7 @@ export function mountCreatorMenu({
               && ["itemType"].includes(String(target.getAttribute("data-creator-input")))
             )
             || target.hasAttribute("data-creator-modifier-input")
+            || target.hasAttribute("data-creator-flag-input")
           )
         ) {
           render();
@@ -1529,8 +2274,25 @@ export function mountCreatorMenu({
         captureActiveDraft();
         const index = Number.parseInt(String(button.dataset.creatorModifierRemove ?? ""), 10);
         if (!Number.isFinite(index)) return;
-        state.drafts.equipment.modifiers.splice(index, 1);
-        state.dirty.equipment = true;
+        if (state.activeTab === "effects") {
+          state.drafts.effects.modifiers.splice(index, 1);
+          state.dirty.effects = true;
+        } else {
+          state.drafts.equipment.modifiers.splice(index, 1);
+          state.dirty.equipment = true;
+        }
+        clearMessages();
+        render();
+      });
+    });
+
+    root.querySelectorAll("[data-creator-flag-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        captureActiveDraft();
+        const index = Number.parseInt(String(button.dataset.creatorFlagRemove ?? ""), 10);
+        if (!Number.isFinite(index)) return;
+        state.drafts.effects.flags.splice(index, 1);
+        state.dirty.effects = true;
         clearMessages();
         render();
       });
@@ -1559,9 +2321,24 @@ export function mountCreatorMenu({
             state.collapsed.equipmentCatalog = !state.collapsed.equipmentCatalog;
             render();
             break;
+          case "toggleEffectsCatalog":
+            captureActiveDraft();
+            state.collapsed.effectsCatalog = !state.collapsed.effectsCatalog;
+            render();
+            break;
           case "toggleSkillsPayload":
             captureActiveDraft();
             state.collapsed.skillsPayload = !state.collapsed.skillsPayload;
+            render();
+            break;
+          case "toggleEffectsPayload":
+            captureActiveDraft();
+            state.collapsed.effectsPayload = !state.collapsed.effectsPayload;
+            render();
+            break;
+          case "toggleEffectsBehavior":
+            captureActiveDraft();
+            state.collapsed.effectsBehavior = !state.collapsed.effectsBehavior;
             render();
             break;
           case "toggleEquipmentPayload":
@@ -1603,9 +2380,23 @@ export function mountCreatorMenu({
             break;
           case "addModifier":
             captureActiveDraft();
-            state.drafts.equipment.modifiers.push(createEmptyModifierDraft());
-            state.dirty.equipment = true;
-            state.collapsed.equipmentDataModifiers = false;
+            if (state.activeTab === "effects") {
+              state.drafts.effects.modifiers.push(createEmptyModifierDraft());
+              state.dirty.effects = true;
+              state.collapsed.effectsBehavior = false;
+            } else {
+              state.drafts.equipment.modifiers.push(createEmptyModifierDraft());
+              state.dirty.equipment = true;
+              state.collapsed.equipmentDataModifiers = false;
+            }
+            clearMessages();
+            render();
+            break;
+          case "addFlag":
+            captureActiveDraft();
+            state.drafts.effects.flags.push(createEmptyFlagDraft());
+            state.dirty.effects = true;
+            state.collapsed.effectsBehavior = false;
             clearMessages();
             render();
             break;
@@ -1622,6 +2413,11 @@ export function mountCreatorMenu({
       const category = root.querySelector('[data-creator-filter-category="skills"]');
       state.filters.skills.search = String(search?.value ?? "").trim();
       state.filters.skills.category = String(category?.value ?? "").trim();
+    } else if (state.activeTab === "effects") {
+      const search = root.querySelector('[data-creator-filter-search="effects"]');
+      const category = root.querySelector('[data-creator-filter-category="effects"]');
+      state.filters.effects.search = String(search?.value ?? "").trim();
+      state.filters.effects.category = String(category?.value ?? "").trim();
     } else {
       const search = root.querySelector('[data-creator-filter-search="equipment"]');
       const itemType = root.querySelector('[data-creator-filter-item-type="equipment"]');
@@ -1700,6 +2496,15 @@ export function mountCreatorMenu({
         },
         settings,
       );
+    } else if (kind === "effects") {
+      const filters = state.filters.effects;
+      result = await runtime.api.creator.listEffects(
+        {
+          search: filters.search || null,
+          categories: filters.category ? [filters.category] : [],
+        },
+        settings,
+      );
     } else {
       const filters = state.filters.equipment;
       result = await runtime.api.creator.listEquipmentModels(
@@ -1718,6 +2523,8 @@ export function mountCreatorMenu({
 
     state.lists[kind] = kind === "skills"
       ? (Array.isArray(result.items) ? result.items : []).filter((item) => getAllowedSkillBackendCategories().includes(String(item?.category ?? "")))
+      : kind === "effects"
+      ? (Array.isArray(result.items) ? result.items : [])
       : kind === "equipment"
       ? (Array.isArray(result.items) ? result.items : []).filter((item) => String(item?.item_type ?? "") !== "device")
       : (Array.isArray(result.items) ? result.items : []);
@@ -1729,7 +2536,11 @@ export function mountCreatorMenu({
     ) {
       state.selectedIds[kind] = "";
       state.bundles[kind] = null;
-      state.drafts[kind] = kind === "skills" ? createEmptySkillDraft() : createEmptyEquipmentDraft();
+      state.drafts[kind] = kind === "skills"
+        ? createEmptySkillDraft()
+        : kind === "effects"
+        ? createEmptyEffectDraft()
+        : createEmptyEquipmentDraft();
       state.dirty[kind] = false;
     }
   }
@@ -1751,7 +2562,7 @@ export function mountCreatorMenu({
       }
       await loadListForTab(state.activeTab, access.settings, requestId);
       state.loading = false;
-      state.info = `${state.activeTab === "skills" ? "Skill" : "Equipment"} catalog refreshed.`;
+      state.info = `${state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : "Equipment"} catalog refreshed.`;
       render();
     } catch (error) {
       state.loading = false;
@@ -1768,13 +2579,15 @@ export function mountCreatorMenu({
     }
     const requestId = ++state.requestNonce;
     state.loading = true;
-    state.loadingLabel = `loading ${kind === "skills" ? "skill" : "equipment model"}`;
+    state.loadingLabel = `loading ${kind === "skills" ? "skill" : kind === "effects" ? "effect" : "equipment model"}`;
     clearMessages();
     render();
 
     try {
       const result = kind === "skills"
         ? await runtime.api.creator.getSkill(id, access.settings)
+        : kind === "effects"
+        ? await runtime.api.creator.getEffect(id, access.settings)
         : await runtime.api.creator.getEquipmentModel(id, access.settings);
       if (requestId !== state.requestNonce) return;
       if (!result?.ok) {
@@ -1784,10 +2597,12 @@ export function mountCreatorMenu({
       state.bundles[kind] = result;
       state.drafts[kind] = kind === "skills"
         ? normalizeSkillDraft(result)
+        : kind === "effects"
+        ? normalizeEffectDraft(result)
         : normalizeEquipmentDraft(result);
       state.dirty[kind] = false;
       state.loading = false;
-      state.info = `${kind === "skills" ? "Skill" : "Equipment model"} loaded into draft.`;
+      state.info = `${kind === "skills" ? "Skill" : kind === "effects" ? "Effect" : "Equipment model"} loaded into draft.`;
       render();
     } catch (error) {
       if (requestId !== state.requestNonce) return;
@@ -1806,6 +2621,12 @@ export function mountCreatorMenu({
       state.drafts.skills = createEmptySkillDraft();
       state.dirty.skills = false;
       state.info = "New skill draft created.";
+    } else if (state.activeTab === "effects") {
+      state.selectedIds.effects = "";
+      state.bundles.effects = null;
+      state.drafts.effects = createEmptyEffectDraft();
+      state.dirty.effects = false;
+      state.info = "New effect draft created.";
     } else {
       state.selectedIds.equipment = "";
       state.bundles.equipment = null;
@@ -1824,6 +2645,12 @@ export function mountCreatorMenu({
       state.drafts.skills = makeSkillDuplicateDraft(state.drafts.skills);
       state.dirty.skills = true;
       state.info = "Skill draft duplicated as a new record.";
+    } else if (state.activeTab === "effects") {
+      state.selectedIds.effects = "";
+      state.bundles.effects = null;
+      state.drafts.effects = makeEffectDuplicateDraft(state.drafts.effects);
+      state.dirty.effects = true;
+      state.info = "Effect draft duplicated as a new record.";
     } else {
       state.selectedIds.equipment = "";
       state.bundles.equipment = null;
@@ -1855,6 +2682,25 @@ export function mountCreatorMenu({
       return buildSkillPayload(draft, auto);
     }
 
+    if (kind === "effects") {
+      const allEffects = await runtime.api.creator.listEffects({ search: null, categories: [] }, settings);
+      if (!allEffects?.ok) {
+        throw new Error(formatCreatorError(allEffects, "Unable to calculate automatic effect fields."));
+      }
+      const list = Array.isArray(allEffects.items) ? allEffects.items : [];
+      const existingCodes = list
+        .filter((item) => item.id !== draft.id)
+        .map((item) => item.code);
+      const auto = {
+        code: uniqueGeneratedCode(slugifyName(draft.name), existingCodes),
+        sortOrder: draft.id
+          ? Number.parseInt(String(state.bundles.effects?.effect?.sort_order ?? 0), 10) || 0
+          : nextFreeSortOrder(list),
+        tags: buildEffectAutoTags(draft),
+      };
+      return buildEffectPayload(draft, auto);
+    }
+
     const allEquipment = await runtime.api.creator.listEquipmentModels({ search: null, itemTypes: [] }, settings);
     if (!allEquipment?.ok) {
       throw new Error(formatCreatorError(allEquipment, "Unable to calculate automatic equipment fields."));
@@ -1883,10 +2729,16 @@ export function mountCreatorMenu({
     state.loadingLabel = "saving draft";
     render();
     try {
-      const draft = state.activeTab === "skills" ? state.drafts.skills : state.drafts.equipment;
+      const draft = state.activeTab === "skills"
+        ? state.drafts.skills
+        : state.activeTab === "effects"
+        ? state.drafts.effects
+        : state.drafts.equipment;
       const payload = await buildSavePayload(state.activeTab, draft, access.settings);
       const result = state.activeTab === "skills"
         ? await runtime.api.creator.upsertSkill(payload, access.settings)
+        : state.activeTab === "effects"
+        ? await runtime.api.creator.upsertEffect(payload, access.settings)
         : await runtime.api.creator.upsertEquipmentModel(payload, access.settings);
       if (!result?.ok) {
         throw new Error(formatCreatorError(result, "Unable to save draft."));
@@ -1900,6 +2752,11 @@ export function mountCreatorMenu({
         state.bundles.skills = bundle;
         state.drafts.skills = normalizeSkillDraft(bundle);
         state.dirty.skills = false;
+      } else if (state.activeTab === "effects") {
+        state.selectedIds.effects = String(result.entity_id ?? "");
+        state.bundles.effects = bundle;
+        state.drafts.effects = normalizeEffectDraft(bundle);
+        state.dirty.effects = false;
       } else {
         state.selectedIds.equipment = String(result.entity_id ?? "");
         state.bundles.equipment = bundle;
@@ -1908,7 +2765,7 @@ export function mountCreatorMenu({
       }
       await loadListForTab(state.activeTab, access.settings);
       state.loading = false;
-      state.info = `${state.activeTab === "skills" ? "Skill" : "Equipment model"} saved to Supabase.`;
+      state.info = `${state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : "Equipment model"} saved to Supabase.`;
       onDiagnostic("info", "Creator save complete", state.info);
       render();
     } catch (error) {
@@ -1933,7 +2790,7 @@ export function mountCreatorMenu({
     if (!access.isGm || !access.configured || !id) {
       return;
     }
-    const label = state.activeTab === "skills" ? "skill" : "equipment model";
+    const label = state.activeTab === "skills" ? "skill" : state.activeTab === "effects" ? "effect" : "equipment model";
     if (!globalThis.confirm(`Delete this ${label} definition from the catalog?`)) {
       return;
     }
@@ -1945,6 +2802,8 @@ export function mountCreatorMenu({
     try {
       const result = state.activeTab === "skills"
         ? await runtime.api.creator.deleteSkill(id, access.settings)
+        : state.activeTab === "effects"
+        ? await runtime.api.creator.deleteEffect(id, access.settings)
         : await runtime.api.creator.deleteEquipmentModel(id, access.settings);
       if (!result?.ok) {
         throw new Error(formatCreatorError(result, `Unable to delete ${label}.`));
@@ -1954,6 +2813,11 @@ export function mountCreatorMenu({
         state.bundles.skills = null;
         state.drafts.skills = createEmptySkillDraft();
         state.dirty.skills = false;
+      } else if (state.activeTab === "effects") {
+        state.selectedIds.effects = "";
+        state.bundles.effects = null;
+        state.drafts.effects = createEmptyEffectDraft();
+        state.dirty.effects = false;
       } else {
         state.selectedIds.equipment = "";
         state.bundles.equipment = null;

@@ -44,6 +44,41 @@ export function deleteSkill(skillId, settings) {
   );
 }
 
+export function listEffects({ search = null, categories = [] } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listEffects,
+    {
+      p_search: search || null,
+      p_categories: Array.isArray(categories) ? categories : [],
+    },
+    settings,
+  );
+}
+
+export function getEffect(effectId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getEffect,
+    { p_effect_def_id: effectId },
+    settings,
+  );
+}
+
+export function upsertEffect(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertEffect,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function deleteEffect(effectId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteEffect,
+    { p_effect_def_id: effectId },
+    settings,
+  );
+}
+
 export function listEquipmentModels({ search = null, itemTypes = [] } = {}, settings) {
   return callSupabaseRpc(
     CREATOR_RPC_NAMES.listEquipmentModels,
