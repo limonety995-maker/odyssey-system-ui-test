@@ -79,6 +79,40 @@ export function deleteEffect(effectId, settings) {
   );
 }
 
+export function listAbilities({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listAbilities,
+    {
+      p_search: search || null,
+    },
+    settings,
+  );
+}
+
+export function getAbility(abilityId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getAbility,
+    { p_ability_def_id: abilityId },
+    settings,
+  );
+}
+
+export function upsertAbility(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertAbility,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function deleteAbility(abilityId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteAbility,
+    { p_ability_def_id: abilityId },
+    settings,
+  );
+}
+
 export function listEquipmentModels({ search = null, itemTypes = [] } = {}, settings) {
   return callSupabaseRpc(
     CREATOR_RPC_NAMES.listEquipmentModels,
