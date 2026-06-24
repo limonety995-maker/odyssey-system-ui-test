@@ -601,6 +601,7 @@ export function mountCharacterScreen({ root, runtime }) {
     return Math.max(promotedMax, eff, purchased);
   }
   function skillRow(s) {
+    const baseMax = Number(s?.max_level ?? 0) || 5;
     const max = skillDisplayMaxLevel(s);
     const eff = s.effective_level ?? s.level ?? 0;
     const purchased = s.purchased_level;
@@ -613,6 +614,7 @@ export function mountCharacterScreen({ root, runtime }) {
     const isClickable = !passive && !isPsionics;
     const attrs_str = attrs ? ` <span class="cp-muted">(${esc(attrs)})</span>` : "";
     const buyStr = purchased != null && purchased !== eff ? ` <span class="cp-muted cp-mono">buy ${esc(purchased)}</span>` : "";
+    const capStr = max > baseMax ? `<span class="cp-chip">base ${dash(baseMax)} / GM ${dash(max)}</span>` : "";
     const editBtn = isGM()
       ? `<button class="cp-skill-edit" data-skill-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)} (GM)" title="Edit ${esc(s.name)} (GM)" type="button">E</button>`
       : "";
@@ -622,6 +624,7 @@ export function mountCharacterScreen({ root, runtime }) {
           <span class="cp-pill">${passive ? "passive" : "trained"}</span>${buyStr}</span>
         <span class="cp-row" style="gap:6px">${perks}<span class="cp-pips" title="${dash(eff)}/${max}">${pips}</span>${locked ? `<span class="cp-pill bad">locked</span>` : ""}${editBtn}</span>
       </div>
+      ${capStr ? `<div class="cp-row" style="gap:6px;margin-top:6px">${capStr}</div>` : ""}
       ${isGM() ? `<div class="button-row" style="margin-top:4px"><button class="cp-btn-sm secondary" data-gmdel="skill" data-id="${esc(s.id)}" type="button">GM delete</button></div>` : ""}
     </div>`;
   }
