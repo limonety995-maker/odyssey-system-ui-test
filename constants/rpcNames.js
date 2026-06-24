@@ -37,6 +37,21 @@ export const WEAPON_RPC_NAMES = Object.freeze({
 
 export const COMBAT_RPC_NAMES = Object.freeze({
   performAttack: "perform_attack",
+  startEncounter: "combat_start_encounter",
+  addParticipant: "combat_add_participant",
+  removeParticipant: "combat_remove_participant",
+  reorderInitiative: "combat_reorder_initiative",
+  endTurn: "combat_end_turn",
+  skipTurn: "combat_skip_turn",
+  forceNextTurn: "combat_force_next_turn",
+  endEncounter: "combat_end_encounter",
+  getActiveRuntime: "combat_get_active_runtime",
+  markCharacterDead: "combat_mark_character_dead",
+  convertActionToMove: "combat_convert_action_to_move",
+  spendMove: "combat_spend_move",
+  executeAction: "combat_execute_action",
+  getCombatLog: "combat_get_log",
+  grantReactionAction: "combat_grant_reaction_action",
 });
 
 export const GM_RPC_NAMES = Object.freeze({
@@ -89,6 +104,10 @@ export const CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
   loadCharacterToToken: "load_character_to_token",
   unbindTokenCharacter: "unbind_token_character",
   purgeActiveNpcs: "purge_active_npcs",
+  assignCharacterOwner: "assign_character_owner",
+  clearCharacterOwner: "clear_character_owner",
+  getCharacterQuickbar: "get_character_quickbar",
+  saveCharacterQuickbar: "save_character_quickbar",
 });
 
 export const CREATOR_RPC_NAMES = Object.freeze({

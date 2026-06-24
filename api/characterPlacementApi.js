@@ -35,6 +35,38 @@ export function getSceneTokenLinks(payload, settings) {
   );
 }
 
+export function assignCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.assignCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings,
+  );
+}
+
+export function clearCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.clearCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings,
+  );
+}
+
+export function getCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings,
+  );
+}
+
+export function saveCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.saveCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings,
+  );
+}
+
 // GM action: bind a Player or spawn an NPC_Active from template into a token.
 // payload: { source_character_id, token_id, token_name, token_layer, campaign_id,
 //            room_id, scene_id, instance_name?, replace_existing_token_link?, allow_rebind_active_npc? }

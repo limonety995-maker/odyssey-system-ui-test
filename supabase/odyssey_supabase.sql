@@ -50406,3 +50406,4051 @@ grant execute on function public.odyssey_get_weapon_runtime_context(uuid) to ano
 grant execute on function public.odyssey_get_weapon_lock_state(uuid, uuid) to anon, authenticated;
 grant execute on function public.odyssey_get_character_attack_perk_context(uuid, uuid, uuid, uuid, numeric, text, text) to anon, authenticated;
 grant execute on function public.odyssey_grant_first_time_no_retry_effect(uuid, uuid, uuid, text) to anon, authenticated;
+
+
+-- ===== BEGIN 63_combat_hud_encounter_turn_ownership_foundation.sql =====
+-- Odyssey System: Combat HUD backend foundation
+-- Stage 63: ownership helpers, encounter/log schema extensions, usage states, quickbar,
+--           token link control visibility, runtime read-model preparation.
+
+alter table public.odyssey_combat_encounters
+  add column if not exists state_version integer not null default 0,
+  add column if not exists action_default integer not null default 1,
+  add column if not exists move_default integer not null default 1,
+  add column if not exists started_at timestamptz not null default timezone('utc', now()),
+  add column if not exists last_transition_at timestamptz not null default timezone('utc', now());
+
+alter table public.odyssey_initiative_entries
+  add column if not exists action_max integer not null default 1,
+  add column if not exists action_current integer not null default 1,
+  add column if not exists move_max integer not null default 1,
+  add column if not exists move_current integer not null default 1,
+  add column if not exists reaction_action_max integer not null default 0,
+  add column if not exists reaction_action_current integer not null default 0,
+  add column if not exists action_converted_to_move boolean not null default false,
+  add column if not exists hide_from_initiative_ui boolean not null default false,
+  add column if not exists joined_round integer not null default 1,
+  add column if not exists movement_version integer not null default 0,
+  add column if not exists removed_at timestamptz null,
+  add column if not exists removed_reason text null,
+  add column if not exists turn_version integer not null default 0,
+  add column if not exists last_turn_started_at timestamptz null;
+
+alter table public.odyssey_combat_log
+  add column if not exists visibility text not null default 'public',
+  add column if not exists owner_character_id uuid null references public.odyssey_characters(id) on delete set null,
+  add column if not exists public_data jsonb not null default '{}'::jsonb;
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'odyssey_combat_log_visibility_check'
+  ) then
+    alter table public.odyssey_combat_log
+      add constraint odyssey_combat_log_visibility_check
+      check (visibility in ('public', 'owner_only', 'gm_only'));
+  end if;
+end;
+$;
+
+alter table public.odyssey_character_weapons
+  add column if not exists data jsonb not null default '{}'::jsonb,
+  add column if not exists equipped_slot text null;
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'odyssey_character_weapons_equipped_slot_check'
+  ) then
+    alter table public.odyssey_character_weapons
+      add constraint odyssey_character_weapons_equipped_slot_check
+      check (equipped_slot in ('primary', 'secondary') or equipped_slot is null);
+  end if;
+end;
+$;
+
+create unique index if not exists odyssey_active_encounter_scene_unique
+  on public.odyssey_combat_encounters (campaign_id, room_id, scene_id)
+  where status = 'active' and ended_at is null;
+
+create index if not exists odyssey_initiative_entries_encounter_active_order_idx
+  on public.odyssey_initiative_entries (encounter_id, is_active, order_index);
+
+create index if not exists odyssey_initiative_entries_encounter_character_idx
+  on public.odyssey_initiative_entries (encounter_id, character_id);
+
+create index if not exists odyssey_combat_log_encounter_created_idx
+  on public.odyssey_combat_log (encounter_id, created_at desc);
+
+create index if not exists odyssey_combat_log_encounter_visibility_created_idx
+  on public.odyssey_combat_log (encounter_id, visibility, created_at desc);
+
+create unique index if not exists odyssey_character_weapons_primary_slot_unique
+  on public.odyssey_character_weapons (character_id, equipped_slot)
+  where equipped_slot = 'primary';
+
+create unique index if not exists odyssey_character_weapons_secondary_slot_unique
+  on public.odyssey_character_weapons (character_id, equipped_slot)
+  where equipped_slot = 'secondary';
+
+create table if not exists public.odyssey_combat_usage_states (
+  id uuid primary key default gen_random_uuid(),
+  encounter_id uuid not null references public.odyssey_combat_encounters(id) on delete cascade,
+  character_id uuid not null references public.odyssey_characters(id) on delete cascade,
+  source_type text not null,
+  source_code text not null,
+  use_count integer not null default 0,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'odyssey_combat_usage_states_encounter_character_source_key'
+  ) then
+    alter table public.odyssey_combat_usage_states
+      add constraint odyssey_combat_usage_states_encounter_character_source_key
+      unique (encounter_id, character_id, source_type, source_code);
+  end if;
+end;
+$;
+
+create index if not exists odyssey_combat_usage_states_encounter_idx
+  on public.odyssey_combat_usage_states (encounter_id, character_id, source_type);
+
+drop trigger if exists odyssey_touch_updated_at_combat_usage_states on public.odyssey_combat_usage_states;
+create trigger odyssey_touch_updated_at_combat_usage_states
+before update on public.odyssey_combat_usage_states
+for each row
+execute function public.odyssey_touch_updated_at();
+
+create table if not exists public.odyssey_character_quickbar_slots (
+  id uuid primary key default gen_random_uuid(),
+  character_id uuid not null references public.odyssey_characters(id) on delete cascade,
+  slot_index integer not null,
+  action_type text not null,
+  action_id uuid null,
+  action_code text null,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'odyssey_character_quickbar_slots_action_type_check'
+  ) then
+    alter table public.odyssey_character_quickbar_slots
+      add constraint odyssey_character_quickbar_slots_action_type_check
+      check (action_type in ('ability', 'perk', 'item', 'weapon_feature'));
+  end if;
+end;
+$;
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'odyssey_character_quickbar_slots_character_slot_key'
+  ) then
+    alter table public.odyssey_character_quickbar_slots
+      add constraint odyssey_character_quickbar_slots_character_slot_key
+      unique (character_id, slot_index);
+  end if;
+end;
+$;
+
+create index if not exists odyssey_character_quickbar_slots_character_idx
+  on public.odyssey_character_quickbar_slots (character_id, slot_index);
+
+drop trigger if exists odyssey_touch_updated_at_quickbar_slots on public.odyssey_character_quickbar_slots;
+create trigger odyssey_touch_updated_at_quickbar_slots
+before update on public.odyssey_character_quickbar_slots
+for each row
+execute function public.odyssey_touch_updated_at();
+
+create or replace function public.odyssey_character_display_name(
+  p_character_id uuid
+)
+returns text
+language sql
+stable
+as $
+  select coalesce(
+    nullif(trim(c.resources->>'name'), ''),
+    nullif(trim(c.owner_player_name), ''),
+    c.character_key
+  )
+  from public.odyssey_characters c
+  where c.id = p_character_id
+  limit 1
+$;
+
+create or replace function public.odyssey_can_control_character(
+  p_character_id uuid,
+  p_actor_player_id text default null,
+  p_actor_is_gm boolean default false
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_character public.odyssey_characters%rowtype;
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_actor_player_id, '')), ''), '');
+  v_actor_is_gm boolean := coalesce(p_actor_is_gm, false);
+begin
+  if p_character_id is null then
+    return jsonb_build_object(
+      'allowed', false,
+      'control_mode', 'denied',
+      'reason', 'CHARACTER_NOT_FOUND'
+    );
+  end if;
+
+  select *
+  into v_character
+  from public.odyssey_characters c
+  where c.id = p_character_id
+    and coalesce(c.is_deleted, false) = false;
+
+  if not found then
+    return jsonb_build_object(
+      'allowed', false,
+      'control_mode', 'denied',
+      'reason', 'CHARACTER_NOT_FOUND'
+    );
+  end if;
+
+  if v_actor_is_gm then
+    return jsonb_build_object(
+      'allowed', true,
+      'control_mode', 'gm',
+      'reason', 'gm'
+    );
+  end if;
+
+  if v_actor_player_id <> ''
+     and nullif(trim(coalesce(v_character.owner_player_id, '')), '') = v_actor_player_id then
+    return jsonb_build_object(
+      'allowed', true,
+      'control_mode', 'owner',
+      'reason', 'owner'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'allowed', false,
+    'control_mode', 'denied',
+    'reason', 'CONTROL_DENIED'
+  );
+end;
+$;
+
+create or replace function public.assign_character_owner(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_owner_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'owner_player_id', '')), ''), '');
+  v_owner_player_name text := coalesce(nullif(trim(coalesce(p_payload->>'owner_player_name', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_character public.odyssey_characters%rowtype;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CONTROL_DENIED',
+      'message', 'Only the GM may assign character ownership.'
+    );
+  end if;
+
+  if v_character_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'character_id is required.'
+    );
+  end if;
+
+  update public.odyssey_characters c
+  set
+    owner_player_id = v_owner_player_id,
+    owner_player_name = v_owner_player_name
+  where c.id = v_character_id
+    and coalesce(c.is_deleted, false) = false
+  returning * into v_character;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'Character was not found.'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character',
+      jsonb_build_object(
+        'id', v_character.id,
+        'character_key', v_character.character_key,
+        'owner_player_id', v_character.owner_player_id,
+        'owner_player_name', v_character.owner_player_name
+      )
+  );
+end;
+$;
+
+create or replace function public.clear_character_owner(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CONTROL_DENIED',
+      'message', 'Only the GM may clear character ownership.'
+    );
+  end if;
+
+  return public.assign_character_owner(
+    jsonb_build_object(
+      'character_id', v_character_id,
+      'owner_player_id', '',
+      'owner_player_name', '',
+      'actor_is_gm', true
+    )
+  );
+end;
+$;
+
+create or replace function public.get_character_quickbar(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_control jsonb := '{}'::jsonb;
+  v_slots jsonb := '[]'::jsonb;
+begin
+  if v_character_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'character_id is required.'
+    );
+  end if;
+
+  v_control := public.odyssey_can_control_character(
+    v_character_id,
+    p_payload->>'actor_player_id',
+    coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false)
+  );
+
+  if coalesce((v_control->>'allowed')::boolean, false) = false then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CONTROL_DENIED',
+      'message', 'You cannot view this quickbar.'
+    );
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', q.id,
+        'slot_index', q.slot_index,
+        'action_type', q.action_type,
+        'action_id', q.action_id,
+        'action_code', q.action_code,
+        'data', coalesce(q.data, '{}'::jsonb)
+      )
+      order by q.slot_index, q.created_at, q.id
+    ),
+    '[]'::jsonb
+  )
+  into v_slots
+  from public.odyssey_character_quickbar_slots q
+  where q.character_id = v_character_id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_id', v_character_id,
+    'slots', v_slots
+  );
+end;
+$;
+
+create or replace function public.save_character_quickbar(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_slots_input jsonb := coalesce(p_payload->'slots', '[]'::jsonb);
+  v_control jsonb := '{}'::jsonb;
+  v_slot jsonb;
+  v_slot_index integer;
+  v_action_type text;
+  v_action_id uuid;
+  v_action_code text;
+  v_data jsonb;
+begin
+  if v_character_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'character_id is required.'
+    );
+  end if;
+
+  if jsonb_typeof(v_slots_input) <> 'array' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'slots must be an array.'
+    );
+  end if;
+
+  v_control := public.odyssey_can_control_character(
+    v_character_id,
+    p_payload->>'actor_player_id',
+    v_actor_is_gm
+  );
+
+  if coalesce((v_control->>'allowed')::boolean, false) = false then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CONTROL_DENIED',
+      'message', 'You cannot edit this quickbar.'
+    );
+  end if;
+
+  delete from public.odyssey_character_quickbar_slots
+  where character_id = v_character_id;
+
+  for v_slot in
+    select value
+    from jsonb_array_elements(v_slots_input)
+  loop
+    v_slot_index := coalesce(nullif(trim(coalesce(v_slot->>'slot_index', '')), '')::integer, -1);
+    v_action_type := lower(trim(coalesce(v_slot->>'action_type', '')));
+    v_action_id := public.odyssey_try_parse_uuid(v_slot->>'action_id');
+    v_action_code := nullif(trim(coalesce(v_slot->>'action_code', '')), '');
+    v_data := case
+      when jsonb_typeof(v_slot->'data') = 'object' then v_slot->'data'
+      else '{}'::jsonb
+    end;
+
+    if v_slot_index < 0 then
+      continue;
+    end if;
+
+    if v_action_type not in ('ability', 'perk', 'item', 'weapon_feature') then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'INVALID_ACTION_KIND',
+        'message', format('Unsupported quickbar action type: %s.', coalesce(v_action_type, ''))
+      );
+    end if;
+
+    if v_action_type = 'perk' and v_action_id is not null then
+      if exists (
+        select 1
+        from public.odyssey_character_perks owned
+        join public.odyssey_perk_defs perk on perk.id = owned.perk_def_id
+        where owned.character_id = v_character_id
+          and owned.id = v_action_id
+          and (
+            coalesce(perk.perk_type, 'passive') = 'passive'
+            or coalesce(perk.activation_type, 'passive') = 'passive'
+          )
+      ) then
+        return jsonb_build_object(
+          'ok', false,
+          'error', 'PERK_IS_PASSIVE',
+          'message', 'Passive perks cannot be placed into active quickbar slots.'
+        );
+      end if;
+    end if;
+
+    insert into public.odyssey_character_quickbar_slots (
+      character_id,
+      slot_index,
+      action_type,
+      action_id,
+      action_code,
+      data
+    )
+    values (
+      v_character_id,
+      v_slot_index,
+      v_action_type,
+      v_action_id,
+      v_action_code,
+      coalesce(v_data, '{}'::jsonb)
+    );
+  end loop;
+
+  return public.get_character_quickbar(
+    jsonb_build_object(
+      'character_id', v_character_id,
+      'actor_player_id', p_payload->>'actor_player_id',
+      'actor_is_gm', v_actor_is_gm
+    )
+  );
+end;
+$;
+
+create or replace function public.combat_get_log(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_room_id text := coalesce(nullif(trim(coalesce(p_payload->>'room_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_limit integer := greatest(1, least(coalesce(nullif(trim(coalesce(p_payload->>'limit', '')), '')::integer, 50), 200));
+  v_viewer_character_ids uuid[] := array[]::uuid[];
+  v_rows jsonb := '[]'::jsonb;
+begin
+  if v_actor_player_id <> '' then
+    select coalesce(array_agg(c.id), array[]::uuid[])
+    into v_viewer_character_ids
+    from public.odyssey_characters c
+    where coalesce(c.is_deleted, false) = false
+      and c.owner_player_id = v_actor_player_id;
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', l.id,
+        'encounter_id', l.encounter_id,
+        'room_id', l.room_id,
+        'scene_id', l.scene_id,
+        'round_number', l.round_number,
+        'actor_character_id', l.actor_character_id,
+        'target_character_id', l.target_character_id,
+        'owner_character_id', l.owner_character_id,
+        'visibility', l.visibility,
+        'event_type', l.event_type,
+        'message', l.message,
+        'public_data', coalesce(l.public_data, '{}'::jsonb),
+        'created_by', l.created_by,
+        'created_at', l.created_at
+      )
+      order by l.created_at desc, l.id desc
+    ),
+    '[]'::jsonb
+  )
+  into v_rows
+  from (
+    select *
+    from public.odyssey_combat_log l
+    where (v_encounter_id is null or l.encounter_id = v_encounter_id)
+      and (v_room_id = '' or l.room_id = v_room_id)
+      and (
+        l.visibility = 'public'
+        or (
+          l.visibility = 'owner_only'
+          and (
+            v_actor_is_gm
+            or l.owner_character_id = any(v_viewer_character_ids)
+          )
+        )
+        or (l.visibility = 'gm_only' and v_actor_is_gm)
+      )
+    order by l.created_at desc, l.id desc
+    limit v_limit
+  ) l;
+
+  return jsonb_build_object(
+    'ok', true,
+    'rows', v_rows
+  );
+end;
+$;
+
+create or replace function public.get_scene_token_links(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_room_id text := coalesce(nullif(trim(coalesce(p_payload->>'room_id', '')), ''), '');
+  v_scene_id text := coalesce(nullif(trim(coalesce(p_payload->>'scene_id', '')), ''), '');
+  v_campaign_id text := coalesce(nullif(trim(coalesce(p_payload->>'campaign_id', '')), ''), '');
+  v_token_id text := coalesce(nullif(trim(coalesce(p_payload->>'token_id', '')), ''), '');
+  v_include_inactive boolean := coalesce(nullif(trim(coalesce(p_payload->>'include_inactive', '')), '')::boolean, false);
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_links jsonb := '[]'::jsonb;
+begin
+  if v_room_id = '' or v_scene_id = '' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'room_id and scene_id are required.'
+    );
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', t.id,
+        'campaign_id', t.campaign_id,
+        'room_id', t.room_id,
+        'scene_id', t.scene_id,
+        'token_id', t.token_id,
+        'token_name', t.token_name,
+        'token_layer', t.token_layer,
+        'is_active', t.is_active,
+        'last_seen_at', t.last_seen_at,
+        'updated_at', t.updated_at,
+        'character', case when c.id is null then null else jsonb_build_object(
+          'id', c.id,
+          'character_key', c.character_key,
+          'display_name', public.odyssey_character_display_name(c.id),
+          'character_bucket', c.character_bucket,
+          'source_template_id', c.source_template_id,
+          'source_template_key', c.source_template_key,
+          'enabled', c.enabled,
+          'is_deleted', c.is_deleted,
+          'owner_player_id', c.owner_player_id,
+          'owner_player_name', c.owner_player_name,
+          'control', public.odyssey_can_control_character(c.id, v_actor_player_id, v_actor_is_gm)
+        ) end,
+        'state', case when c.id is null then null else jsonb_build_object(
+          'state_version', coalesce(s.state_version, c.active_combat_state_version, 0),
+          'status_summary', coalesce(nullif(trim(s.status_summary), ''), public.odyssey_build_character_status_summary(c.id)),
+          'overlay_text', coalesce(s.overlay_text, ''),
+          'is_alive', coalesce(s.is_alive, true),
+          'is_conscious', coalesce(s.is_conscious, true),
+          'updated_at', s.updated_at
+        ) end
+      )
+      order by t.is_active desc, t.updated_at desc, t.created_at desc, t.token_name, t.token_id
+    ),
+    '[]'::jsonb
+  )
+  into v_links
+  from public.odyssey_token_links t
+  left join public.odyssey_characters c on c.id = t.character_id
+  left join public.odyssey_character_combat_state s on s.character_id = t.character_id
+  where t.room_id = v_room_id
+    and t.scene_id = v_scene_id
+    and (v_campaign_id = '' or t.campaign_id = v_campaign_id)
+    and (v_token_id = '' or t.token_id = v_token_id)
+    and (v_include_inactive or t.is_active = true);
+
+  return jsonb_build_object(
+    'ok', true,
+    'room_id', v_room_id,
+    'scene_id', v_scene_id,
+    'links', v_links
+  );
+end;
+$;
+
+grant execute on function public.odyssey_character_display_name(uuid) to anon, authenticated;
+grant execute on function public.odyssey_can_control_character(uuid, text, boolean) to anon, authenticated;
+grant execute on function public.assign_character_owner(jsonb) to anon, authenticated;
+grant execute on function public.clear_character_owner(jsonb) to anon, authenticated;
+grant execute on function public.get_character_quickbar(jsonb) to anon, authenticated;
+grant execute on function public.save_character_quickbar(jsonb) to anon, authenticated;
+grant execute on function public.combat_get_log(jsonb) to anon, authenticated;
+grant execute on function public.get_scene_token_links(jsonb) to anon, authenticated;
+
+alter table public.odyssey_combat_usage_states enable row level security;
+alter table public.odyssey_character_quickbar_slots enable row level security;
+
+drop policy if exists "odyssey_combat_usage_states_full_access" on public.odyssey_combat_usage_states;
+create policy "odyssey_combat_usage_states_full_access"
+on public.odyssey_combat_usage_states
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "odyssey_character_quickbar_slots_full_access" on public.odyssey_character_quickbar_slots;
+create policy "odyssey_character_quickbar_slots_full_access"
+on public.odyssey_character_quickbar_slots
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+grant select, insert, update, delete on public.odyssey_combat_usage_states to anon, authenticated;
+grant select, insert, update, delete on public.odyssey_character_quickbar_slots to anon, authenticated;
+
+do $
+begin
+  begin
+    alter publication supabase_realtime add table public.odyssey_combat_encounters;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_initiative_entries;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_combat_log;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_combat_state;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_effects;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_weapons;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_weapon_profile_states;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_weapon_feature_states;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_magazines;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_abilities;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_character_resource_pools;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.odyssey_token_links;
+  exception
+    when duplicate_object then null;
+    when undefined_object then null;
+  end;
+end;
+$;
+-- ===== END 63_combat_hud_encounter_turn_ownership_foundation.sql =====
+
+
+
+-- ===== BEGIN 64_combat_hud_turn_engine_and_action_executor.sql =====
+-- Odyssey System: Combat HUD turn engine and action executor
+-- Stage 64: encounter lifecycle, runtime, action->move, move spend, server-side executor.
+
+create or replace function public.odyssey_get_character_reaction_value(
+  p_character_id uuid
+)
+returns integer
+language plpgsql
+stable
+as $
+declare
+  v_effective jsonb := '{}'::jsonb;
+begin
+  if p_character_id is null then
+    return 0;
+  end if;
+
+  v_effective := public.get_effective_character_stats(p_character_id);
+  return coalesce(
+    nullif(jsonb_extract_path_text(v_effective, 'attribute_values', 'reaction'), '')::integer,
+    0
+  );
+end;
+$;
+
+create or replace function public.odyssey_character_has_active_effect_flag(
+  p_character_id uuid,
+  p_flag text
+)
+returns boolean
+language sql
+stable
+as $
+  select exists(
+    select 1
+    from public.odyssey_character_effects e
+    where e.character_id = p_character_id
+      and e.is_active = true
+      and coalesce(nullif(e.data#>>array['flags', p_flag], '')::boolean, false)
+  )
+$;
+
+create or replace function public.odyssey_get_active_encounter(
+  p_campaign_id text,
+  p_room_id text,
+  p_scene_id text
+)
+returns public.odyssey_combat_encounters
+language sql
+stable
+as $
+  select e.*
+  from public.odyssey_combat_encounters e
+  where e.campaign_id = coalesce(p_campaign_id, '')
+    and e.room_id = coalesce(p_room_id, '')
+    and e.scene_id = coalesce(p_scene_id, '')
+    and e.status = 'active'
+    and e.ended_at is null
+  order by e.created_at desc, e.id desc
+  limit 1
+$;
+
+create or replace function public.odyssey_validate_combat_versions(
+  p_encounter_id uuid,
+  p_expected_encounter_version integer default null,
+  p_character_id uuid default null,
+  p_expected_character_state_version integer default null
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_encounter_version integer := 0;
+  v_character_version integer := 0;
+begin
+  if p_encounter_id is not null then
+    select coalesce(state_version, 0)
+    into v_encounter_version
+    from public.odyssey_combat_encounters
+    where id = p_encounter_id;
+
+    if p_expected_encounter_version is not null
+       and v_encounter_version <> p_expected_encounter_version then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'STATE_VERSION_CONFLICT',
+        'message', 'Combat state changed. Reload authoritative runtime.',
+        'encounter_state_version', v_encounter_version
+      );
+    end if;
+  end if;
+
+  if p_character_id is not null then
+    select coalesce(state_version, active_combat_state_version, 0)
+    into v_character_version
+    from public.odyssey_character_combat_state s
+    right join public.odyssey_characters c on c.id = p_character_id and s.character_id = c.id
+    where c.id = p_character_id;
+
+    if p_expected_character_state_version is not null
+       and v_character_version <> p_expected_character_state_version then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'STATE_VERSION_CONFLICT',
+        'message', 'Combat state changed. Reload authoritative runtime.',
+        'encounter_state_version', v_encounter_version,
+        'character_state_version', v_character_version
+      );
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'encounter_state_version', v_encounter_version,
+    'character_state_version', v_character_version
+  );
+end;
+$;
+
+create or replace function public.odyssey_combat_log_insert(
+  p_campaign_id text default '',
+  p_room_id text default '',
+  p_scene_id text default '',
+  p_encounter_id uuid default null,
+  p_round_number integer default null,
+  p_actor_character_id uuid default null,
+  p_target_character_id uuid default null,
+  p_owner_character_id uuid default null,
+  p_visibility text default 'public',
+  p_event_type text default 'system',
+  p_message text default '',
+  p_data jsonb default '{}'::jsonb,
+  p_public_data jsonb default '{}'::jsonb,
+  p_created_by text default ''
+)
+returns uuid
+language plpgsql
+as $
+declare
+  v_log_id uuid := null;
+begin
+  insert into public.odyssey_combat_log (
+    campaign_id,
+    room_id,
+    scene_id,
+    encounter_id,
+    round_number,
+    actor_character_id,
+    target_character_id,
+    owner_character_id,
+    visibility,
+    event_type,
+    message,
+    data,
+    public_data,
+    created_by
+  )
+  values (
+    coalesce(p_campaign_id, ''),
+    coalesce(p_room_id, ''),
+    coalesce(p_scene_id, ''),
+    p_encounter_id,
+    p_round_number,
+    p_actor_character_id,
+    p_target_character_id,
+    p_owner_character_id,
+    case
+      when coalesce(p_visibility, 'public') in ('public', 'owner_only', 'gm_only') then coalesce(p_visibility, 'public')
+      else 'public'
+    end,
+    coalesce(p_event_type, 'system'),
+    coalesce(p_message, ''),
+    coalesce(p_data, '{}'::jsonb),
+    coalesce(p_public_data, '{}'::jsonb),
+    coalesce(p_created_by, '')
+  )
+  returning id into v_log_id;
+
+  perform public.odyssey_trim_combat_log(p_encounter_id, p_room_id);
+  return v_log_id;
+end;
+$;
+
+create or replace function public.odyssey_build_combat_runtime(
+  p_encounter_id uuid,
+  p_actor_player_id text default null,
+  p_actor_is_gm boolean default false,
+  p_include_hidden boolean default false,
+  p_log_limit integer default 5
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_actor_player_id, '')), ''), '');
+  v_actor_is_gm boolean := coalesce(p_actor_is_gm, false);
+  v_include_hidden boolean := coalesce(p_include_hidden, false);
+  v_log_limit integer := greatest(1, least(coalesce(p_log_limit, 5), 100));
+  v_viewer_character_ids uuid[] := array[]::uuid[];
+  v_participants jsonb := '[]'::jsonb;
+  v_log_rows jsonb := '[]'::jsonb;
+begin
+  if p_encounter_id is null then
+    return jsonb_build_object(
+      'ok', true,
+      'encounter', null,
+      'current_turn', null,
+      'visible_participants', '[]'::jsonb,
+      'viewer_controlled_character_ids', '[]'::jsonb,
+      'log', '[]'::jsonb,
+      'state_version', 0
+    );
+  end if;
+
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters e
+  where e.id = p_encounter_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ENCOUNTER_NOT_FOUND',
+      'message', 'Encounter was not found.'
+    );
+  end if;
+
+  if v_actor_player_id <> '' then
+    select coalesce(array_agg(c.id), array[]::uuid[])
+    into v_viewer_character_ids
+    from public.odyssey_characters c
+    where coalesce(c.is_deleted, false) = false
+      and c.owner_player_id = v_actor_player_id;
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'initiative_entry_id', e.id,
+        'character_id', c.id,
+        'character_key', c.character_key,
+        'display_name', public.odyssey_character_display_name(c.id),
+        'character_bucket', c.character_bucket,
+        'owner_player_id', c.owner_player_id,
+        'owner_player_name', c.owner_player_name,
+        'initiative_value', e.initiative_value,
+        'reaction_value', e.reaction_value,
+        'roll_value', e.roll_value,
+        'bonus_value', e.bonus_value,
+        'order_index', e.order_index,
+        'is_active', e.is_active,
+        'is_current_turn', v_encounter.active_entry_id = e.id,
+        'action_current', e.action_current,
+        'action_max', e.action_max,
+        'move_current', e.move_current,
+        'move_max', e.move_max,
+        'reaction_action_current', e.reaction_action_current,
+        'reaction_action_max', e.reaction_action_max,
+        'action_converted_to_move', e.action_converted_to_move,
+        'hide_from_initiative_ui', e.hide_from_initiative_ui,
+        'joined_round', e.joined_round,
+        'movement_version', e.movement_version,
+        'turn_version', e.turn_version,
+        'removed_at', e.removed_at,
+        'removed_reason', e.removed_reason,
+        'control', public.odyssey_can_control_character(c.id, v_actor_player_id, v_actor_is_gm),
+        'state',
+          jsonb_build_object(
+            'state_version', coalesce(s.state_version, c.active_combat_state_version, 0),
+            'status_summary', coalesce(nullif(trim(s.status_summary), ''), public.odyssey_build_character_status_summary(c.id)),
+            'is_alive', coalesce(s.is_alive, true),
+            'is_conscious', coalesce(s.is_conscious, true)
+          )
+      )
+      order by e.order_index, e.created_at, e.id
+    ),
+    '[]'::jsonb
+  )
+  into v_participants
+  from public.odyssey_initiative_entries e
+  join public.odyssey_characters c on c.id = e.character_id
+  left join public.odyssey_character_combat_state s on s.character_id = c.id
+  where e.encounter_id = p_encounter_id
+    and (
+      v_actor_is_gm
+      or not e.hide_from_initiative_ui
+      or (v_actor_is_gm and v_include_hidden)
+    );
+
+  v_log_rows := coalesce(
+    public.combat_get_log(
+      jsonb_build_object(
+        'encounter_id', p_encounter_id,
+        'room_id', v_encounter.room_id,
+        'actor_player_id', v_actor_player_id,
+        'actor_is_gm', v_actor_is_gm,
+        'limit', v_log_limit
+      )
+    )->'rows',
+    '[]'::jsonb
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'encounter',
+      jsonb_build_object(
+        'id', v_encounter.id,
+        'campaign_id', v_encounter.campaign_id,
+        'room_id', v_encounter.room_id,
+        'scene_id', v_encounter.scene_id,
+        'name', v_encounter.name,
+        'status', v_encounter.status,
+        'current_round', v_encounter.current_round,
+        'active_character_id', v_encounter.active_character_id,
+        'active_entry_id', v_encounter.active_entry_id,
+        'state_version', v_encounter.state_version,
+        'action_default', v_encounter.action_default,
+        'move_default', v_encounter.move_default,
+        'started_at', v_encounter.started_at,
+        'last_transition_at', v_encounter.last_transition_at
+      ),
+    'current_turn',
+      case
+        when v_encounter.active_entry_id is null then null
+        else (
+          select participant
+          from jsonb_array_elements(v_participants) participant
+          where public.odyssey_try_parse_uuid(participant->>'initiative_entry_id') = v_encounter.active_entry_id
+          limit 1
+        )
+      end,
+    'visible_participants', v_participants,
+    'viewer_controlled_character_ids', to_jsonb(v_viewer_character_ids),
+    'log', v_log_rows,
+    'state_version', coalesce(v_encounter.state_version, 0)
+  );
+end;
+$;
+
+create or replace function public.odyssey_increment_encounter_state_version(
+  p_encounter_id uuid
+)
+returns integer
+language plpgsql
+as $
+declare
+  v_version integer := 0;
+begin
+  update public.odyssey_combat_encounters
+  set
+    state_version = coalesce(state_version, 0) + 1,
+    last_transition_at = timezone('utc', now())
+  where id = p_encounter_id
+  returning state_version into v_version;
+
+  return coalesce(v_version, 0);
+end;
+$;
+
+create or replace function public.odyssey_start_next_eligible_turn(
+  p_encounter_id uuid
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_entry_ids uuid[] := array[]::uuid[];
+  v_entry_count integer := 0;
+  v_current_pos integer := -1;
+  v_candidate_pos integer := -1;
+  v_loops integer := 0;
+  v_now timestamptz := timezone('utc', now());
+  v_candidate public.odyssey_initiative_entries%rowtype;
+  v_refresh jsonb := '{}'::jsonb;
+  v_skip_turn boolean := false;
+  v_wrapped boolean := false;
+  v_round_for_candidate integer := 1;
+begin
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters
+  where id = p_encounter_id
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ENCOUNTER_NOT_FOUND',
+      'message', 'Encounter was not found.'
+    );
+  end if;
+
+  if v_encounter.status <> 'active' or v_encounter.ended_at is not null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ENCOUNTER_NOT_ACTIVE',
+      'message', 'Encounter is not active.'
+    );
+  end if;
+
+  select coalesce(array_agg(e.id order by e.order_index, e.created_at, e.id), array[]::uuid[])
+  into v_entry_ids
+  from public.odyssey_initiative_entries e
+  where e.encounter_id = p_encounter_id
+    and e.is_active = true;
+
+  v_entry_count := cardinality(v_entry_ids);
+  if v_entry_count = 0 then
+    update public.odyssey_combat_encounters
+    set
+      active_entry_id = null,
+      active_character_id = null
+    where id = p_encounter_id;
+
+    perform public.odyssey_increment_encounter_state_version(p_encounter_id);
+
+    return jsonb_build_object(
+      'ok', true,
+      'encounter_id', p_encounter_id,
+      'active_entry', null
+    );
+  end if;
+
+  if v_encounter.active_entry_id is not null then
+    select ordinality - 1
+    into v_current_pos
+    from unnest(v_entry_ids) with ordinality as t(entry_id, ordinality)
+    where t.entry_id = v_encounter.active_entry_id
+    limit 1;
+  end if;
+
+  loop
+    exit when v_loops >= v_entry_count + 1;
+    v_candidate_pos := coalesce(v_current_pos, -1) + 1;
+    if v_candidate_pos >= v_entry_count then
+      v_candidate_pos := 0;
+      v_wrapped := true;
+      update public.odyssey_combat_encounters
+      set current_round = current_round + 1
+      where id = p_encounter_id
+      returning current_round into v_round_for_candidate;
+    else
+      v_round_for_candidate := v_encounter.current_round;
+    end if;
+
+    select *
+    into v_candidate
+    from public.odyssey_initiative_entries e
+    where e.id = v_entry_ids[v_candidate_pos + 1]
+    for update;
+
+    if not found then
+      v_current_pos := v_candidate_pos;
+      v_loops := v_loops + 1;
+      continue;
+    end if;
+
+    if v_candidate.joined_round > v_round_for_candidate then
+      v_current_pos := v_candidate_pos;
+      v_loops := v_loops + 1;
+      continue;
+    end if;
+
+    update public.odyssey_initiative_entries
+    set
+      action_current = action_max,
+      move_current = move_max,
+      reaction_action_current = reaction_action_max,
+      action_converted_to_move = false,
+      turn_version = coalesce(turn_version, 0) + 1,
+      last_turn_started_at = v_now
+    where id = v_candidate.id
+    returning * into v_candidate;
+
+    perform public.advance_character_effects(v_candidate.character_id);
+    v_refresh := public.odyssey_refresh_character_combat_state(v_candidate.character_id);
+
+    v_skip_turn := public.odyssey_character_has_active_effect_flag(v_candidate.character_id, 'skip_turn');
+
+    if coalesce((v_refresh->>'ok')::boolean, false) = true then
+      if coalesce((v_refresh->'combat_state'->>'is_alive')::boolean, true) = false then
+        update public.odyssey_initiative_entries
+        set
+          is_active = false,
+          removed_at = v_now,
+          removed_reason = 'dead'
+        where id = v_candidate.id;
+
+        perform public.odyssey_combat_log_insert(
+          v_encounter.campaign_id,
+          v_encounter.room_id,
+          v_encounter.scene_id,
+          v_encounter.id,
+          v_round_for_candidate,
+          null,
+          v_candidate.character_id,
+          v_candidate.character_id,
+          'gm_only',
+          'system',
+          public.odyssey_character_display_name(v_candidate.character_id) || ' is removed from initiative because they are dead.',
+          jsonb_build_object('reason', 'dead', 'character_id', v_candidate.character_id),
+          jsonb_build_object('reason', 'dead'),
+          'system'
+        );
+
+        v_current_pos := v_candidate_pos;
+        v_loops := v_loops + 1;
+        continue;
+      end if;
+
+      if coalesce((v_refresh->'combat_state'->>'is_conscious')::boolean, true) = false or v_skip_turn then
+        perform public.odyssey_combat_log_insert(
+          v_encounter.campaign_id,
+          v_encounter.room_id,
+          v_encounter.scene_id,
+          v_encounter.id,
+          v_round_for_candidate,
+          null,
+          v_candidate.character_id,
+          v_candidate.character_id,
+          case when v_candidate.hide_from_initiative_ui then 'gm_only' else 'public' end,
+          'turn_skipped',
+          public.odyssey_character_display_name(v_candidate.character_id) || ' cannot act this turn.',
+          jsonb_build_object(
+            'reason', case when v_skip_turn then 'skip_turn' else 'unconscious' end,
+            'character_id', v_candidate.character_id
+          ),
+          jsonb_build_object(
+            'reason', case when v_skip_turn then 'skip_turn' else 'unconscious' end
+          ),
+          'system'
+        );
+
+        v_current_pos := v_candidate_pos;
+        v_loops := v_loops + 1;
+        continue;
+      end if;
+    end if;
+
+    update public.odyssey_combat_encounters
+    set
+      active_entry_id = v_candidate.id,
+      active_character_id = v_candidate.character_id,
+      current_round = v_round_for_candidate,
+      last_transition_at = v_now
+    where id = p_encounter_id;
+
+    perform public.odyssey_increment_encounter_state_version(p_encounter_id);
+
+    perform public.odyssey_combat_log_insert(
+      v_encounter.campaign_id,
+      v_encounter.room_id,
+      v_encounter.scene_id,
+      v_encounter.id,
+      v_round_for_candidate,
+      v_candidate.character_id,
+      null,
+      v_candidate.character_id,
+      case when v_candidate.hide_from_initiative_ui then 'gm_only' else 'public' end,
+      'turn_started',
+      public.odyssey_character_display_name(v_candidate.character_id) || ' starts their turn.',
+      jsonb_build_object(
+        'initiative_entry_id', v_candidate.id,
+        'character_id', v_candidate.character_id,
+        'wrapped', v_wrapped
+      ),
+      jsonb_build_object(
+        'initiative_entry_id', v_candidate.id,
+        'character_id', v_candidate.character_id,
+        'wrapped', v_wrapped
+      ),
+      'system'
+    );
+
+    return jsonb_build_object(
+      'ok', true,
+      'encounter_id', p_encounter_id,
+      'active_entry_id', v_candidate.id,
+      'active_character_id', v_candidate.character_id,
+      'current_round', v_round_for_candidate
+    );
+  end loop;
+
+  update public.odyssey_combat_encounters
+  set
+    active_entry_id = null,
+    active_character_id = null
+  where id = p_encounter_id;
+
+  perform public.odyssey_increment_encounter_state_version(p_encounter_id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'encounter_id', p_encounter_id,
+    'active_entry_id', null,
+    'active_character_id', null,
+    'message', 'No eligible turn target was found.'
+  );
+end;
+$;
+
+create or replace function public.combat_get_active_runtime(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_campaign_id text := coalesce(nullif(trim(coalesce(p_payload->>'campaign_id', '')), ''), '');
+  v_room_id text := coalesce(nullif(trim(coalesce(p_payload->>'room_id', '')), ''), '');
+  v_scene_id text := coalesce(nullif(trim(coalesce(p_payload->>'scene_id', '')), ''), '');
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_include_hidden boolean := coalesce(nullif(trim(coalesce(p_payload->>'include_hidden', '')), '')::boolean, false);
+  v_log_limit integer := greatest(1, least(coalesce(nullif(trim(coalesce(p_payload->>'log_limit', '')), '')::integer, 5), 100));
+  v_encounter public.odyssey_combat_encounters;
+begin
+  if v_room_id = '' or v_scene_id = '' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'campaign_id, room_id and scene_id are required.'
+    );
+  end if;
+
+  select *
+  into v_encounter
+  from public.odyssey_get_active_encounter(v_campaign_id, v_room_id, v_scene_id);
+
+  if not found then
+    return jsonb_build_object(
+      'ok', true,
+      'encounter', null,
+      'current_turn', null,
+      'visible_participants', '[]'::jsonb,
+      'viewer_controlled_character_ids', '[]'::jsonb,
+      'log', '[]'::jsonb,
+      'state_version', 0
+    );
+  end if;
+
+  return public.odyssey_build_combat_runtime(
+    v_encounter.id,
+    v_actor_player_id,
+    v_actor_is_gm,
+    v_include_hidden,
+    v_log_limit
+  );
+end;
+$;
+
+create or replace function public.combat_start_encounter(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_campaign_id text := coalesce(nullif(trim(coalesce(p_payload->>'campaign_id', '')), ''), '');
+  v_room_id text := coalesce(nullif(trim(coalesce(p_payload->>'room_id', '')), ''), '');
+  v_scene_id text := coalesce(nullif(trim(coalesce(p_payload->>'scene_id', '')), ''), '');
+  v_name text := coalesce(nullif(trim(coalesce(p_payload->>'name', '')), ''), 'Combat');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_hidden_token_ids jsonb := coalesce(p_payload->'hidden_token_ids', '[]'::jsonb);
+  v_existing public.odyssey_combat_encounters;
+  v_encounter_id uuid := null;
+  v_entry record;
+  v_roll integer := 0;
+  v_reaction integer := 0;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CONTROL_DENIED',
+      'message', 'Only the GM may start an encounter.'
+    );
+  end if;
+
+  if v_campaign_id = '' or v_room_id = '' or v_scene_id = '' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'campaign_id, room_id and scene_id are required.'
+    );
+  end if;
+
+  select *
+  into v_existing
+  from public.odyssey_get_active_encounter(v_campaign_id, v_room_id, v_scene_id);
+
+  if found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ENCOUNTER_ALREADY_ACTIVE',
+      'message', 'An active encounter already exists for this scene.',
+      'encounter_id', v_existing.id
+    );
+  end if;
+
+  insert into public.odyssey_combat_encounters (
+    campaign_id,
+    room_id,
+    scene_id,
+    name,
+    status,
+    current_round,
+    created_by,
+    started_at,
+    last_transition_at
+  )
+  values (
+    v_campaign_id,
+    v_room_id,
+    v_scene_id,
+    v_name,
+    'active',
+    1,
+    coalesce(v_actor_player_id, 'gm'),
+    timezone('utc', now()),
+    timezone('utc', now())
+  )
+  returning id into v_encounter_id;
+
+  for v_entry in
+    select
+      t.token_id,
+      t.token_name,
+      t.character_id,
+      c.character_bucket
+    from public.odyssey_token_links t
+    join public.odyssey_characters c on c.id = t.character_id
+    where t.campaign_id = v_campaign_id
+      and t.room_id = v_room_id
+      and t.scene_id = v_scene_id
+      and t.is_active = true
+      and coalesce(c.is_deleted, false) = false
+  loop
+    if v_entry.character_bucket = 'npc_template' then
+      continue;
+    end if;
+
+    if v_entry.character_bucket not in ('player', 'npc_active') then
+      continue;
+    end if;
+
+    v_roll := floor(random() * 20 + 1)::integer;
+    v_reaction := public.odyssey_get_character_reaction_value(v_entry.character_id);
+
+    insert into public.odyssey_initiative_entries (
+      encounter_id,
+      character_id,
+      initiative_value,
+      reaction_value,
+      roll_value,
+      bonus_value,
+      order_index,
+      has_acted,
+      is_active,
+      action_max,
+      action_current,
+      move_max,
+      move_current,
+      reaction_action_max,
+      reaction_action_current,
+      action_converted_to_move,
+      hide_from_initiative_ui,
+      joined_round,
+      movement_version,
+      turn_version
+    )
+    values (
+      v_encounter_id,
+      v_entry.character_id,
+      v_roll + v_reaction,
+      v_reaction,
+      v_roll,
+      0,
+      0,
+      false,
+      true,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      false,
+      exists (
+        select 1
+        from jsonb_array_elements_text(v_hidden_token_ids) as hidden(token_id)
+        where hidden.token_id = v_entry.token_id
+      ),
+      1,
+      0,
+      0
+    );
+  end loop;
+
+  with ranked as (
+    select
+      e.id,
+      row_number() over (
+        order by
+          e.initiative_value desc,
+          case when c.character_bucket = 'player' then 1 else 0 end desc,
+          e.roll_value desc,
+          e.character_id asc,
+          e.id asc
+      ) - 1 as next_order_index
+    from public.odyssey_initiative_entries e
+    join public.odyssey_characters c on c.id = e.character_id
+    where e.encounter_id = v_encounter_id
+      and e.is_active = true
+  )
+  update public.odyssey_initiative_entries e
+  set order_index = ranked.next_order_index
+  from ranked
+  where ranked.id = e.id;
+
+  perform public.odyssey_combat_log_insert(
+    v_campaign_id,
+    v_room_id,
+    v_scene_id,
+    v_encounter_id,
+    1,
+    null,
+    null,
+    null,
+    'public',
+    'encounter_started',
+    'Encounter started.',
+    jsonb_build_object('name', v_name),
+    jsonb_build_object('name', v_name),
+    coalesce(v_actor_player_id, 'gm')
+  );
+
+  perform public.odyssey_start_next_eligible_turn(v_encounter_id);
+
+  return public.odyssey_build_combat_runtime(
+    v_encounter_id,
+    v_actor_player_id,
+    true,
+    true,
+    5
+  );
+end;
+$;
+
+create or replace function public.combat_add_participant(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_token_id text := coalesce(nullif(trim(coalesce(p_payload->>'token_id', '')), ''), '');
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_hide boolean := coalesce(nullif(trim(coalesce(p_payload->>'hide_from_initiative_ui', '')), '')::boolean, false);
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_link record;
+  v_roll integer := 0;
+  v_reaction integer := 0;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may add participants.');
+  end if;
+
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters
+  where id = v_encounter_id
+    and status = 'active'
+    and ended_at is null
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_ACTIVE', 'message', 'Encounter is not active.');
+  end if;
+
+  select
+    t.*,
+    c.character_bucket
+  into v_link
+  from public.odyssey_token_links t
+  join public.odyssey_characters c on c.id = t.character_id
+  where t.room_id = v_encounter.room_id
+    and t.scene_id = v_encounter.scene_id
+    and t.is_active = true
+    and (
+      (v_token_id <> '' and t.token_id = v_token_id)
+      or (v_character_id is not null and t.character_id = v_character_id)
+    )
+  order by t.updated_at desc, t.created_at desc, t.id desc
+  limit 1;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'TOKEN_LINK_REQUIRED', 'message', 'Participant must have an active token link in this scene.');
+  end if;
+
+  if v_link.character_bucket = 'npc_template' then
+    return jsonb_build_object('ok', false, 'error', 'NPC_TEMPLATE_NOT_ALLOWED', 'message', 'NPC templates cannot join encounters directly.');
+  end if;
+
+  if v_link.character_bucket not in ('player', 'npc_active') then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_ELIGIBLE', 'message', 'Only linked players and active NPCs can join encounters.');
+  end if;
+
+  if exists (
+    select 1
+    from public.odyssey_initiative_entries e
+    where e.encounter_id = v_encounter_id
+      and e.character_id = v_link.character_id
+      and e.is_active = true
+  ) then
+    return public.odyssey_build_combat_runtime(v_encounter_id, p_payload->>'actor_player_id', true, true, 5);
+  end if;
+
+  v_roll := floor(random() * 20 + 1)::integer;
+  v_reaction := public.odyssey_get_character_reaction_value(v_link.character_id);
+
+  insert into public.odyssey_initiative_entries (
+    encounter_id,
+    character_id,
+    initiative_value,
+    reaction_value,
+    roll_value,
+    bonus_value,
+    order_index,
+    has_acted,
+    is_active,
+    action_max,
+    action_current,
+    move_max,
+    move_current,
+    reaction_action_max,
+    reaction_action_current,
+    action_converted_to_move,
+    hide_from_initiative_ui,
+    joined_round,
+    movement_version,
+    turn_version
+  )
+  values (
+    v_encounter_id,
+    v_link.character_id,
+    v_roll + v_reaction,
+    v_reaction,
+    v_roll,
+    0,
+    9999,
+    false,
+    true,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    false,
+    v_hide,
+    v_encounter.current_round + 1,
+    0,
+    0
+  );
+
+  with ranked as (
+    select
+      e.id,
+      row_number() over (
+        order by
+          e.initiative_value desc,
+          case when c.character_bucket = 'player' then 1 else 0 end desc,
+          e.roll_value desc,
+          e.character_id asc,
+          e.id asc
+      ) - 1 as next_order_index
+    from public.odyssey_initiative_entries e
+    join public.odyssey_characters c on c.id = e.character_id
+    where e.encounter_id = v_encounter_id
+      and e.is_active = true
+  )
+  update public.odyssey_initiative_entries e
+  set order_index = ranked.next_order_index
+  from ranked
+  where ranked.id = e.id;
+
+  perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+
+  return public.odyssey_build_combat_runtime(v_encounter_id, p_payload->>'actor_player_id', true, true, 5);
+end;
+$;
+
+create or replace function public.combat_remove_participant(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_reason text := coalesce(nullif(trim(coalesce(p_payload->>'reason', '')), ''), 'gm_removed');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_entry public.odyssey_initiative_entries%rowtype;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may remove participants.');
+  end if;
+
+  select *
+  into v_entry
+  from public.odyssey_initiative_entries e
+  where e.encounter_id = v_encounter_id
+    and e.character_id = v_character_id
+    and e.is_active = true
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_FOUND', 'message', 'Participant was not found.');
+  end if;
+
+  update public.odyssey_initiative_entries
+  set
+    is_active = false,
+    removed_at = timezone('utc', now()),
+    removed_reason = v_reason
+  where id = v_entry.id;
+
+  if exists (
+    select 1
+    from public.odyssey_combat_encounters e
+    where e.id = v_encounter_id
+      and e.active_entry_id = v_entry.id
+  ) then
+    perform public.odyssey_start_next_eligible_turn(v_encounter_id);
+  else
+    perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+  end if;
+
+  return public.odyssey_build_combat_runtime(v_encounter_id, p_payload->>'actor_player_id', true, true, 5);
+end;
+$;
+
+create or replace function public.combat_reorder_initiative(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_entries jsonb := coalesce(p_payload->'entries', '[]'::jsonb);
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_item jsonb;
+  v_idx integer := 0;
+  v_entry_id uuid;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may reorder initiative.');
+  end if;
+
+  if jsonb_typeof(v_entries) <> 'array' then
+    return jsonb_build_object('ok', false, 'error', 'INVALID_PAYLOAD', 'message', 'entries must be an array.');
+  end if;
+
+  for v_item in
+    select value
+    from jsonb_array_elements(v_entries)
+  loop
+    v_entry_id := public.odyssey_try_parse_uuid(coalesce(v_item->>'initiative_entry_id', v_item->>'entry_id'));
+    if v_entry_id is not null then
+      update public.odyssey_initiative_entries
+      set order_index = v_idx
+      where id = v_entry_id
+        and encounter_id = v_encounter_id;
+      v_idx := v_idx + 1;
+    end if;
+  end loop;
+
+  perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+  return public.odyssey_build_combat_runtime(v_encounter_id, p_payload->>'actor_player_id', true, true, 5);
+end;
+$;
+
+create or replace function public.combat_end_turn(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_control jsonb := '{}'::jsonb;
+  v_versions jsonb := '{}'::jsonb;
+begin
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters
+  where id = v_encounter_id
+    and status = 'active'
+    and ended_at is null
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_ACTIVE', 'message', 'Encounter is not active.');
+  end if;
+
+  if v_encounter.active_character_id is null then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_FOUND', 'message', 'No active turn is set.');
+  end if;
+
+  v_control := public.odyssey_can_control_character(v_encounter.active_character_id, v_actor_player_id, v_actor_is_gm);
+  if coalesce((v_control->>'allowed')::boolean, false) = false then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'You cannot end this turn.');
+  end if;
+
+  v_versions := public.odyssey_validate_combat_versions(
+    v_encounter_id,
+    nullif(trim(coalesce(p_payload->>'expected_encounter_version', '')), '')::integer,
+    v_encounter.active_character_id,
+    nullif(trim(coalesce(p_payload->>'expected_character_state_version', '')), '')::integer
+  );
+  if coalesce((v_versions->>'ok')::boolean, false) = false then
+    return v_versions;
+  end if;
+
+  perform public.odyssey_start_next_eligible_turn(v_encounter_id);
+  return public.odyssey_build_combat_runtime(v_encounter_id, v_actor_player_id, v_actor_is_gm, v_actor_is_gm, 5);
+end;
+$;
+
+create or replace function public.combat_skip_turn(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+begin
+  return public.combat_end_turn(p_payload);
+end;
+$;
+
+create or replace function public.combat_force_next_turn(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may force the next turn.');
+  end if;
+
+  return public.combat_end_turn(p_payload);
+end;
+$;
+
+create or replace function public.combat_end_encounter(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_encounter public.odyssey_combat_encounters%rowtype;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may end the encounter.');
+  end if;
+
+  update public.odyssey_combat_encounters
+  set
+    status = 'finished',
+    ended_at = timezone('utc', now()),
+    active_entry_id = null,
+    active_character_id = null
+  where id = v_encounter_id
+  returning * into v_encounter;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_FOUND', 'message', 'Encounter was not found.');
+  end if;
+
+  perform public.odyssey_increment_encounter_state_version(v_encounter.id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'encounter_id', v_encounter.id,
+    'status', v_encounter.status,
+    'ended_at', v_encounter.ended_at
+  );
+end;
+$;
+
+create or replace function public.combat_convert_action_to_move(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_entry public.odyssey_initiative_entries%rowtype;
+  v_control jsonb := '{}'::jsonb;
+  v_versions jsonb := '{}'::jsonb;
+begin
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters
+  where id = v_encounter_id
+    and status = 'active'
+    and ended_at is null
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_ACTIVE', 'message', 'Encounter is not active.');
+  end if;
+
+  select *
+  into v_entry
+  from public.odyssey_initiative_entries
+  where encounter_id = v_encounter_id
+    and character_id = v_character_id
+    and is_active = true
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_FOUND', 'message', 'Participant was not found.');
+  end if;
+
+  v_control := public.odyssey_can_control_character(v_character_id, v_actor_player_id, v_actor_is_gm);
+  if coalesce((v_control->>'allowed')::boolean, false) = false then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'You cannot control this participant.');
+  end if;
+
+  if v_encounter.active_entry_id is distinct from v_entry.id then
+    return jsonb_build_object('ok', false, 'error', 'NOT_CURRENT_TURN', 'message', 'It is not this participant''s turn.');
+  end if;
+
+  v_versions := public.odyssey_validate_combat_versions(
+    v_encounter_id,
+    nullif(trim(coalesce(p_payload->>'expected_encounter_version', '')), '')::integer,
+    v_character_id,
+    nullif(trim(coalesce(p_payload->>'expected_character_state_version', '')), '')::integer
+  );
+  if coalesce((v_versions->>'ok')::boolean, false) = false then
+    return v_versions;
+  end if;
+
+  if coalesce(v_entry.action_current, 0) <= 0 then
+    return jsonb_build_object('ok', false, 'error', 'ACTION_NOT_AVAILABLE', 'message', 'No ACTION is available.');
+  end if;
+
+  if coalesce(v_entry.move_current, 0) <> 0 then
+    return jsonb_build_object('ok', false, 'error', 'MOVE_NOT_EMPTY', 'message', 'MOVE can only be restored when it is empty.');
+  end if;
+
+  if coalesce(v_entry.action_converted_to_move, false) then
+    return jsonb_build_object('ok', false, 'error', 'ACTION_ALREADY_CONVERTED', 'message', 'ACTION was already converted into MOVE this turn.');
+  end if;
+
+  update public.odyssey_initiative_entries
+  set
+    action_current = greatest(action_current - 1, 0),
+    move_current = move_max,
+    action_converted_to_move = true,
+    turn_version = coalesce(turn_version, 0) + 1
+  where id = v_entry.id;
+
+  perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+
+  return public.odyssey_build_combat_runtime(v_encounter_id, v_actor_player_id, v_actor_is_gm, v_actor_is_gm, 5);
+end;
+$;
+
+create or replace function public.combat_spend_move(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_move_cost integer := greatest(coalesce(nullif(trim(coalesce(p_payload->>'move_cost', '')), '')::integer, 1), 0);
+  v_entry public.odyssey_initiative_entries%rowtype;
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_control jsonb := '{}'::jsonb;
+begin
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters
+  where id = v_encounter_id
+    and status = 'active'
+    and ended_at is null
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_ACTIVE', 'message', 'Encounter is not active.');
+  end if;
+
+  select *
+  into v_entry
+  from public.odyssey_initiative_entries
+  where encounter_id = v_encounter_id
+    and character_id = v_character_id
+    and is_active = true
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_FOUND', 'message', 'Participant was not found.');
+  end if;
+
+  v_control := public.odyssey_can_control_character(v_character_id, v_actor_player_id, v_actor_is_gm);
+  if coalesce((v_control->>'allowed')::boolean, false) = false then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'You cannot control this participant.');
+  end if;
+
+  if v_encounter.active_entry_id is distinct from v_entry.id then
+    return jsonb_build_object('ok', false, 'error', 'NOT_CURRENT_TURN', 'message', 'It is not this participant''s turn.');
+  end if;
+
+  if coalesce(v_entry.move_current, 0) < v_move_cost then
+    return jsonb_build_object('ok', false, 'error', 'MOVE_NOT_AVAILABLE', 'message', 'Not enough MOVE is available.');
+  end if;
+
+  update public.odyssey_initiative_entries
+  set
+    move_current = greatest(move_current - v_move_cost, 0),
+    movement_version = coalesce(movement_version, 0) + 1
+  where id = v_entry.id;
+
+  perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'encounter_id', v_encounter_id,
+    'character_id', v_character_id,
+    'move_cost', v_move_cost
+  );
+end;
+$;
+
+create or replace function public.odyssey_get_combat_action_cost_context(
+  p_encounter_id uuid,
+  p_character_id uuid,
+  p_action_kind text,
+  p_source_type text default null,
+  p_source_id uuid default null,
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_action_kind text := lower(trim(coalesce(p_action_kind, '')));
+  v_source_type text := lower(trim(coalesce(p_source_type, '')));
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_action_cost integer := 0;
+  v_move_cost integer := 0;
+  v_is_free boolean := false;
+  v_def_data jsonb := '{}'::jsonb;
+begin
+  case v_action_kind
+    when 'attack' then
+      v_action_cost := 1;
+    when 'reload' then
+      v_move_cost := 1;
+    when 'move' then
+      v_move_cost := greatest(coalesce(nullif(trim(coalesce(v_payload->>'move_cost', '')), '')::integer, 1), 0);
+    when 'ability' then
+      select coalesce(a.data, '{}'::jsonb)
+      into v_def_data
+      from public.odyssey_character_abilities a
+      where a.id = p_source_id
+      limit 1;
+      v_action_cost := coalesce(nullif(trim(coalesce(v_def_data#>>'{combat_cost,action_cost}', v_def_data->>'action_cost', '1')), '')::integer, 1);
+      v_move_cost := coalesce(nullif(trim(coalesce(v_def_data#>>'{combat_cost,move_cost}', v_def_data->>'move_cost', '0')), '')::integer, 0);
+    when 'perk' then
+      select coalesce(perk.effect_data, '{}'::jsonb)
+      into v_def_data
+      from public.odyssey_character_perks owned
+      join public.odyssey_perk_defs perk on perk.id = owned.perk_def_id
+      where owned.id = p_source_id
+      limit 1;
+      v_action_cost := coalesce(nullif(trim(coalesce(v_def_data#>>'{combat_cost,action_cost}', v_def_data->>'action_cost', '1')), '')::integer, 1);
+      v_move_cost := coalesce(nullif(trim(coalesce(v_def_data#>>'{combat_cost,move_cost}', v_def_data->>'move_cost', '0')), '')::integer, 0);
+    when 'item' then
+      select coalesce(i.data, '{}'::jsonb)
+      into v_def_data
+      from public.odyssey_character_items i
+      where i.id = p_source_id
+      limit 1;
+      v_action_cost := coalesce(nullif(trim(coalesce(v_def_data#>>'{combat_cost,action_cost}', v_def_data->>'action_cost', '1')), '')::integer, 1);
+      v_move_cost := coalesce(nullif(trim(coalesce(v_def_data#>>'{combat_cost,move_cost}', v_def_data->>'move_cost', '0')), '')::integer, 0);
+    else
+      v_action_cost := 0;
+      v_move_cost := 0;
+  end case;
+
+  if coalesce(nullif(trim(coalesce(v_payload->>'is_free', '')), '')::boolean, false) then
+    v_is_free := true;
+    v_action_cost := 0;
+    v_move_cost := 0;
+  end if;
+
+  return jsonb_build_object(
+    'blocked', false,
+    'block_reason', null,
+    'action_cost', greatest(v_action_cost, 0),
+    'move_cost', greatest(v_move_cost, 0),
+    'is_free', v_is_free,
+    'applied_modifiers', '[]'::jsonb
+  );
+end;
+$;
+
+create or replace function public.odyssey_apply_turn_costs(
+  p_entry_id uuid,
+  p_action_cost integer,
+  p_move_cost integer,
+  p_use_reaction boolean default false
+)
+returns public.odyssey_initiative_entries
+language plpgsql
+as $
+declare
+  v_entry public.odyssey_initiative_entries%rowtype;
+begin
+  update public.odyssey_initiative_entries
+  set
+    action_current = case
+      when coalesce(p_use_reaction, false) then action_current
+      else greatest(action_current - greatest(coalesce(p_action_cost, 0), 0), 0)
+    end,
+    move_current = greatest(move_current - greatest(coalesce(p_move_cost, 0), 0), 0),
+    reaction_action_current = case
+      when coalesce(p_use_reaction, false) then greatest(reaction_action_current - 1, 0)
+      else reaction_action_current
+    end
+  where id = p_entry_id
+  returning * into v_entry;
+
+  return v_entry;
+end;
+$;
+
+create or replace function public.combat_grant_reaction_action(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may grant reaction actions.');
+  end if;
+
+  update public.odyssey_initiative_entries
+  set
+    reaction_action_max = greatest(coalesce(reaction_action_max, 0), 1),
+    reaction_action_current = greatest(coalesce(reaction_action_current, 0), 1)
+  where encounter_id = v_encounter_id
+    and character_id = v_character_id
+    and is_active = true;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_FOUND', 'message', 'Participant was not found.');
+  end if;
+
+  perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+  return public.odyssey_build_combat_runtime(v_encounter_id, p_payload->>'actor_player_id', true, true, 5);
+end;
+$;
+
+create or replace function public.combat_mark_character_dead(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(p_payload->>'encounter_id');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(p_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_effect_id uuid := null;
+  v_refresh jsonb := '{}'::jsonb;
+begin
+  if not v_actor_is_gm then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'Only the GM may force a death state.');
+  end if;
+
+  if v_character_id is null then
+    return jsonb_build_object('ok', false, 'error', 'CHARACTER_NOT_FOUND', 'message', 'character_id is required.');
+  end if;
+
+  update public.odyssey_character_effects
+  set
+    is_active = false,
+    updated_at = timezone('utc', now())
+  where character_id = v_character_id
+    and effect_key = 'gm_marked_dead'
+    and is_active = true;
+
+  insert into public.odyssey_character_effects (
+    character_id,
+    effect_key,
+    name,
+    description,
+    source,
+    duration_type,
+    rounds_left,
+    data,
+    is_active,
+    created_by
+  )
+  values (
+    v_character_id,
+    'gm_marked_dead',
+    'Dead',
+    'GM-marked dead state.',
+    'gm',
+    'scene',
+    null,
+    jsonb_build_object(
+      'flags', jsonb_build_object(
+        'force_dead', true,
+        'skip_turn', true,
+        'helpless', true
+      ),
+      'reason', 'gm_marked_dead'
+    ),
+    true,
+    coalesce(nullif(trim(coalesce(p_payload->>'actor_player_id', '')), ''), 'gm')
+  )
+  returning id into v_effect_id;
+
+  v_refresh := public.odyssey_refresh_character_combat_state(v_character_id);
+
+  update public.odyssey_initiative_entries
+  set
+    is_active = false,
+    removed_at = timezone('utc', now()),
+    removed_reason = 'dead'
+  where encounter_id = v_encounter_id
+    and character_id = v_character_id
+    and is_active = true;
+
+  if exists (
+    select 1
+    from public.odyssey_combat_encounters e
+    join public.odyssey_initiative_entries i on i.id = e.active_entry_id
+    where e.id = v_encounter_id
+      and i.character_id = v_character_id
+  ) then
+    perform public.odyssey_start_next_eligible_turn(v_encounter_id);
+  else
+    perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_id', v_character_id,
+    'effect_id', v_effect_id,
+    'combat_state', coalesce(v_refresh->'combat_state', '{}'::jsonb)
+  );
+end;
+$;
+
+create or replace function public.combat_execute_action(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(v_payload->>'encounter_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
+  v_kind text := lower(trim(coalesce(v_payload->>'kind', '')));
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(v_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(v_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_intent jsonb := case when jsonb_typeof(v_payload->'intent') = 'object' then v_payload->'intent' else '{}'::jsonb end;
+  v_encounter public.odyssey_combat_encounters%rowtype;
+  v_entry public.odyssey_initiative_entries%rowtype;
+  v_control jsonb := '{}'::jsonb;
+  v_versions jsonb := '{}'::jsonb;
+  v_cost jsonb := '{}'::jsonb;
+  v_result jsonb := '{}'::jsonb;
+  v_action_cost integer := 0;
+  v_move_cost integer := 0;
+  v_use_reaction boolean := false;
+  v_post_refresh jsonb := '{}'::jsonb;
+begin
+  if v_kind not in ('attack', 'reload', 'ability', 'perk', 'item', 'move') then
+    return jsonb_build_object('ok', false, 'error', 'INVALID_ACTION_KIND', 'message', 'Unsupported action kind.');
+  end if;
+
+  select *
+  into v_encounter
+  from public.odyssey_combat_encounters
+  where id = v_encounter_id
+    and status = 'active'
+    and ended_at is null
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_ACTIVE', 'message', 'Encounter is not active.');
+  end if;
+
+  select *
+  into v_entry
+  from public.odyssey_initiative_entries
+  where encounter_id = v_encounter_id
+    and character_id = v_character_id
+    and is_active = true
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'PARTICIPANT_NOT_FOUND', 'message', 'Participant was not found.');
+  end if;
+
+  v_control := public.odyssey_can_control_character(v_character_id, v_actor_player_id, v_actor_is_gm);
+  if coalesce((v_control->>'allowed')::boolean, false) = false then
+    return jsonb_build_object('ok', false, 'error', 'CONTROL_DENIED', 'message', 'You cannot control this participant.');
+  end if;
+
+  if v_encounter.active_entry_id is distinct from v_entry.id then
+    if coalesce(v_entry.reaction_action_current, 0) > 0 then
+      v_use_reaction := true;
+    else
+      return jsonb_build_object('ok', false, 'error', 'NOT_CURRENT_TURN', 'message', 'It is not this participant''s turn.');
+    end if;
+  end if;
+
+  v_versions := public.odyssey_validate_combat_versions(
+    v_encounter_id,
+    nullif(trim(coalesce(v_payload->>'expected_encounter_version', '')), '')::integer,
+    v_character_id,
+    nullif(trim(coalesce(v_payload->>'expected_character_state_version', '')), '')::integer
+  );
+  if coalesce((v_versions->>'ok')::boolean, false) = false then
+    return v_versions;
+  end if;
+
+  v_cost := public.odyssey_get_combat_action_cost_context(
+    v_encounter_id,
+    v_character_id,
+    v_kind,
+    case when v_kind in ('ability', 'perk', 'item') then v_kind else null end,
+    public.odyssey_try_parse_uuid(coalesce(v_intent->>'character_ability_id', v_intent->>'character_perk_id', v_intent->>'character_item_id')),
+    v_intent
+  );
+
+  v_action_cost := greatest(coalesce(nullif(trim(coalesce(v_cost->>'action_cost', '')), '')::integer, 0), 0);
+  v_move_cost := greatest(coalesce(nullif(trim(coalesce(v_cost->>'move_cost', '')), '')::integer, 0), 0);
+
+  if not v_use_reaction and coalesce(v_entry.action_current, 0) < v_action_cost then
+    return jsonb_build_object('ok', false, 'error', 'ACTION_NOT_AVAILABLE', 'message', 'Not enough ACTION is available.');
+  end if;
+
+  if coalesce(v_entry.move_current, 0) < v_move_cost then
+    return jsonb_build_object('ok', false, 'error', 'MOVE_NOT_AVAILABLE', 'message', 'Not enough MOVE is available.');
+  end if;
+
+  if v_use_reaction and coalesce(v_entry.reaction_action_current, 0) <= 0 then
+    return jsonb_build_object('ok', false, 'error', 'REACTION_NOT_AVAILABLE', 'message', 'No reaction action is available.');
+  end if;
+
+  case v_kind
+    when 'attack' then
+      v_result := public.perform_attack(
+        v_intent
+        || jsonb_build_object(
+          'encounter_id', v_encounter_id,
+          'attacker_character_id', v_character_id
+        )
+      );
+    when 'reload' then
+      v_result := public.load_weapon_profile_magazine(v_intent);
+    when 'ability' then
+      v_result := public.use_ability(v_intent || jsonb_build_object('encounter_id', v_encounter_id));
+    when 'perk' then
+      v_result := public.use_character_perk(v_intent || jsonb_build_object('encounter_id', v_encounter_id));
+    when 'item' then
+      v_result := public.use_character_item(v_intent || jsonb_build_object('encounter_id', v_encounter_id));
+    when 'move' then
+      v_result := public.combat_spend_move(
+        jsonb_build_object(
+          'encounter_id', v_encounter_id,
+          'character_id', v_character_id,
+          'actor_player_id', v_actor_player_id,
+          'actor_is_gm', v_actor_is_gm,
+          'move_cost', v_move_cost
+        ) || v_intent
+      );
+  end case;
+
+  if coalesce((v_result->>'ok')::boolean, false) = false then
+    return v_result;
+  end if;
+
+  if v_kind <> 'move' then
+    perform public.odyssey_apply_turn_costs(v_entry.id, v_action_cost, v_move_cost, v_use_reaction);
+    perform public.odyssey_increment_encounter_state_version(v_encounter_id);
+  end if;
+
+  v_post_refresh := public.odyssey_refresh_character_combat_state(v_character_id);
+
+  if v_kind = 'perk'
+     and coalesce(nullif(v_result->>'force_end_turn', '')::boolean, false)
+     and not v_use_reaction then
+    perform public.odyssey_start_next_eligible_turn(v_encounter_id);
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'encounter_state_version', (select state_version from public.odyssey_combat_encounters where id = v_encounter_id),
+    'character_state_version', coalesce((v_post_refresh->>'state_version')::integer, null),
+    'spent',
+      jsonb_build_object(
+        'action_cost', v_action_cost,
+        'move_cost', v_move_cost,
+        'used_reaction', v_use_reaction
+      ),
+    'result', v_result,
+    'acting_combat_state', coalesce(v_post_refresh->'combat_state', '{}'::jsonb),
+    'runtime', public.odyssey_build_combat_runtime(v_encounter_id, v_actor_player_id, v_actor_is_gm, v_actor_is_gm, 5)
+  );
+end;
+$;
+
+grant execute on function public.odyssey_get_character_reaction_value(uuid) to anon, authenticated;
+grant execute on function public.odyssey_character_has_active_effect_flag(uuid, text) to anon, authenticated;
+grant execute on function public.odyssey_get_active_encounter(text, text, text) to anon, authenticated;
+grant execute on function public.odyssey_validate_combat_versions(uuid, integer, uuid, integer) to anon, authenticated;
+grant execute on function public.odyssey_combat_log_insert(text, text, text, uuid, integer, uuid, uuid, uuid, text, text, text, jsonb, jsonb, text) to anon, authenticated;
+grant execute on function public.odyssey_build_combat_runtime(uuid, text, boolean, boolean, integer) to anon, authenticated;
+grant execute on function public.odyssey_increment_encounter_state_version(uuid) to anon, authenticated;
+grant execute on function public.odyssey_start_next_eligible_turn(uuid) to anon, authenticated;
+grant execute on function public.combat_get_active_runtime(jsonb) to anon, authenticated;
+grant execute on function public.combat_start_encounter(jsonb) to anon, authenticated;
+grant execute on function public.combat_add_participant(jsonb) to anon, authenticated;
+grant execute on function public.combat_remove_participant(jsonb) to anon, authenticated;
+grant execute on function public.combat_reorder_initiative(jsonb) to anon, authenticated;
+grant execute on function public.combat_end_turn(jsonb) to anon, authenticated;
+grant execute on function public.combat_skip_turn(jsonb) to anon, authenticated;
+grant execute on function public.combat_force_next_turn(jsonb) to anon, authenticated;
+grant execute on function public.combat_end_encounter(jsonb) to anon, authenticated;
+grant execute on function public.combat_convert_action_to_move(jsonb) to anon, authenticated;
+grant execute on function public.combat_spend_move(jsonb) to anon, authenticated;
+grant execute on function public.odyssey_get_combat_action_cost_context(uuid, uuid, text, text, uuid, jsonb) to anon, authenticated;
+grant execute on function public.odyssey_apply_turn_costs(uuid, integer, integer, boolean) to anon, authenticated;
+grant execute on function public.combat_grant_reaction_action(jsonb) to anon, authenticated;
+grant execute on function public.combat_mark_character_dead(jsonb) to anon, authenticated;
+grant execute on function public.combat_execute_action(jsonb) to anon, authenticated;
+-- ===== END 64_combat_hud_turn_engine_and_action_executor.sql =====
+
+
+
+-- ===== BEGIN 65_perk_combat_automation_and_weapon_locks.sql =====
+-- Odyssey System: perk combat automation and weapon locks
+-- Stage 65: canonical dead-state wrapper, weapon lock checks, perk context, patient hunter,
+--           first time no movement binding, calibrating persistence, and attack wrapper refresh.
+
+do $
+begin
+  if to_regprocedure('public.odyssey_get_effective_character_stats_legacy(uuid)') is null
+     and to_regprocedure('public.get_effective_character_stats(uuid)') is not null then
+    alter function public.get_effective_character_stats(uuid)
+      rename to odyssey_get_effective_character_stats_legacy;
+  end if;
+end;
+$;
+
+create or replace function public.get_effective_character_stats(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_result jsonb := '{}'::jsonb;
+  v_force_dead boolean := false;
+begin
+  v_result := public.odyssey_get_effective_character_stats_legacy(p_character_id);
+
+  if coalesce((v_result->>'ok')::boolean, false) = false then
+    return v_result;
+  end if;
+
+  select exists(
+    select 1
+    from public.odyssey_character_effects e
+    where e.character_id = p_character_id
+      and e.is_active = true
+      and coalesce(nullif(e.data#>>'{flags,force_dead}', '')::boolean, false)
+  )
+  into v_force_dead;
+
+  if v_force_dead then
+    v_result := jsonb_set(v_result, '{derived,is_alive}', 'false'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,is_conscious}', 'false'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,helpless}', 'true'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,skip_main_action}', 'true'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,skip_movement}', 'true'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,consumes_full_turn}', 'true'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,main_actions_per_turn}', '0'::jsonb, true);
+    v_result := jsonb_set(v_result, '{derived,movement_available_m}', '0'::jsonb, true);
+  end if;
+
+  return v_result;
+end;
+$;
+
+create or replace function public.odyssey_get_weapon_runtime_context(
+  p_character_weapon_id uuid
+)
+returns jsonb
+language sql
+stable
+as $
+  with weapon_row as (
+    select
+      w.id as character_weapon_id,
+      w.character_id,
+      w.weapon_model_id,
+      w.active_profile_id,
+      w.loaded_magazine_id,
+      w.selected_fire_mode_id,
+      coalesce(nullif(trim(w.custom_name), ''), wm.name) as weapon_name,
+      wm.code as weapon_model_code,
+      wm.tags as model_tags,
+      coalesce(w.data, '{}'::jsonb) as weapon_data,
+      wc.code as weapon_class_code,
+      wc.name as weapon_class_name,
+      p.id as profile_id,
+      coalesce(p.code, '') as profile_code,
+      coalesce(p.tags, '[]'::jsonb) as profile_tags,
+      coalesce(p.attack_type, 'ranged') as attack_type,
+      coalesce(p.range_profile_id, wm.range_profile_id) as range_profile_id,
+      coalesce(rp.code, mrp.code) as range_profile_code,
+      coalesce(p.caliber_id, wm.caliber_id) as caliber_id,
+      coalesce(cal.code, mcal.code) as caliber_code,
+      coalesce(fm.code, default_fm.code, '') as fire_mode_code,
+      coalesce(fm.id, default_fm.id) as fire_mode_id,
+      cm.current_rounds as loaded_magazine_current_rounds,
+      md.capacity as loaded_magazine_capacity,
+      ammo.code as loaded_ammo_code,
+      w.equipped_slot
+    from public.odyssey_character_weapons w
+    join public.odyssey_weapon_model_defs wm on wm.id = w.weapon_model_id
+    join public.odyssey_weapon_class_defs wc on wc.id = wm.weapon_class_id
+    left join public.odyssey_weapon_model_profiles p on p.id = w.active_profile_id
+    left join public.odyssey_range_profile_defs rp on rp.id = p.range_profile_id
+    left join public.odyssey_range_profile_defs mrp on mrp.id = wm.range_profile_id
+    left join public.odyssey_caliber_defs cal on cal.id = p.caliber_id
+    left join public.odyssey_caliber_defs mcal on mcal.id = wm.caliber_id
+    left join public.odyssey_fire_mode_defs fm on fm.id = w.selected_fire_mode_id
+    left join lateral (
+      select fm2.id, fm2.code
+      from public.odyssey_weapon_profile_fire_modes pfm2
+      join public.odyssey_fire_mode_defs fm2 on fm2.id = pfm2.fire_mode_id
+      where pfm2.profile_id = w.active_profile_id
+        and pfm2.is_default = true
+      order by pfm2.sort_order, pfm2.created_at, pfm2.id
+      limit 1
+    ) default_fm on true
+    left join public.odyssey_character_magazines cm on cm.id = w.loaded_magazine_id
+    left join public.odyssey_magazine_defs md on md.id = cm.magazine_def_id
+    left join public.odyssey_ammo_type_defs ammo on ammo.id = cm.ammo_type_id
+    where w.id = p_character_weapon_id
+  ),
+  weapon_tags as (
+    select
+      wr.character_weapon_id,
+      coalesce(
+        jsonb_agg(distinct tag_rows.tag) filter (where tag_rows.tag <> ''),
+        '[]'::jsonb
+      ) as tags
+    from weapon_row wr
+    left join lateral (
+      select lower(trim(value)) as tag
+      from jsonb_array_elements_text(coalesce(wr.model_tags, '[]'::jsonb)) value
+      union
+      select lower(trim(value)) as tag
+      from jsonb_array_elements_text(coalesce(wr.profile_tags, '[]'::jsonb)) value
+      union
+      select lower(trim(coalesce(wr.weapon_class_code, '')))
+      union
+      select lower(trim(coalesce(wr.weapon_model_code, '')))
+      union
+      select lower(trim(coalesce(wr.profile_code, '')))
+    ) tag_rows on true
+    group by wr.character_weapon_id
+  )
+  select coalesce(
+    (
+      select jsonb_build_object(
+        'ok', true,
+        'character_weapon_id', wr.character_weapon_id,
+        'character_id', wr.character_id,
+        'weapon_model_id', wr.weapon_model_id,
+        'active_profile_id', wr.active_profile_id,
+        'profile_id', wr.profile_id,
+        'weapon_name', wr.weapon_name,
+        'weapon_model_code', wr.weapon_model_code,
+        'weapon_class_code', wr.weapon_class_code,
+        'weapon_class_name', wr.weapon_class_name,
+        'profile_code', wr.profile_code,
+        'attack_type', wr.attack_type,
+        'range_profile_id', wr.range_profile_id,
+        'range_profile_code', wr.range_profile_code,
+        'caliber_id', wr.caliber_id,
+        'caliber_code', wr.caliber_code,
+        'fire_mode_id', wr.fire_mode_id,
+        'fire_mode_code', wr.fire_mode_code,
+        'loaded_magazine_id', wr.loaded_magazine_id,
+        'loaded_magazine_current_rounds', wr.loaded_magazine_current_rounds,
+        'loaded_magazine_capacity', wr.loaded_magazine_capacity,
+        'loaded_ammo_code', wr.loaded_ammo_code,
+        'weapon_tags', coalesce(tags.tags, '[]'::jsonb),
+        'weapon_data', coalesce(wr.weapon_data, '{}'::jsonb),
+        'equipped_slot', wr.equipped_slot
+      )
+      from weapon_row wr
+      left join weapon_tags tags on tags.character_weapon_id = wr.character_weapon_id
+    ),
+    jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'message', 'Weapon was not found.'
+    )
+  );
+$;
+
+create or replace function public.odyssey_get_weapon_lock_state(
+  p_character_id uuid,
+  p_character_weapon_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_weapon_context jsonb := '{}'::jsonb;
+  v_active_effects jsonb := '[]'::jsonb;
+  v_weapon_locked boolean := false;
+  v_actor_attack_locked boolean := false;
+  v_reason text := '';
+  v_error_code text := null;
+  v_message text := null;
+begin
+  if p_character_id is null or p_character_weapon_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'character_id and character_weapon_id are required.'
+    );
+  end if;
+
+  v_weapon_context := public.odyssey_get_weapon_runtime_context(p_character_weapon_id);
+  if coalesce((v_weapon_context->>'ok')::boolean, false) = false then
+    return v_weapon_context;
+  end if;
+
+  if public.odyssey_try_parse_uuid(v_weapon_context->>'character_id') is distinct from p_character_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_OWNED',
+      'message', 'Weapon does not belong to this character.',
+      'character_weapon_id', p_character_weapon_id
+    );
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', e.id,
+        'effect_key', e.effect_key,
+        'perk_code', coalesce(e.data->>'perk_code', ''),
+        'reason', coalesce(e.data#>>'{flags,reason}', e.data->>'reason', ''),
+        'name', e.name,
+        'data', coalesce(e.data, '{}'::jsonb)
+      )
+      order by e.updated_at desc, e.created_at desc, e.id desc
+    ),
+    '[]'::jsonb
+  )
+  into v_active_effects
+  from public.odyssey_character_effects e
+  where e.character_id = p_character_id
+    and e.is_active = true
+    and (
+      (
+        coalesce(e.data->>'character_weapon_id', '') = p_character_weapon_id::text
+        and (
+          coalesce(lower(e.data#>>'{flags,weapon_locked}'), 'false') in ('true', '1', 'yes', 'on')
+          or coalesce(e.data->>'perk_code', '') in ('ratatatata', 'not_full_auto', 'coil_cooling', 'patient_hunter')
+          or split_part(coalesce(e.effect_key, ''), ':', 1) in ('coil_cooling', 'suppression_fire_active', 'ratatatata', 'patient_hunter')
+        )
+      )
+      or coalesce(lower(e.data#>>'{flags,actor_attack_locked}'), 'false') in ('true', '1', 'yes', 'on')
+    );
+
+  select exists(
+    select 1
+    from jsonb_array_elements(v_active_effects) effect
+    where coalesce(lower(effect#>>'{data,flags,weapon_locked}'), 'false') in ('true', '1', 'yes', 'on')
+       or split_part(coalesce(effect->>'effect_key', ''), ':', 1) in ('coil_cooling', 'suppression_fire_active')
+  )
+  into v_weapon_locked;
+
+  select exists(
+    select 1
+    from jsonb_array_elements(v_active_effects) effect
+    where coalesce(lower(effect#>>'{data,flags,actor_attack_locked}'), 'false') in ('true', '1', 'yes', 'on')
+  )
+  into v_actor_attack_locked;
+
+  if v_weapon_locked or v_actor_attack_locked then
+    select
+      coalesce(
+        nullif(trim(coalesce(effect->>'reason', '')), ''),
+        nullif(trim(coalesce(effect->>'perk_code', '')), ''),
+        split_part(coalesce(effect->>'effect_key', ''), ':', 1),
+        'weapon_locked'
+      )
+    into v_reason
+    from jsonb_array_elements(v_active_effects) effect
+    limit 1;
+
+    if exists (
+      select 1
+      from jsonb_array_elements(v_active_effects) effect
+      where coalesce(effect->>'perk_code', '') = 'coil_cooling'
+         or split_part(coalesce(effect->>'effect_key', ''), ':', 1) = 'coil_cooling'
+         or coalesce(effect->>'reason', '') = 'coil_cooling'
+    ) then
+      v_error_code := 'WEAPON_COOLING';
+      v_message := 'Weapon is cooling down and cannot be used right now.';
+    elsif v_actor_attack_locked then
+      v_error_code := 'ACTOR_ATTACK_LOCKED';
+      v_message := 'This character cannot perform attack actions right now.';
+    else
+      v_error_code := 'WEAPON_LOCKED';
+      v_message := 'Weapon is currently locked by an active perk or effect.';
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_id', p_character_id,
+    'character_weapon_id', p_character_weapon_id,
+    'locked', v_weapon_locked,
+    'actor_attack_locked', v_actor_attack_locked,
+    'reason', v_reason,
+    'error', v_error_code,
+    'message', v_message,
+    'active_effects', coalesce(v_active_effects, '[]'::jsonb)
+  );
+end;
+$;
+
+create or replace function public.odyssey_get_character_attack_perk_context(
+  p_character_id uuid,
+  p_character_weapon_id uuid,
+  p_target_character_id uuid default null,
+  p_target_body_part_id uuid default null,
+  p_distance_m numeric default 0,
+  p_fire_mode_code text default null,
+  p_attack_type text default null,
+  p_encounter_id uuid default null
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_weapon_context jsonb := '{}'::jsonb;
+  v_weapon_tags jsonb := '[]'::jsonb;
+  v_range_json jsonb := '{}'::jsonb;
+  v_range_band text := null;
+  v_range_modifier integer := 0;
+  v_effective_fire_mode_code text := '';
+  v_effective_attack_type text := '';
+  v_attack_accuracy_bonus integer := 0;
+  v_range_penalty_reduction integer := 0;
+  v_ignore_clinch_penalty boolean := false;
+  v_ammo_base_damage_multiplier integer := 1;
+  v_flags jsonb := '{}'::jsonb;
+  v_perk_modifiers jsonb := '[]'::jsonb;
+  v_consume_effect_ids jsonb := '[]'::jsonb;
+  v_target_armor_value integer := 0;
+  v_dual_pistol_count integer := 0;
+  v_calibrating_bonus integer := 0;
+  v_bonus integer := 0;
+  v_multiplier integer := 1;
+  v_target_movement_version integer := 0;
+  v_effect record;
+  v_perk record;
+begin
+  if p_character_id is null or p_character_weapon_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'character_id and character_weapon_id are required.'
+    );
+  end if;
+
+  v_weapon_context := public.odyssey_get_weapon_runtime_context(p_character_weapon_id);
+  if coalesce((v_weapon_context->>'ok')::boolean, false) = false then
+    return v_weapon_context;
+  end if;
+
+  if public.odyssey_try_parse_uuid(v_weapon_context->>'character_id') is distinct from p_character_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_OWNED',
+      'message', 'Weapon does not belong to this character.',
+      'character_weapon_id', p_character_weapon_id
+    );
+  end if;
+
+  v_weapon_tags := coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb);
+  v_effective_fire_mode_code := lower(trim(coalesce(nullif(p_fire_mode_code, ''), v_weapon_context->>'fire_mode_code', '')));
+  v_effective_attack_type := lower(trim(coalesce(nullif(p_attack_type, ''), v_weapon_context->>'attack_type', '')));
+
+  if public.odyssey_try_parse_uuid(v_weapon_context->>'range_profile_id') is not null then
+    v_range_json := public.odyssey_get_range_profile_modifier(
+      public.odyssey_try_parse_uuid(v_weapon_context->>'range_profile_id'),
+      greatest(coalesce(p_distance_m, 0), 0)
+    );
+    v_range_band := nullif(coalesce(v_range_json->>'range_band', ''), '');
+    v_range_modifier := coalesce((v_range_json->>'modifier')::integer, 0);
+  end if;
+
+  if p_target_body_part_id is not null then
+    select greatest(coalesce(b.armor_value, 0), 0)
+    into v_target_armor_value
+    from public.odyssey_character_body_parts b
+    where b.id = p_target_body_part_id
+      and (p_target_character_id is null or b.character_id = p_target_character_id)
+    limit 1;
+  end if;
+
+  if p_encounter_id is not null and p_target_character_id is not null then
+    select coalesce(e.movement_version, 0)
+    into v_target_movement_version
+    from public.odyssey_initiative_entries e
+    where e.encounter_id = p_encounter_id
+      and e.character_id = p_target_character_id
+      and e.is_active = true
+    order by e.updated_at desc, e.id desc
+    limit 1;
+  end if;
+
+  select count(*)
+  into v_dual_pistol_count
+  from public.odyssey_character_weapons w
+  join public.odyssey_weapon_model_defs wm on wm.id = w.weapon_model_id
+  left join public.odyssey_weapon_model_profiles p on p.id = w.active_profile_id
+  left join public.odyssey_weapon_class_defs wc on wc.id = coalesce(p.weapon_class_id, wm.weapon_class_id)
+  where w.character_id = p_character_id
+    and (
+      coalesce(wm.tags, '[]'::jsonb) ? 'pistol'
+      or coalesce(p.tags, '[]'::jsonb) ? 'pistol'
+      or lower(coalesce(wc.code, '')) = 'pistol'
+      or lower(coalesce(wm.code, '')) = 'pistol'
+      or lower(coalesce(p.code, '')) = 'pistol'
+    );
+
+  for v_perk in
+    select
+      perk_def.id as perk_def_id,
+      perk_def.code,
+      coalesce(perk_def.effect_data, '{}'::jsonb) as effect_data
+    from public.odyssey_character_perks owned
+    join public.odyssey_perk_defs perk_def on perk_def.id = owned.perk_def_id
+    where owned.character_id = p_character_id
+      and coalesce(perk_def.is_enabled, true) = true
+  loop
+    case v_perk.code
+      when 'cards_money' then
+        if v_weapon_tags ? 'pistol' and v_dual_pistol_count >= 2 then
+          v_flags := v_flags || jsonb_build_object('offhand_attack_enabled', true);
+          v_perk_modifiers := v_perk_modifiers || jsonb_build_array(
+            jsonb_build_object('perk_code', v_perk.code, 'modifier', 'offhand_attack_enabled', 'value', true)
+          );
+        end if;
+      when 'for_the_brotherhood_and_yard_pistols' then
+        if v_weapon_tags ? 'pistol' and v_range_band = 'clinch' and v_range_modifier < 0 then
+          v_bonus := abs(v_range_modifier);
+          v_attack_accuracy_bonus := v_attack_accuracy_bonus + v_bonus;
+          v_ignore_clinch_penalty := true;
+        end if;
+      when 'flutter_like_butterfly' then
+        if v_weapon_tags ? 'smg'
+           and v_range_band = 'short'
+           and v_effective_fire_mode_code in ('burst_3', 'burst_5') then
+          v_bonus := coalesce(nullif(trim(coalesce(v_perk.effect_data#>>'{effects,attack_accuracy_bonus}', '')), '')::integer, 15);
+          v_attack_accuracy_bonus := v_attack_accuracy_bonus + v_bonus;
+        end if;
+      when 'for_the_brotherhood_and_yard_shotguns' then
+        if (v_weapon_tags ? 'shotgun' or v_weapon_tags ? 'shotguns') and v_range_band = 'clinch' then
+          v_bonus := coalesce(nullif(trim(coalesce(v_perk.effect_data#>>'{effects,range_penalty_reduction}', '')), '')::integer, 15);
+          v_attack_accuracy_bonus := v_attack_accuracy_bonus + v_bonus;
+          v_range_penalty_reduction := greatest(v_range_penalty_reduction, v_bonus);
+        end if;
+      when 'head_taker' then
+        if v_effective_attack_type = 'ranged'
+           and (v_weapon_tags ? 'shotgun' or v_weapon_tags ? 'shotguns')
+           and v_range_band in ('clinch', 'short')
+           and v_target_armor_value <= coalesce(nullif(trim(coalesce(v_perk.effect_data#>>'{conditions,target_armor_value_max}', '')), '')::integer, 0) then
+          v_multiplier := coalesce(nullif(trim(coalesce(v_perk.effect_data#>>'{effects,ammo_base_damage_multiplier}', '')), '')::integer, 2);
+          v_ammo_base_damage_multiplier := greatest(v_ammo_base_damage_multiplier, v_multiplier);
+        end if;
+      when 'calibrating' then
+        if v_weapon_tags ? 'sniper' or v_weapon_tags ? 'precision' or v_weapon_tags ? 'rifle' then
+          v_calibrating_bonus := coalesce(
+            nullif(trim(coalesce(v_weapon_context#>>'{weapon_data,perk_modifiers,calibrating,accuracy_bonus}', '')), '')::integer,
+            nullif(trim(coalesce(v_weapon_context#>>'{weapon_data,perks,calibrating,accuracy_bonus}', '')), '')::integer,
+            nullif(trim(coalesce(v_weapon_context#>>'{weapon_data,calibrating_accuracy_bonus}', '')), '')::integer,
+            0
+          );
+          if v_calibrating_bonus > 0 then
+            v_attack_accuracy_bonus := v_attack_accuracy_bonus + v_calibrating_bonus;
+          end if;
+        end if;
+      else
+        null;
+    end case;
+  end loop;
+
+  for v_effect in
+    select
+      e.id,
+      e.effect_key,
+      coalesce(e.data, '{}'::jsonb) as data
+    from public.odyssey_character_effects e
+    where e.character_id = p_character_id
+      and e.is_active = true
+      and coalesce(e.data->>'character_weapon_id', '') = p_character_weapon_id::text
+      and coalesce(e.data->>'perk_code', '') in ('not_full_auto', 'first_time_no', 'patient_hunter')
+    order by e.updated_at desc, e.created_at desc, e.id desc
+  loop
+    if coalesce(v_effect.data->>'perk_code', '') = 'not_full_auto' then
+      select greatest(
+        coalesce(nullif(trim(coalesce(modifier->>'value', '')), '')::integer, 1),
+        1
+      )
+      into v_multiplier
+      from jsonb_array_elements(coalesce(v_effect.data->'modifiers', '[]'::jsonb)) modifier
+      where coalesce(modifier->>'target', '') = 'ammo_base_damage'
+        and coalesce(modifier->>'operation', '') = 'multiply'
+      limit 1;
+
+      if coalesce(v_multiplier, 1) > 1 then
+        v_ammo_base_damage_multiplier := greatest(v_ammo_base_damage_multiplier, v_multiplier);
+      end if;
+    elsif coalesce(v_effect.data->>'perk_code', '') = 'first_time_no'
+      and coalesce(v_effect.data->>'target_character_id', '') = coalesce(p_target_character_id::text, '') then
+      if coalesce(nullif(v_effect.data->>'target_movement_version', '')::integer, v_target_movement_version) = v_target_movement_version then
+        select coalesce(
+          sum(coalesce(nullif(trim(coalesce(modifier->>'value', '')), '')::integer, 0)),
+          0
+        )
+        into v_bonus
+        from jsonb_array_elements(coalesce(v_effect.data->'modifiers', '[]'::jsonb)) modifier
+        where coalesce(modifier->>'target', '') = 'attack_accuracy'
+          and coalesce(modifier->>'operation', '') = 'add';
+
+        if coalesce(v_bonus, 0) > 0 then
+          v_attack_accuracy_bonus := v_attack_accuracy_bonus + v_bonus;
+          v_consume_effect_ids := v_consume_effect_ids || jsonb_build_array(v_effect.id::text);
+        end if;
+      end if;
+    elsif coalesce(v_effect.data->>'perk_code', '') = 'patient_hunter' then
+      v_bonus := greatest(coalesce(nullif(trim(coalesce(v_effect.data->>'accuracy_bonus', '')), '')::integer, 0), 0);
+      if v_bonus > 0 then
+        v_attack_accuracy_bonus := v_attack_accuracy_bonus + v_bonus;
+      end if;
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'ok', true,
+    'blocked', false,
+    'block_reason', null,
+    'character_id', p_character_id,
+    'character_weapon_id', p_character_weapon_id,
+    'target_character_id', p_target_character_id,
+    'target_body_part_id', p_target_body_part_id,
+    'range_band', v_range_band,
+    'range_modifier', v_range_modifier,
+    'attack_accuracy_bonus', v_attack_accuracy_bonus,
+    'range_penalty_reduction', v_range_penalty_reduction,
+    'ignore_clinch_penalty', v_ignore_clinch_penalty,
+    'ammo_base_damage_multiplier', v_ammo_base_damage_multiplier,
+    'offhand_attack_enabled', coalesce((v_flags->>'offhand_attack_enabled')::boolean, false),
+    'flags', coalesce(v_flags, '{}'::jsonb),
+    'applied_perks', coalesce(v_perk_modifiers, '[]'::jsonb),
+    'active_effects', coalesce(v_consume_effect_ids, '[]'::jsonb),
+    'perk_modifiers', coalesce(v_perk_modifiers, '[]'::jsonb),
+    'consume_effect_ids', coalesce(v_consume_effect_ids, '[]'::jsonb)
+  );
+end;
+$;
+
+create or replace function public.odyssey_grant_first_time_no_retry_effect(
+  p_character_id uuid,
+  p_character_weapon_id uuid,
+  p_target_character_id uuid,
+  p_target_movement_version integer default 0,
+  p_created_by text default ''
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_weapon_context jsonb := '{}'::jsonb;
+  v_perk record;
+  v_effect_key text := '';
+  v_effect_id uuid := null;
+  v_effect_data jsonb := '{}'::jsonb;
+  v_accuracy_bonus integer := 25;
+begin
+  if p_character_id is null or p_character_weapon_id is null or p_target_character_id is null then
+    return jsonb_build_object('ok', true, 'applied', false);
+  end if;
+
+  select
+    perk_def.id as perk_def_id,
+    perk_def.code,
+    perk_def.name,
+    coalesce(perk_def.description, '') as description,
+    coalesce(perk_def.effect_data, '{}'::jsonb) as effect_data
+  into v_perk
+  from public.odyssey_character_perks owned
+  join public.odyssey_perk_defs perk_def on perk_def.id = owned.perk_def_id
+  where owned.character_id = p_character_id
+    and perk_def.code = 'first_time_no'
+    and coalesce(perk_def.is_enabled, true) = true
+  limit 1;
+
+  if not found then
+    return jsonb_build_object('ok', true, 'applied', false);
+  end if;
+
+  v_weapon_context := public.odyssey_get_weapon_runtime_context(p_character_weapon_id);
+  if coalesce((v_weapon_context->>'ok')::boolean, false) = false then
+    return jsonb_build_object('ok', true, 'applied', false);
+  end if;
+
+  if not (
+    coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb) ? 'sniper'
+    or coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb) ? 'precision'
+    or coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb) ? 'rifle'
+  ) then
+    return jsonb_build_object('ok', true, 'applied', false);
+  end if;
+
+  v_effect_key := public.odyssey_build_perk_weapon_effect_key('first_time_no', p_character_weapon_id);
+  v_accuracy_bonus := coalesce(
+    nullif(trim(coalesce(v_perk.effect_data#>>'{effects,attack_accuracy_bonus}', '')), '')::integer,
+    25
+  );
+
+  v_effect_data := jsonb_build_object(
+    'perk_code', 'first_time_no',
+    'character_weapon_id', p_character_weapon_id::text,
+    'target_character_id', p_target_character_id::text,
+    'target_movement_version', p_target_movement_version,
+    'duration_rounds', 2,
+    'category', 'combat',
+    'flags', jsonb_build_object('consume_on_attack', true),
+    'modifiers',
+      jsonb_build_array(
+        jsonb_build_object(
+          'target', 'attack_accuracy',
+          'operation', 'add',
+          'value', v_accuracy_bonus
+        )
+      )
+  );
+
+  update public.odyssey_character_effects
+  set
+    is_active = false,
+    rounds_left = 0,
+    updated_at = timezone('utc', now())
+  where character_id = p_character_id
+    and effect_key = v_effect_key
+    and is_active = true;
+
+  insert into public.odyssey_character_effects (
+    character_id,
+    effect_key,
+    name,
+    description,
+    source,
+    source_type,
+    source_id,
+    source_character_id,
+    duration_type,
+    rounds_left,
+    data,
+    is_active,
+    created_by
+  )
+  values (
+    p_character_id,
+    v_effect_key,
+    v_perk.name,
+    v_perk.description,
+    'perk',
+    'perk',
+    v_perk.perk_def_id,
+    p_character_id,
+    'rounds',
+    2,
+    v_effect_data,
+    true,
+    p_created_by
+  )
+  returning id into v_effect_id;
+
+  return jsonb_build_object('ok', true, 'applied', true, 'effect_id', v_effect_id);
+end;
+$;
+
+create or replace function public.odyssey_apply_perk_post_attack_hooks(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_attacker_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'attacker_character_id');
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_target_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'target_character_id');
+  v_target_movement_version integer := coalesce(nullif(trim(coalesce(p_payload->>'target_movement_version', '')), '')::integer, 0);
+  v_created_by text := coalesce(nullif(trim(coalesce(p_payload->>'created_by', '')), ''), '');
+  v_hit boolean := coalesce(nullif(trim(coalesce(p_payload->>'hit', '')), '')::boolean, false);
+  v_target_alive_before boolean := coalesce(nullif(trim(coalesce(p_payload->>'target_alive_before', '')), '')::boolean, true);
+  v_target_alive_after boolean := coalesce(nullif(trim(coalesce(p_payload->>'target_alive_after', '')), '')::boolean, true);
+  v_weapon_context jsonb := '{}'::jsonb;
+  v_refresh jsonb := '{}'::jsonb;
+  v_has_calibrating boolean := false;
+begin
+  if v_attacker_character_id is null or v_character_weapon_id is null then
+    return jsonb_build_object('ok', true, 'applied', false);
+  end if;
+
+  update public.odyssey_character_effects
+  set
+    is_active = false,
+    rounds_left = 0,
+    updated_at = timezone('utc', now())
+  where character_id = v_attacker_character_id
+    and is_active = true
+    and coalesce(data->>'character_weapon_id', '') = v_character_weapon_id::text
+    and coalesce(data->>'perk_code', '') = 'patient_hunter';
+
+  if v_target_alive_before and not v_target_alive_after then
+    select exists(
+      select 1
+      from public.odyssey_character_perks owned
+      join public.odyssey_perk_defs perk on perk.id = owned.perk_def_id
+      where owned.character_id = v_attacker_character_id
+        and perk.code = 'calibrating'
+        and coalesce(perk.is_enabled, true) = true
+    )
+    into v_has_calibrating;
+
+    if v_has_calibrating then
+      update public.odyssey_character_weapons
+      set data = jsonb_set(
+        jsonb_set(
+          coalesce(data, '{}'::jsonb),
+          '{perk_modifiers,calibrating,kill_count}',
+          to_jsonb(
+            coalesce(nullif(data#>>'{perk_modifiers,calibrating,kill_count}', '')::integer, 0) + 1
+          ),
+          true
+        ),
+        '{perk_modifiers,calibrating,accuracy_bonus}',
+        to_jsonb(
+          coalesce(nullif(data#>>'{perk_modifiers,calibrating,accuracy_bonus}', '')::integer, 0) + 1
+        ),
+        true
+      )
+      where id = v_character_weapon_id;
+    end if;
+  end if;
+
+  v_refresh := public.odyssey_refresh_character_combat_state(v_attacker_character_id);
+  return jsonb_build_object(
+    'ok', true,
+    'attacker_state', coalesce(v_refresh->'combat_state', '{}'::jsonb)
+  );
+end;
+$;
+
+do $
+begin
+  if to_regprocedure('public.get_character_armory(uuid)') is not null
+     and to_regprocedure('public.odyssey_get_character_armory_legacy(uuid)') is null then
+    alter function public.get_character_armory(uuid)
+      rename to odyssey_get_character_armory_legacy;
+  end if;
+end;
+$;
+
+create or replace function public.get_character_armory(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_armory jsonb := '{}'::jsonb;
+  v_weapons jsonb := '[]'::jsonb;
+begin
+  v_armory := public.odyssey_get_character_armory_legacy(p_character_id);
+
+  select coalesce(
+    jsonb_agg(
+      item.value
+      || jsonb_build_object(
+        'data', coalesce(w.data, '{}'::jsonb),
+        'equipped_slot', w.equipped_slot
+      )
+      order by ordinality
+    ),
+    '[]'::jsonb
+  )
+  into v_weapons
+  from jsonb_array_elements(coalesce(v_armory->'weapons', '[]'::jsonb)) with ordinality as item(value, ordinality)
+  left join public.odyssey_character_weapons w
+    on w.id = public.odyssey_try_parse_uuid(item.value->>'id');
+
+  return v_armory || jsonb_build_object(
+    'weapons', coalesce(v_weapons, '[]'::jsonb)
+  );
+end;
+$;
+
+do $
+begin
+  if to_regprocedure('public.get_character_runtime_bundle(jsonb)') is not null
+     and to_regprocedure('public.odyssey_get_character_runtime_bundle_legacy(jsonb)') is null then
+    alter function public.get_character_runtime_bundle(jsonb)
+      rename to odyssey_get_character_runtime_bundle_legacy;
+  end if;
+end;
+$;
+
+create or replace function public.get_character_runtime_bundle(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+as $
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_sections_raw jsonb := v_payload->'sections';
+  v_filtered_sections jsonb := '[]'::jsonb;
+  v_item text;
+  v_bundle jsonb := '{}'::jsonb;
+  v_sections jsonb := '{}'::jsonb;
+  v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
+  v_campaign_id text := coalesce(nullif(trim(coalesce(v_payload->>'campaign_id', '')), ''), '');
+  v_room_id text := coalesce(nullif(trim(coalesce(v_payload->>'room_id', '')), ''), '');
+  v_scene_id text := coalesce(nullif(trim(coalesce(v_payload->>'scene_id', '')), ''), '');
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(v_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(v_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_wants_combat_session boolean := false;
+  v_encounter public.odyssey_combat_encounters;
+  v_participant jsonb := null;
+  v_combat_session jsonb := null;
+begin
+  if jsonb_typeof(v_sections_raw) = 'array' then
+    for v_item in
+      select section_name
+      from jsonb_array_elements_text(v_sections_raw) as section_rows(section_name)
+    loop
+      if lower(trim(v_item)) = 'combat_session' then
+        v_wants_combat_session := true;
+      else
+        v_filtered_sections := v_filtered_sections || to_jsonb(v_item);
+      end if;
+    end loop;
+
+    if jsonb_array_length(v_filtered_sections) = 0 then
+      v_bundle := public.odyssey_get_character_runtime_bundle_legacy(
+        (v_payload - 'sections') || jsonb_build_object('sections', jsonb_build_array('summary'))
+      );
+    else
+      v_bundle := public.odyssey_get_character_runtime_bundle_legacy(
+        (v_payload - 'sections') || jsonb_build_object('sections', v_filtered_sections)
+      );
+    end if;
+  else
+    v_wants_combat_session := true;
+    v_bundle := public.odyssey_get_character_runtime_bundle_legacy(v_payload);
+  end if;
+
+  if coalesce((v_bundle->>'ok')::boolean, false) = false then
+    return v_bundle;
+  end if;
+
+  if v_character_id is null then
+    v_character_id := public.odyssey_try_parse_uuid(v_bundle#>>'{character,id}');
+  end if;
+
+  if v_campaign_id = '' then
+    v_campaign_id := coalesce(v_bundle#>>'{character,campaign_id}', '');
+  end if;
+  if v_room_id = '' then
+    v_room_id := coalesce(v_bundle#>>'{character,room_id}', '');
+  end if;
+
+  if v_wants_combat_session and v_character_id is not null and v_room_id <> '' and v_scene_id <> '' then
+    select *
+    into v_encounter
+    from public.odyssey_get_active_encounter(v_campaign_id, v_room_id, v_scene_id);
+
+    if found then
+      select participant
+      into v_participant
+      from jsonb_array_elements(
+        coalesce(
+          public.odyssey_build_combat_runtime(
+            v_encounter.id,
+            v_actor_player_id,
+            v_actor_is_gm,
+            v_actor_is_gm,
+            1
+          )->'visible_participants',
+          '[]'::jsonb
+        )
+      ) as participant_rows(participant)
+      where public.odyssey_try_parse_uuid(participant_rows.participant->>'character_id') = v_character_id
+      limit 1;
+
+      if v_participant is not null then
+        v_combat_session := jsonb_build_object(
+          'encounter_id', v_encounter.id,
+          'encounter_state_version', v_encounter.state_version,
+          'participant',
+            jsonb_build_object(
+              'initiative_entry_id', public.odyssey_try_parse_uuid(v_participant->>'initiative_entry_id'),
+              'initiative_value', coalesce(nullif(v_participant->>'initiative_value', '')::integer, 0),
+              'order_index', coalesce(nullif(v_participant->>'order_index', '')::integer, 0),
+              'is_current_turn', coalesce(nullif(v_participant->>'is_current_turn', '')::boolean, false),
+              'action_current', coalesce(nullif(v_participant->>'action_current', '')::integer, 0),
+              'action_max', coalesce(nullif(v_participant->>'action_max', '')::integer, 0),
+              'move_current', coalesce(nullif(v_participant->>'move_current', '')::integer, 0),
+              'move_max', coalesce(nullif(v_participant->>'move_max', '')::integer, 0),
+              'reaction_action_current', coalesce(nullif(v_participant->>'reaction_action_current', '')::integer, 0),
+              'action_converted_to_move', coalesce(nullif(v_participant->>'action_converted_to_move', '')::boolean, false),
+              'hide_from_initiative_ui', coalesce(nullif(v_participant->>'hide_from_initiative_ui', '')::boolean, false),
+              'movement_version', coalesce(nullif(v_participant->>'movement_version', '')::integer, 0)
+            )
+        );
+      end if;
+    end if;
+  end if;
+
+  v_sections := coalesce(v_bundle->'sections', '{}'::jsonb);
+  if v_wants_combat_session then
+    v_sections := v_sections || jsonb_build_object('combat_session', coalesce(v_combat_session, 'null'::jsonb));
+  end if;
+
+  return v_bundle || jsonb_build_object('sections', v_sections);
+end;
+$;
+
+do $
+begin
+  if to_regprocedure('public.use_character_perk(jsonb)') is not null
+     and to_regprocedure('public.odyssey_use_character_perk_legacy(jsonb)') is null then
+    alter function public.use_character_perk(jsonb)
+      rename to odyssey_use_character_perk_legacy;
+  end if;
+end;
+$;
+
+create or replace function public.use_character_perk(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
+  v_perk_code text := lower(trim(coalesce(v_payload->>'perk_code', '')));
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_weapon_id');
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(v_payload->>'encounter_id');
+  v_scene_id text := coalesce(nullif(trim(coalesce(v_payload->>'scene_id', '')), ''), '');
+  v_created_by text := coalesce(nullif(trim(coalesce(v_payload->>'created_by', '')), ''), '');
+  v_character public.odyssey_characters%rowtype;
+  v_weapon_context jsonb := '{}'::jsonb;
+  v_lock_state jsonb := '{}'::jsonb;
+  v_perk record;
+  v_effect_key text := '';
+  v_existing_effect public.odyssey_character_effects%rowtype;
+  v_usage_state public.odyssey_combat_usage_states%rowtype;
+  v_effect_id uuid := null;
+  v_bonus integer := 0;
+  v_stack integer := 0;
+  v_log_id uuid := null;
+begin
+  if v_perk_code not in ('patient_hunter', 'not_han_solo') then
+    return public.odyssey_use_character_perk_legacy(v_payload);
+  end if;
+
+  select *
+  into v_character
+  from public.odyssey_characters c
+  where c.id = v_character_id
+    and coalesce(c.is_deleted, false) = false;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'CHARACTER_NOT_FOUND', 'message', 'Character was not found.');
+  end if;
+
+  select
+    p.id as perk_def_id,
+    p.code,
+    p.name,
+    coalesce(p.description, '') as description,
+    coalesce(p.effect_data, '{}'::jsonb) as effect_data,
+    owned.id as character_perk_id
+  into v_perk
+  from public.odyssey_perk_defs p
+  left join public.odyssey_character_perks owned
+    on owned.perk_def_id = p.id
+   and owned.character_id = v_character_id
+  where p.code = v_perk_code;
+
+  if not found or v_perk.character_perk_id is null then
+    return jsonb_build_object('ok', false, 'error', 'PERK_NOT_OWNED', 'message', 'Character does not own this perk.');
+  end if;
+
+  if v_perk_code = 'not_han_solo' then
+    if v_encounter_id is null then
+      return jsonb_build_object('ok', false, 'error', 'ENCOUNTER_NOT_FOUND', 'message', 'encounter_id is required for this perk.');
+    end if;
+
+    insert into public.odyssey_combat_usage_states (
+      encounter_id,
+      character_id,
+      source_type,
+      source_code,
+      use_count,
+      data
+    )
+    values (
+      v_encounter_id,
+      v_character_id,
+      'perk',
+      'not_han_solo',
+      1,
+      '{}'::jsonb
+    )
+    on conflict (encounter_id, character_id, source_type, source_code)
+    do update
+    set use_count = public.odyssey_combat_usage_states.use_count + 1
+    returning * into v_usage_state;
+
+    if coalesce(v_usage_state.use_count, 0) > 1 then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'PERK_ALREADY_ACTIVE',
+        'message', 'This once-per-encounter perk was already used.'
+      );
+    end if;
+
+    v_log_id := public.odyssey_combat_log_insert(
+      coalesce(v_character.campaign_id, ''),
+      coalesce(v_character.room_id, ''),
+      v_scene_id,
+      v_encounter_id,
+      null,
+      v_character_id,
+      null,
+      v_character_id,
+      'public',
+      'perk_use',
+      public.odyssey_character_display_name(v_character_id) || ' uses perk "' || v_perk.name || '".',
+      jsonb_build_object('perk_code', v_perk.code, 'gm_hint', coalesce(v_perk.description, 'GM resolves this perk.')),
+      jsonb_build_object('perk_code', v_perk.code),
+      v_created_by
+    );
+
+    return jsonb_build_object(
+      'ok', true,
+      'perk_code', v_perk.code,
+      'message', 'Perk use recorded.',
+      'gm_hint', coalesce(v_perk.description, 'GM resolves this perk.'),
+      'log_id', v_log_id
+    );
+  end if;
+
+  if v_character_weapon_id is null then
+    return jsonb_build_object('ok', false, 'error', 'WEAPON_REQUIRED', 'message', 'character_weapon_id is required for this perk.');
+  end if;
+
+  v_lock_state := public.odyssey_get_weapon_lock_state(v_character_id, v_character_weapon_id);
+  if coalesce((v_lock_state->>'locked')::boolean, false)
+     or coalesce((v_lock_state->>'actor_attack_locked')::boolean, false) then
+    return jsonb_build_object(
+      'ok', false,
+      'error', coalesce(v_lock_state->>'error', 'WEAPON_LOCKED'),
+      'message', coalesce(v_lock_state->>'message', 'Weapon is locked.')
+    );
+  end if;
+
+  v_weapon_context := public.odyssey_get_weapon_runtime_context(v_character_weapon_id);
+  if coalesce((v_weapon_context->>'ok')::boolean, false) = false then
+    return v_weapon_context;
+  end if;
+
+  if not (
+    coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb) ? 'rifle'
+    or coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb) ? 'sniper'
+    or coalesce(v_weapon_context->'weapon_tags', '[]'::jsonb) ? 'precision'
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'WEAPON_NOT_COMPATIBLE', 'message', 'Weapon is not compatible with this perk.');
+  end if;
+
+  v_effect_key := public.odyssey_build_perk_weapon_effect_key('patient_hunter', v_character_weapon_id);
+
+  select *
+  into v_existing_effect
+  from public.odyssey_character_effects e
+  where e.character_id = v_character_id
+    and e.effect_key = v_effect_key
+    and e.is_active = true
+  order by e.updated_at desc, e.id desc
+  limit 1
+  for update;
+
+  v_stack := least(coalesce(nullif(v_existing_effect.data->>'stack_count', '')::integer, 0) + 1, 5);
+  v_bonus := least(v_stack * 20, 100);
+
+  if found then
+    update public.odyssey_character_effects
+    set
+      data = coalesce(data, '{}'::jsonb)
+        || jsonb_build_object(
+          'perk_code', 'patient_hunter',
+          'character_weapon_id', v_character_weapon_id::text,
+          'stack_count', v_stack,
+          'accuracy_bonus', v_bonus
+        ),
+      updated_at = timezone('utc', now())
+    where id = v_existing_effect.id
+    returning id into v_effect_id;
+  else
+    insert into public.odyssey_character_effects (
+      character_id,
+      effect_key,
+      name,
+      description,
+      source,
+      source_type,
+      source_id,
+      source_character_id,
+      duration_type,
+      rounds_left,
+      data,
+      is_active,
+      created_by
+    )
+    values (
+      v_character_id,
+      v_effect_key,
+      v_perk.name,
+      v_perk.description,
+      'perk',
+      'perk',
+      v_perk.perk_def_id,
+      v_character_id,
+      'scene',
+      null,
+      jsonb_build_object(
+        'perk_code', 'patient_hunter',
+        'character_weapon_id', v_character_weapon_id::text,
+        'stack_count', v_stack,
+        'accuracy_bonus', v_bonus
+      ),
+      true,
+      v_created_by
+    )
+    returning id into v_effect_id;
+  end if;
+
+  v_log_id := public.odyssey_combat_log_insert(
+    coalesce(v_character.campaign_id, ''),
+    coalesce(v_character.room_id, ''),
+    v_scene_id,
+    v_encounter_id,
+    null,
+    v_character_id,
+    null,
+    v_character_id,
+    'public',
+    'perk_use',
+    public.odyssey_character_display_name(v_character_id) || ' prepares a patient shot.',
+    jsonb_build_object(
+      'perk_code', 'patient_hunter',
+      'character_weapon_id', v_character_weapon_id,
+      'stack_count', v_stack,
+      'accuracy_bonus', v_bonus
+    ),
+    jsonb_build_object(
+      'perk_code', 'patient_hunter',
+      'stack_count', v_stack,
+      'accuracy_bonus', v_bonus
+    ),
+    v_created_by
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'perk_code', 'patient_hunter',
+    'effect_id', v_effect_id,
+    'stack_count', v_stack,
+    'accuracy_bonus', v_bonus,
+    'force_end_turn', true,
+    'log_id', v_log_id
+  );
+end;
+$;
+
+do $
+begin
+  if to_regprocedure('public.activate_weapon_feature(jsonb)') is not null
+     and to_regprocedure('public.odyssey_activate_weapon_feature_legacy(jsonb)') is null then
+    alter function public.activate_weapon_feature(jsonb)
+      rename to odyssey_activate_weapon_feature_legacy;
+  end if;
+end;
+$;
+
+create or replace function public.activate_weapon_feature(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_character_id uuid := null;
+  v_lock_state jsonb := '{}'::jsonb;
+begin
+  if v_character_weapon_id is not null then
+    select character_id into v_character_id
+    from public.odyssey_character_weapons
+    where id = v_character_weapon_id;
+
+    if v_character_id is not null then
+      v_lock_state := public.odyssey_get_weapon_lock_state(v_character_id, v_character_weapon_id);
+      if coalesce((v_lock_state->>'locked')::boolean, false)
+         or coalesce((v_lock_state->>'actor_attack_locked')::boolean, false) then
+        return jsonb_build_object(
+          'ok', false,
+          'error', coalesce(v_lock_state->>'error', 'WEAPON_LOCKED'),
+          'message', coalesce(v_lock_state->>'message', 'Weapon is locked.')
+        );
+      end if;
+    end if;
+  end if;
+
+  return public.odyssey_activate_weapon_feature_legacy(p_payload);
+end;
+$;
+
+do $
+begin
+  if to_regprocedure('public.use_ability(jsonb)') is not null
+     and to_regprocedure('public.odyssey_use_ability_legacy(jsonb)') is null then
+    alter function public.use_ability(jsonb)
+      rename to odyssey_use_ability_legacy;
+  end if;
+end;
+$;
+
+create or replace function public.use_ability(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(coalesce(p_payload->>'character_id', p_payload->>'attacker_character_id'));
+  v_lock_state jsonb := '{}'::jsonb;
+begin
+  if v_character_weapon_id is not null and v_character_id is not null then
+    v_lock_state := public.odyssey_get_weapon_lock_state(v_character_id, v_character_weapon_id);
+    if coalesce((v_lock_state->>'locked')::boolean, false)
+       or coalesce((v_lock_state->>'actor_attack_locked')::boolean, false) then
+      return jsonb_build_object(
+        'ok', false,
+        'error', coalesce(v_lock_state->>'error', 'WEAPON_LOCKED'),
+        'message', coalesce(v_lock_state->>'message', 'Weapon is locked.')
+      );
+    end if;
+  end if;
+
+  return public.odyssey_use_ability_legacy(p_payload);
+end;
+$;
+
+create or replace function public.perform_attack(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_character_ability_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_ability_id');
+  v_ability_code text := lower(trim(coalesce(v_payload->>'ability_code', '')));
+  v_attacker_character_id uuid := public.odyssey_try_parse_uuid(coalesce(v_payload->>'attacker_character_id', v_payload->>'character_id'));
+  v_target_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'target_character_id');
+  v_target_body_part_id uuid := public.odyssey_try_parse_uuid(v_payload->>'target_body_part_id');
+  v_weapon_id uuid := public.odyssey_try_parse_uuid(v_payload->>'weapon_id');
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(coalesce(v_payload->>'character_weapon_id', v_payload->>'weapon_id'));
+  v_distance_m numeric := greatest(coalesce(nullif(trim(coalesce(v_payload->>'distance_m', '')), '')::numeric, 0), 0);
+  v_encounter_id uuid := public.odyssey_try_parse_uuid(v_payload->>'encounter_id');
+  v_lock_state jsonb := '{}'::jsonb;
+  v_perk_context_result jsonb := jsonb_build_object(
+    'ok', true,
+    'attack_accuracy_bonus', 0,
+    'ammo_base_damage_multiplier', 1,
+    'flags', '{}'::jsonb,
+    'perk_modifiers', '[]'::jsonb,
+    'consume_effect_ids', '[]'::jsonb
+  );
+  v_attack_context jsonb := '{}'::jsonb;
+  v_existing_bonus integer := 0;
+  v_perk_bonus integer := 0;
+  v_result jsonb := '{}'::jsonb;
+  v_retry_effect jsonb := jsonb_build_object('ok', true, 'applied', false);
+  v_post_hooks jsonb := jsonb_build_object('ok', true);
+  v_refresh_attacker boolean := false;
+  v_target_alive_before boolean := true;
+  v_target_alive_after boolean := true;
+  v_target_movement_version integer := 0;
+begin
+  if v_target_character_id is not null then
+    select coalesce(s.is_alive, true)
+    into v_target_alive_before
+    from public.odyssey_character_combat_state s
+    where s.character_id = v_target_character_id;
+
+    if v_encounter_id is not null then
+      select coalesce(e.movement_version, 0)
+      into v_target_movement_version
+      from public.odyssey_initiative_entries e
+      where e.encounter_id = v_encounter_id
+        and e.character_id = v_target_character_id
+        and e.is_active = true
+      order by e.updated_at desc, e.id desc
+      limit 1;
+    end if;
+  end if;
+
+  if v_character_ability_id is not null or v_ability_code <> '' then
+    if v_attacker_character_id is not null and v_character_weapon_id is not null then
+      v_lock_state := public.odyssey_get_weapon_lock_state(v_attacker_character_id, v_character_weapon_id);
+      if coalesce((v_lock_state->>'locked')::boolean, false)
+         or coalesce((v_lock_state->>'actor_attack_locked')::boolean, false) then
+        return jsonb_build_object(
+          'ok', false,
+          'error', coalesce(v_lock_state->>'error', 'WEAPON_LOCKED'),
+          'message', coalesce(v_lock_state->>'message', 'Weapon is currently locked.'),
+          'character_weapon_id', v_character_weapon_id
+        );
+      end if;
+    end if;
+
+    return public.odyssey_perform_ability_attack(v_payload);
+  end if;
+
+  if v_attacker_character_id is not null and v_character_weapon_id is not null then
+    v_lock_state := public.odyssey_get_weapon_lock_state(v_attacker_character_id, v_character_weapon_id);
+    if coalesce((v_lock_state->>'locked')::boolean, false)
+       or coalesce((v_lock_state->>'actor_attack_locked')::boolean, false) then
+      return jsonb_build_object(
+        'ok', false,
+        'error', coalesce(v_lock_state->>'error', 'WEAPON_LOCKED'),
+        'message', coalesce(v_lock_state->>'message', 'Weapon is currently locked.'),
+        'character_weapon_id', v_character_weapon_id
+      );
+    end if;
+
+    v_perk_context_result := public.odyssey_get_character_attack_perk_context(
+      v_attacker_character_id,
+      v_character_weapon_id,
+      v_target_character_id,
+      v_target_body_part_id,
+      v_distance_m,
+      nullif(trim(coalesce(v_payload->>'fire_mode_code', '')), ''),
+      nullif(trim(coalesce(v_payload->>'attack_type', '')), ''),
+      v_encounter_id
+    );
+
+    if coalesce((v_perk_context_result->>'ok')::boolean, false) = false then
+      return v_perk_context_result;
+    end if;
+  end if;
+
+  v_attack_context := case
+    when jsonb_typeof(v_payload->'attack_context') = 'object' then v_payload->'attack_context'
+    else '{}'::jsonb
+  end;
+  v_existing_bonus := coalesce(nullif(trim(coalesce(v_attack_context->>'manual_attack_bonus', '')), '')::integer, 0);
+  v_perk_bonus := coalesce(nullif(trim(coalesce(v_perk_context_result->>'attack_accuracy_bonus', '')), '')::integer, 0);
+
+  if v_perk_bonus <> 0 then
+    v_attack_context := v_attack_context || jsonb_build_object('manual_attack_bonus', v_existing_bonus + v_perk_bonus);
+    v_payload := v_payload || jsonb_build_object('attack_context', v_attack_context);
+  end if;
+
+  v_payload := v_payload || jsonb_build_object('perk_context', v_perk_context_result - 'ok');
+  v_result := public.odyssey_perform_weapon_attack(v_payload);
+
+  if coalesce((v_result->>'ok')::boolean, false) = true then
+    if jsonb_array_length(coalesce(v_perk_context_result->'consume_effect_ids', '[]'::jsonb)) > 0 then
+      update public.odyssey_character_effects e
+      set
+        is_active = false,
+        rounds_left = 0,
+        updated_at = timezone('utc', now())
+      where e.character_id = v_attacker_character_id
+        and e.id in (
+          select public.odyssey_try_parse_uuid(value)
+          from jsonb_array_elements_text(coalesce(v_perk_context_result->'consume_effect_ids', '[]'::jsonb)) value
+        );
+      v_refresh_attacker := true;
+    end if;
+
+    if v_target_character_id is not null then
+      v_target_alive_after := coalesce(
+        nullif(v_result#>>'{target_state,is_alive}', '')::boolean,
+        nullif(v_result#>>'{target_state,combat_state,is_alive}', '')::boolean,
+        v_target_alive_before
+      );
+    end if;
+
+    v_post_hooks := public.odyssey_apply_perk_post_attack_hooks(
+      jsonb_build_object(
+        'attacker_character_id', v_attacker_character_id,
+        'character_weapon_id', v_character_weapon_id,
+        'target_character_id', v_target_character_id,
+        'target_movement_version', v_target_movement_version,
+        'created_by', coalesce(v_payload->>'actor_token_id', ''),
+        'hit', coalesce(v_result->>'hit', 'false'),
+        'target_alive_before', v_target_alive_before,
+        'target_alive_after', v_target_alive_after
+      )
+    );
+
+    if not coalesce((v_result->>'hit')::boolean, false) then
+      v_retry_effect := public.odyssey_grant_first_time_no_retry_effect(
+        v_attacker_character_id,
+        v_character_weapon_id,
+        v_target_character_id,
+        v_target_movement_version,
+        coalesce(v_payload->>'actor_token_id', '')
+      );
+      if coalesce((v_retry_effect->>'applied')::boolean, false) = true then
+        v_refresh_attacker := true;
+      end if;
+    end if;
+
+    if v_refresh_attacker and v_attacker_character_id is not null then
+      v_result := v_result || jsonb_build_object(
+        'attacker_state',
+        coalesce(public.odyssey_refresh_character_combat_state(v_attacker_character_id)->'combat_state', '{}'::jsonb),
+        'post_attack_perks',
+          jsonb_build_object(
+            'consumed_effect_ids', coalesce(v_perk_context_result->'consume_effect_ids', '[]'::jsonb),
+            'retry_effect', v_retry_effect,
+            'post_hooks', v_post_hooks
+          )
+      );
+    else
+      v_result := v_result || jsonb_build_object(
+        'post_attack_perks',
+          jsonb_build_object(
+            'consumed_effect_ids', coalesce(v_perk_context_result->'consume_effect_ids', '[]'::jsonb),
+            'retry_effect', v_retry_effect,
+            'post_hooks', v_post_hooks
+          )
+      );
+    end if;
+
+    return public.odyssey_finalize_attack_result(v_result, v_target_character_id, v_target_body_part_id);
+  end if;
+
+  return v_result;
+end;
+$;
+
+grant execute on function public.get_effective_character_stats(uuid) to anon, authenticated;
+grant execute on function public.odyssey_get_weapon_runtime_context(uuid) to anon, authenticated;
+grant execute on function public.odyssey_get_weapon_lock_state(uuid, uuid) to anon, authenticated;
+grant execute on function public.odyssey_get_character_attack_perk_context(uuid, uuid, uuid, uuid, numeric, text, text, uuid) to anon, authenticated;
+grant execute on function public.odyssey_grant_first_time_no_retry_effect(uuid, uuid, uuid, integer, text) to anon, authenticated;
+grant execute on function public.odyssey_apply_perk_post_attack_hooks(jsonb) to anon, authenticated;
+grant execute on function public.use_character_perk(jsonb) to anon, authenticated;
+grant execute on function public.activate_weapon_feature(jsonb) to anon, authenticated;
+grant execute on function public.use_ability(jsonb) to anon, authenticated;
+grant execute on function public.perform_attack(jsonb) to anon, authenticated;
+grant execute on function public.get_character_armory(uuid) to anon, authenticated;
+grant execute on function public.get_character_runtime_bundle(jsonb) to anon, authenticated;
+-- ===== END 65_perk_combat_automation_and_weapon_locks.sql =====
+
+

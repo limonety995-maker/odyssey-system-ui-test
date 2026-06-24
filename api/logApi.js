@@ -1,24 +1,35 @@
-import { fetchSupabaseRows } from "../bridge/supabaseBridge.js";
+import { COMBAT_RPC_NAMES } from "../constants/rpcNames.js";
+import { callSupabaseRpc } from "../bridge/supabaseBridge.js";
 
 export function getCombatLogEntries(
-  { roomId = "", encounterId = "", limit = 50 } = {},
+  {
+    roomId = "",
+    encounterId = "",
+    actor_player_id = "",
+    actor_is_gm = false,
+    limit = 50,
+  } = {},
   settings,
 ) {
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
-  const params = [
-    "select=id,created_at,event_type,message,data,actor_character_id,target_character_id,room_id,scene_id,encounter_id",
-    "order=created_at.desc",
-    `limit=${safeLimit}`,
-  ];
-  if (roomId) {
-    params.push(`room_id=eq.${encodeURIComponent(String(roomId).trim())}`);
-  }
-  if (encounterId) {
-    params.push(`encounter_id=eq.${encodeURIComponent(String(encounterId).trim())}`);
-  }
-  return fetchSupabaseRows(
-    `odyssey_combat_log?${params.join("&")}`,
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    {
+      p_payload: {
+        room_id: roomId,
+        encounter_id: encounterId,
+        actor_player_id,
+        actor_is_gm,
+        limit,
+      },
+    },
     settings,
-    "Unable to load combat log rows.",
+  );
+}
+
+export function getCombatLogRows(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings,
   );
 }
