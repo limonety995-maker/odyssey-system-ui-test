@@ -9705,7 +9705,22 @@ var WEAPON_RPC_NAMES = Object.freeze({
   getCharacterWeaponFeatures: "get_character_weapon_features"
 });
 var COMBAT_RPC_NAMES = Object.freeze({
-  performAttack: "perform_attack"
+  performAttack: "perform_attack",
+  startEncounter: "combat_start_encounter",
+  addParticipant: "combat_add_participant",
+  removeParticipant: "combat_remove_participant",
+  reorderInitiative: "combat_reorder_initiative",
+  endTurn: "combat_end_turn",
+  skipTurn: "combat_skip_turn",
+  forceNextTurn: "combat_force_next_turn",
+  endEncounter: "combat_end_encounter",
+  getActiveRuntime: "combat_get_active_runtime",
+  markCharacterDead: "combat_mark_character_dead",
+  convertActionToMove: "combat_convert_action_to_move",
+  spendMove: "combat_spend_move",
+  executeAction: "combat_execute_action",
+  getCombatLog: "combat_get_log",
+  grantReactionAction: "combat_grant_reaction_action"
 });
 var GM_RPC_NAMES = Object.freeze({
   healCharacter: "gm_heal_character",
@@ -9751,7 +9766,11 @@ var CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
   getSceneTokenLinks: "get_scene_token_links",
   loadCharacterToToken: "load_character_to_token",
   unbindTokenCharacter: "unbind_token_character",
-  purgeActiveNpcs: "purge_active_npcs"
+  purgeActiveNpcs: "purge_active_npcs",
+  assignCharacterOwner: "assign_character_owner",
+  clearCharacterOwner: "clear_character_owner",
+  getCharacterQuickbar: "get_character_quickbar",
+  saveCharacterQuickbar: "save_character_quickbar"
 });
 var CREATOR_RPC_NAMES = Object.freeze({
   getCreatorReferenceData: "get_creator_reference_data",
@@ -10020,12 +10039,132 @@ function getCharacterWeaponFeatures(characterWeaponId, settings) {
 // api/combatApi.js
 var combatApi_exports = {};
 __export(combatApi_exports, {
-  performAttack: () => performAttack
+  addParticipant: () => addParticipant,
+  convertActionToMove: () => convertActionToMove,
+  endEncounter: () => endEncounter,
+  endTurn: () => endTurn,
+  executeAction: () => executeAction,
+  forceNextTurn: () => forceNextTurn,
+  getActiveRuntime: () => getActiveRuntime,
+  getCombatLog: () => getCombatLog,
+  grantReactionAction: () => grantReactionAction,
+  markCharacterDead: () => markCharacterDead,
+  performAttack: () => performAttack,
+  removeParticipant: () => removeParticipant,
+  reorderInitiative: () => reorderInitiative,
+  skipTurn: () => skipTurn,
+  spendMove: () => spendMove,
+  startEncounter: () => startEncounter
 });
 function performAttack(payload, settings) {
   return callSupabaseRpc(
     COMBAT_RPC_NAMES.performAttack,
     { p_payload: payload },
+    settings
+  );
+}
+function startEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.startEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function addParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.addParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function removeParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.removeParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function reorderInitiative(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.reorderInitiative,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function skipTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.skipTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function forceNextTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.forceNextTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getActiveRuntime(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getActiveRuntime,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function markCharacterDead(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.markCharacterDead,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function convertActionToMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.convertActionToMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function spendMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.spendMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function executeAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.executeAction,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCombatLog(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function grantReactionAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.grantReactionAction,
+    { p_payload: payload ?? {} },
     settings
   );
 }
@@ -10295,36 +10434,50 @@ function useCharacterItem(payload, settings) {
 // api/logApi.js
 var logApi_exports = {};
 __export(logApi_exports, {
-  getCombatLogEntries: () => getCombatLogEntries
+  getCombatLogEntries: () => getCombatLogEntries,
+  getCombatLogRows: () => getCombatLogRows
 });
-function getCombatLogEntries({ roomId = "", encounterId = "", limit = 50 } = {}, settings) {
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
-  const params = [
-    "select=id,created_at,event_type,message,data,actor_character_id,target_character_id,room_id,scene_id,encounter_id",
-    "order=created_at.desc",
-    `limit=${safeLimit}`
-  ];
-  if (roomId) {
-    params.push(`room_id=eq.${encodeURIComponent(String(roomId).trim())}`);
-  }
-  if (encounterId) {
-    params.push(`encounter_id=eq.${encodeURIComponent(String(encounterId).trim())}`);
-  }
-  return fetchSupabaseRows(
-    `odyssey_combat_log?${params.join("&")}`,
-    settings,
-    "Unable to load combat log rows."
+function getCombatLogEntries({
+  roomId = "",
+  encounterId = "",
+  actor_player_id = "",
+  actor_is_gm = false,
+  limit = 50
+} = {}, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    {
+      p_payload: {
+        room_id: roomId,
+        encounter_id: encounterId,
+        actor_player_id,
+        actor_is_gm,
+        limit
+      }
+    },
+    settings
+  );
+}
+function getCombatLogRows(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
   );
 }
 
 // api/characterPlacementApi.js
 var characterPlacementApi_exports = {};
 __export(characterPlacementApi_exports, {
+  assignCharacterOwner: () => assignCharacterOwner,
+  clearCharacterOwner: () => clearCharacterOwner,
+  getCharacterQuickbar: () => getCharacterQuickbar,
   getCharacterRuntimeBundle: () => getCharacterRuntimeBundle,
   getCharacterSpawnCatalog: () => getCharacterSpawnCatalog,
   getSceneTokenLinks: () => getSceneTokenLinks,
   loadCharacterToToken: () => loadCharacterToToken2,
   purgeActiveNpcs: () => purgeActiveNpcs,
+  saveCharacterQuickbar: () => saveCharacterQuickbar,
   unbindTokenCharacter: () => unbindTokenCharacter
 });
 function getCharacterSpawnCatalog(payload, settings) {
@@ -10344,6 +10497,34 @@ function getCharacterRuntimeBundle(payload, settings) {
 function getSceneTokenLinks(payload, settings) {
   return callSupabaseRpc(
     CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function assignCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.assignCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function clearCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.clearCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function saveCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.saveCharacterQuickbar,
     { p_payload: payload ?? {} },
     settings
   );

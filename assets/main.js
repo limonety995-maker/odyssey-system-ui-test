@@ -9705,7 +9705,22 @@ var WEAPON_RPC_NAMES = Object.freeze({
   getCharacterWeaponFeatures: "get_character_weapon_features"
 });
 var COMBAT_RPC_NAMES = Object.freeze({
-  performAttack: "perform_attack"
+  performAttack: "perform_attack",
+  startEncounter: "combat_start_encounter",
+  addParticipant: "combat_add_participant",
+  removeParticipant: "combat_remove_participant",
+  reorderInitiative: "combat_reorder_initiative",
+  endTurn: "combat_end_turn",
+  skipTurn: "combat_skip_turn",
+  forceNextTurn: "combat_force_next_turn",
+  endEncounter: "combat_end_encounter",
+  getActiveRuntime: "combat_get_active_runtime",
+  markCharacterDead: "combat_mark_character_dead",
+  convertActionToMove: "combat_convert_action_to_move",
+  spendMove: "combat_spend_move",
+  executeAction: "combat_execute_action",
+  getCombatLog: "combat_get_log",
+  grantReactionAction: "combat_grant_reaction_action"
 });
 var GM_RPC_NAMES = Object.freeze({
   healCharacter: "gm_heal_character",
@@ -9751,7 +9766,11 @@ var CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
   getSceneTokenLinks: "get_scene_token_links",
   loadCharacterToToken: "load_character_to_token",
   unbindTokenCharacter: "unbind_token_character",
-  purgeActiveNpcs: "purge_active_npcs"
+  purgeActiveNpcs: "purge_active_npcs",
+  assignCharacterOwner: "assign_character_owner",
+  clearCharacterOwner: "clear_character_owner",
+  getCharacterQuickbar: "get_character_quickbar",
+  saveCharacterQuickbar: "save_character_quickbar"
 });
 var CREATOR_RPC_NAMES = Object.freeze({
   getCreatorReferenceData: "get_creator_reference_data",
@@ -10020,12 +10039,132 @@ function getCharacterWeaponFeatures(characterWeaponId, settings) {
 // api/combatApi.js
 var combatApi_exports = {};
 __export(combatApi_exports, {
-  performAttack: () => performAttack
+  addParticipant: () => addParticipant,
+  convertActionToMove: () => convertActionToMove,
+  endEncounter: () => endEncounter,
+  endTurn: () => endTurn,
+  executeAction: () => executeAction,
+  forceNextTurn: () => forceNextTurn,
+  getActiveRuntime: () => getActiveRuntime,
+  getCombatLog: () => getCombatLog,
+  grantReactionAction: () => grantReactionAction,
+  markCharacterDead: () => markCharacterDead,
+  performAttack: () => performAttack,
+  removeParticipant: () => removeParticipant,
+  reorderInitiative: () => reorderInitiative,
+  skipTurn: () => skipTurn,
+  spendMove: () => spendMove,
+  startEncounter: () => startEncounter
 });
 function performAttack(payload, settings) {
   return callSupabaseRpc(
     COMBAT_RPC_NAMES.performAttack,
     { p_payload: payload },
+    settings
+  );
+}
+function startEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.startEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function addParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.addParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function removeParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.removeParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function reorderInitiative(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.reorderInitiative,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function skipTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.skipTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function forceNextTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.forceNextTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getActiveRuntime(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getActiveRuntime,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function markCharacterDead(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.markCharacterDead,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function convertActionToMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.convertActionToMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function spendMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.spendMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function executeAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.executeAction,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCombatLog(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function grantReactionAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.grantReactionAction,
+    { p_payload: payload ?? {} },
     settings
   );
 }
@@ -10295,36 +10434,50 @@ function useCharacterItem(payload, settings) {
 // api/logApi.js
 var logApi_exports = {};
 __export(logApi_exports, {
-  getCombatLogEntries: () => getCombatLogEntries
+  getCombatLogEntries: () => getCombatLogEntries,
+  getCombatLogRows: () => getCombatLogRows
 });
-function getCombatLogEntries({ roomId = "", encounterId = "", limit = 50 } = {}, settings) {
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
-  const params = [
-    "select=id,created_at,event_type,message,data,actor_character_id,target_character_id,room_id,scene_id,encounter_id",
-    "order=created_at.desc",
-    `limit=${safeLimit}`
-  ];
-  if (roomId) {
-    params.push(`room_id=eq.${encodeURIComponent(String(roomId).trim())}`);
-  }
-  if (encounterId) {
-    params.push(`encounter_id=eq.${encodeURIComponent(String(encounterId).trim())}`);
-  }
-  return fetchSupabaseRows(
-    `odyssey_combat_log?${params.join("&")}`,
-    settings,
-    "Unable to load combat log rows."
+function getCombatLogEntries({
+  roomId = "",
+  encounterId = "",
+  actor_player_id = "",
+  actor_is_gm = false,
+  limit = 50
+} = {}, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    {
+      p_payload: {
+        room_id: roomId,
+        encounter_id: encounterId,
+        actor_player_id,
+        actor_is_gm,
+        limit
+      }
+    },
+    settings
+  );
+}
+function getCombatLogRows(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
   );
 }
 
 // api/characterPlacementApi.js
 var characterPlacementApi_exports = {};
 __export(characterPlacementApi_exports, {
+  assignCharacterOwner: () => assignCharacterOwner,
+  clearCharacterOwner: () => clearCharacterOwner,
+  getCharacterQuickbar: () => getCharacterQuickbar,
   getCharacterRuntimeBundle: () => getCharacterRuntimeBundle,
   getCharacterSpawnCatalog: () => getCharacterSpawnCatalog,
   getSceneTokenLinks: () => getSceneTokenLinks,
   loadCharacterToToken: () => loadCharacterToToken2,
   purgeActiveNpcs: () => purgeActiveNpcs,
+  saveCharacterQuickbar: () => saveCharacterQuickbar,
   unbindTokenCharacter: () => unbindTokenCharacter
 });
 function getCharacterSpawnCatalog(payload, settings) {
@@ -10344,6 +10497,34 @@ function getCharacterRuntimeBundle(payload, settings) {
 function getSceneTokenLinks(payload, settings) {
   return callSupabaseRpc(
     CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function assignCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.assignCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function clearCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.clearCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function saveCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.saveCharacterQuickbar,
     { p_payload: payload ?? {} },
     settings
   );
@@ -33322,7 +33503,7 @@ function queryRefs(root2) {
 }
 
 // screens/character/characterStyles.css
-var characterStyles_default = '/* Character Panel \u2014 scoped styles (prefix .cp-). Reuses shell design tokens. */\r\n.cp-screen { display: flex; flex-direction: column; gap: 14px; }\r\n.cp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }\r\n.cp-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }\r\n.cp-field > span { font-size: 11px; color: var(--muted); }\r\n.cp-mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }\r\n.cp-muted { color: var(--muted); font-size: 12px; }\r\n.cp-hidden { display: none !important; }\r\n.cp-section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 6px 0 2px; }\r\nselect, .cp-screen input { font: inherit; }\r\n.cp-screen select { width: 100%; border-radius: 10px; border: 1px solid rgba(61,92,129,.9); background: rgba(8,17,28,.9); color: var(--text); padding: 9px 11px; }\r\n\r\n/* banners */\r\n.cp-banner { border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.45; }\r\n.cp-banner.err { background: rgba(201,75,88,.16); border: 1px solid rgba(201,75,88,.4); color: #ffd9de; }\r\n.cp-banner.ok { background: rgba(62,166,255,.14); border: 1px solid rgba(62,166,255,.4); color: #d8eeff; }\r\n.cp-banner.warn { background: rgba(255,194,75,.14); border: 1px solid rgba(255,194,75,.45); color: #ffe6b3; }\r\n.cp-banner.info { background: var(--panel-soft); border: 1px solid var(--line); color: var(--muted); }\r\n\r\n/* header */\r\n.cp-head { display: flex; gap: 12px; align-items: center; }\r\n.cp-avatar { width: 46px; height: 46px; border-radius: 10px; background: var(--panel-soft); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--muted); font-weight: 700; flex: none; overflow: hidden; }\r\n.cp-avatar img { width: 100%; height: 100%; object-fit: cover; }\r\n.cp-name { font-size: 15px; font-weight: 700; }\r\n\r\n/* sub-nav */\r\n.cp-nav { display: flex; gap: 6px; flex-wrap: wrap; }\r\n.cp-tab { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--text); cursor: pointer; font-size: 12px; }\r\n.cp-tab.active { background: var(--accent-soft); border-color: var(--accent); color: #d8eeff; font-weight: 700; }\r\n.cp-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* overview layout: doll left, characteristics right (same level) */\r\n.cp-overview { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }\r\n.cp-doll-col { flex: none; }\r\n.cp-attrs-col { flex: 1; min-width: 150px; }\r\n\r\n/* clickable cards (skills, additional body parts) \u2014 clear button affordance */\r\n.cp-card[role="button"] { cursor: pointer; transition: border-color .12s, background .12s; }\r\n.cp-card[role="button"]:hover { border-color: var(--accent); background: rgba(62,166,255,.10); }\r\n.cp-card[role="button"]:active { background: rgba(62,166,255,.16); }\r\n.cp-card[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* 3x3 characteristics \u2014 fluid squares that fill the available column */\r\n.cp-attrs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }\r\n.cp-attr { position: relative; aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(21,34,53,.88); border: 1px solid var(--line); border-radius: 6px; padding: 2px; text-align: center; cursor: pointer; transition: border-color .12s, background .12s; }\r\n.cp-attr:hover { border-color: var(--accent); }\r\n.cp-attr:active { background: rgba(62,166,255,.1); }\r\n.cp-attr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n.cp-attr[aria-disabled="true"] { opacity: .6; cursor: progress; }\r\n.cp-attr .cp-attr-val { font-size: 26px; font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; line-height: 1; margin: 0 0 1px; }\r\n.cp-attr .cp-attr-code { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }\r\n.cp-attr .cp-attr-edit { position: absolute; top: 1px; right: 1px; width: 13px; height: 13px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; padding: 0; }\n.cp-attr .cp-attr-edit:hover { color: #d8eeff; border-color: var(--accent); }\n.cp-attr .cp-attr-pending { position: absolute; bottom: 1px; left: 0; right: 0; font-size: 7px; color: var(--accent); }\n.cp-skill-edit { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: none; }\n.cp-skill-edit:hover { color: #d8eeff; border-color: var(--accent); }\n\r\n/* doll */\r\n.cp-doll-wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }\r\n.cp-doll { position: relative; flex: none; }\r\n.cp-doll .cp-part { position: absolute; cursor: pointer; border: 1px solid rgba(0,0,0,.4); }\r\n.cp-doll .cp-part:hover, .cp-doll .cp-part:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }\r\n.cp-doll .cp-part.pinned { outline: 2px solid #d8eeff; outline-offset: 2px; }\r\n.cp-doll .cp-base { position: absolute; border-radius: 50%; background: rgba(21,34,53,.9); border: 1px solid var(--line); }\r\n/* state colors */\r\n.cp-c-intact { background: #33425e; }\r\n.cp-c-warn { background: #b07e2a; }\r\n.cp-c-danger { background: #7a2a32; }\r\n\r\n/* tooltip */\r\n.cp-tip { position: absolute; z-index: 30; min-width: 180px; max-width: 240px; background: rgba(7,14,24,.98); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 11px; line-height: 1.5; pointer-events: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); }\r\n.cp-tip b { font-size: 12px; }\r\n.cp-tip .cp-kv { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); }\r\n.cp-tip .cp-kv span:last-child { color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; }\r\n.cp-statebadge { display: inline-block; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }\r\n.cp-sb-intact { background: rgba(62,166,255,.16); color: #cfe6ff; }\r\n.cp-sb-warn { background: rgba(255,194,75,.18); color: #ffe6b3; }\r\n.cp-sb-danger { background: rgba(201,75,88,.2); color: #ffd2d8; }\r\n\r\n/* inspector */\r\n.cp-inspector { flex: 1; min-width: 200px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }\r\n.cp-inspector .cp-ins-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }\r\n.cp-inspector .cp-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(39,65,95,.4); }\r\n.cp-inspector .cp-kv span:last-child { font-family: "JetBrains Mono", ui-monospace, monospace; }\r\n.cp-close { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; cursor: pointer; padding: 3px 8px; font-size: 12px; }\r\n\r\n/* cards / lists */\r\n.cp-card { background: rgba(21,34,53,.7); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }\r\n.cp-list { display: flex; flex-direction: column; gap: 8px; }\r\n.cp-rowitem { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 12px; }\r\n.cp-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-size: 10px; border: 1px solid var(--line); background: var(--panel-soft); color: var(--muted); }\r\n.cp-pill.good { border-color: rgba(62,166,255,.4); color: #cfe6ff; background: rgba(62,166,255,.12); }\r\n.cp-pill.bad { border-color: rgba(201,75,88,.4); color: #ffd2d8; background: rgba(201,75,88,.12); }\r\n.cp-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(8,17,28,.7); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 11px; }\r\n.cp-chip.bad { border-color: rgba(201,75,88,.5); color: #ffd9de; }\r\n\r\n/* pips for skills */\r\n.cp-pips { display: inline-flex; gap: 3px; }\r\n.cp-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }\r\n.cp-pip.on { background: var(--accent); }\r\n\r\n/* buttons reuse shell .button; small variant */\r\n.cp-btn-sm { padding: 6px 10px; font-size: 12px; }\r\n\r\n/* skeleton */\r\n.cp-skel { border-radius: 10px; background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 37%, rgba(255,255,255,.04) 63%); background-size: 400% 100%; animation: cp-shimmer 1.3s ease infinite; }\r\n@keyframes cp-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }\r\n.cp-skel-line { height: 12px; margin: 6px 0; }\r\n.cp-skel-card { height: 64px; margin: 6px 0; }\r\n@media (prefers-reduced-motion: reduce) { .cp-skel { animation: none; } }\r\n\r\n/* dialog/popover */\r\n.cp-overlay { position: fixed; inset: 0; background: rgba(4,8,14,.6); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }\r\n.cp-dialog { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }\r\n.cp-dialog h3 { margin: 0 0 10px; font-size: 14px; }\r\n\r\n.cp-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }\r\n.cp-additional { margin-top: 8px; }\r\n\r\n/* pool chip with GM +/- buttons */\r\n.cp-chip.cp-pool-gm { padding: 2px 4px; gap: 3px; }\r\n.cp-pool-adj { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 5px; cursor: pointer; width: 20px; height: 20px; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }\r\n.cp-pool-adj:hover:not(:disabled) { color: #d8eeff; border-color: var(--accent); }\r\n.cp-pool-adj:disabled { opacity: .4; cursor: default; }\r\n\r\n/* edit dialog stepper */\r\n.cp-dlg-stepper { display: flex; gap: 6px; align-items: center; justify-content: center; margin-bottom: 2px; }\r\n.cp-dlg-input { width: 64px; flex: none; text-align: center; border: 1px solid var(--line); background: rgba(8,17,28,.9); color: var(--text); border-radius: 8px; padding: 7px 6px; font-size: 15px; }\r\n.cp-dlg-step { width: 36px; height: 36px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 18px; padding: 0; border-radius: 8px; }\r\n';
+var characterStyles_default = '/* Character Panel \u2014 scoped styles (prefix .cp-). Reuses shell design tokens. */\r\n.cp-screen { display: flex; flex-direction: column; gap: 14px; }\r\n.cp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }\r\n.cp-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }\r\n.cp-field > span { font-size: 11px; color: var(--muted); }\r\n.cp-mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }\r\n.cp-muted { color: var(--muted); font-size: 12px; }\r\n.cp-hidden { display: none !important; }\r\n.cp-section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 6px 0 2px; }\r\nselect, .cp-screen input { font: inherit; }\r\n.cp-screen select { width: 100%; border-radius: 10px; border: 1px solid rgba(61,92,129,.9); background: rgba(8,17,28,.9); color: var(--text); padding: 9px 11px; }\r\n\r\n/* banners */\r\n.cp-banner { border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.45; }\r\n.cp-banner.err { background: rgba(201,75,88,.16); border: 1px solid rgba(201,75,88,.4); color: #ffd9de; }\r\n.cp-banner.ok { background: rgba(62,166,255,.14); border: 1px solid rgba(62,166,255,.4); color: #d8eeff; }\r\n.cp-banner.warn { background: rgba(255,194,75,.14); border: 1px solid rgba(255,194,75,.45); color: #ffe6b3; }\r\n.cp-banner.info { background: var(--panel-soft); border: 1px solid var(--line); color: var(--muted); }\r\n\r\n/* header */\r\n.cp-head { display: flex; gap: 12px; align-items: center; }\n.cp-head-actions { display: flex; gap: 6px; align-items: center; }\n.cp-head-btn { cursor: pointer; }\n.cp-head-btn:hover { border-color: var(--accent); color: #d8eeff; }\n.cp-avatar { width: 46px; height: 46px; border-radius: 10px; background: var(--panel-soft); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--muted); font-weight: 700; flex: none; overflow: hidden; }\n.cp-avatar img { width: 100%; height: 100%; object-fit: cover; }\r\n.cp-name { font-size: 15px; font-weight: 700; }\r\n\r\n/* sub-nav */\r\n.cp-nav { display: flex; gap: 6px; flex-wrap: wrap; }\r\n.cp-tab { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--text); cursor: pointer; font-size: 12px; }\r\n.cp-tab.active { background: var(--accent-soft); border-color: var(--accent); color: #d8eeff; font-weight: 700; }\r\n.cp-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* overview layout: doll left, characteristics right (same level) */\r\n.cp-overview { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }\r\n.cp-doll-col { flex: none; }\r\n.cp-attrs-col { flex: 1; min-width: 150px; }\r\n\r\n/* clickable cards (skills, additional body parts) \u2014 clear button affordance */\r\n.cp-card[role="button"] { cursor: pointer; transition: border-color .12s, background .12s; }\r\n.cp-card[role="button"]:hover { border-color: var(--accent); background: rgba(62,166,255,.10); }\r\n.cp-card[role="button"]:active { background: rgba(62,166,255,.16); }\r\n.cp-card[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* 3x3 characteristics \u2014 fluid squares that fill the available column */\r\n.cp-attrs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }\r\n.cp-attr { position: relative; aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(21,34,53,.88); border: 1px solid var(--line); border-radius: 6px; padding: 2px; text-align: center; cursor: pointer; transition: border-color .12s, background .12s; }\n.cp-attr:hover { border-color: var(--accent); }\n.cp-attr:active { background: rgba(62,166,255,.1); }\n.cp-attr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n.cp-attr[aria-disabled="true"] { opacity: .6; cursor: progress; }\n.cp-attr .cp-attr-val { font-size: 26px; font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; line-height: 1; margin: 0 0 1px; }\n.cp-attr .cp-attr-code { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }\n.cp-attr .cp-attr-mod { position: absolute; right: 3px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 700; line-height: 1; padding: 1px 4px; border-radius: 999px; border: 1px solid transparent; }\n.cp-attr .cp-attr-mod-pos { top: 3px; color: #d9ffe4; background: rgba(74, 180, 104, .18); border-color: rgba(74, 180, 104, .45); }\n.cp-attr .cp-attr-mod-neg { bottom: 15px; color: #ffd9de; background: rgba(201,75,88,.18); border-color: rgba(201,75,88,.45); }\n.cp-attr .cp-attr-edit { position: absolute; top: 1px; left: 1px; width: 13px; height: 13px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; padding: 0; }\n.cp-attr .cp-attr-edit:hover { color: #d8eeff; border-color: var(--accent); }\n.cp-attr .cp-attr-pending { position: absolute; bottom: 1px; left: 0; right: 0; font-size: 7px; color: var(--accent); }\n.cp-skill-edit { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: none; }\n.cp-skill-edit:hover { color: #d8eeff; border-color: var(--accent); }\n\r\n/* doll */\r\n.cp-doll-wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }\r\n.cp-doll { position: relative; flex: none; }\r\n.cp-doll .cp-part { position: absolute; cursor: pointer; border: 1px solid rgba(0,0,0,.4); }\r\n.cp-doll .cp-part:hover, .cp-doll .cp-part:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }\r\n.cp-doll .cp-part.pinned { outline: 2px solid #d8eeff; outline-offset: 2px; }\r\n.cp-doll .cp-base { position: absolute; border-radius: 50%; background: rgba(21,34,53,.9); border: 1px solid var(--line); }\r\n/* state colors */\r\n.cp-c-intact { background: #33425e; }\r\n.cp-c-warn { background: #b07e2a; }\r\n.cp-c-danger { background: #7a2a32; }\r\n\r\n/* tooltip */\r\n.cp-tip { position: absolute; z-index: 30; min-width: 180px; max-width: 240px; background: rgba(7,14,24,.98); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 11px; line-height: 1.5; pointer-events: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); }\r\n.cp-tip b { font-size: 12px; }\r\n.cp-tip .cp-kv { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); }\r\n.cp-tip .cp-kv span:last-child { color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; }\r\n.cp-statebadge { display: inline-block; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }\r\n.cp-sb-intact { background: rgba(62,166,255,.16); color: #cfe6ff; }\r\n.cp-sb-warn { background: rgba(255,194,75,.18); color: #ffe6b3; }\r\n.cp-sb-danger { background: rgba(201,75,88,.2); color: #ffd2d8; }\r\n\r\n/* inspector */\r\n.cp-inspector { flex: 1; min-width: 200px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }\r\n.cp-inspector .cp-ins-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }\r\n.cp-inspector .cp-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(39,65,95,.4); }\r\n.cp-inspector .cp-kv span:last-child { font-family: "JetBrains Mono", ui-monospace, monospace; }\r\n.cp-close { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; cursor: pointer; padding: 3px 8px; font-size: 12px; }\r\n\r\n/* cards / lists */\r\n.cp-card { background: rgba(21,34,53,.7); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }\r\n.cp-list { display: flex; flex-direction: column; gap: 8px; }\r\n.cp-rowitem { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 12px; }\r\n.cp-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-size: 10px; border: 1px solid var(--line); background: var(--panel-soft); color: var(--muted); }\r\n.cp-pill.good { border-color: rgba(62,166,255,.4); color: #cfe6ff; background: rgba(62,166,255,.12); }\n.cp-pill.bad { border-color: rgba(201,75,88,.4); color: #ffd2d8; background: rgba(201,75,88,.12); }\n.cp-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(8,17,28,.7); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 11px; }\n.cp-chip.bad { border-color: rgba(201,75,88,.5); color: #ffd9de; }\n.cp-skill-mod { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px; font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace; border: 1px solid transparent; }\n.cp-skill-mod-pos { color: #d9ffe4; background: rgba(74, 180, 104, .16); border-color: rgba(74, 180, 104, .4); }\n.cp-skill-mod-neg { color: #ffd9de; background: rgba(201,75,88,.16); border-color: rgba(201,75,88,.4); }\n\r\n/* pips for skills */\r\n.cp-pips { display: inline-flex; gap: 3px; }\r\n.cp-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }\r\n.cp-pip.on { background: var(--accent); }\r\n\r\n/* buttons reuse shell .button; small variant */\r\n.cp-btn-sm { padding: 6px 10px; font-size: 12px; }\r\n\r\n/* skeleton */\r\n.cp-skel { border-radius: 10px; background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 37%, rgba(255,255,255,.04) 63%); background-size: 400% 100%; animation: cp-shimmer 1.3s ease infinite; }\r\n@keyframes cp-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }\r\n.cp-skel-line { height: 12px; margin: 6px 0; }\r\n.cp-skel-card { height: 64px; margin: 6px 0; }\r\n@media (prefers-reduced-motion: reduce) { .cp-skel { animation: none; } }\r\n\r\n/* dialog/popover */\r\n.cp-overlay { position: fixed; inset: 0; background: rgba(4,8,14,.6); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }\r\n.cp-dialog { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }\r\n.cp-dialog h3 { margin: 0 0 10px; font-size: 14px; }\r\n\r\n.cp-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }\r\n.cp-additional { margin-top: 8px; }\r\n\r\n/* pool chip with GM +/- buttons */\r\n.cp-chip.cp-pool-gm { padding: 2px 4px; gap: 3px; }\r\n.cp-pool-adj { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 5px; cursor: pointer; width: 20px; height: 20px; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }\r\n.cp-pool-adj:hover:not(:disabled) { color: #d8eeff; border-color: var(--accent); }\r\n.cp-pool-adj:disabled { opacity: .4; cursor: default; }\r\n\r\n/* edit dialog stepper */\r\n.cp-dlg-stepper { display: flex; gap: 6px; align-items: center; justify-content: center; margin-bottom: 2px; }\r\n.cp-dlg-input { width: 64px; flex: none; text-align: center; border: 1px solid var(--line); background: rgba(8,17,28,.9); color: var(--text); border-radius: 8px; padding: 7px 6px; font-size: 15px; }\r\n.cp-dlg-step { width: 36px; height: 36px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 18px; padding: 0; border-radius: 8px; }\r\n';
 
 // screens/character/characterScreen.js
 var ATTR_RU = {
@@ -33407,8 +33588,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     rollingAttr: "",
     busy: false,
     notice: "",
-    realtimeSubscriptions: []
+    realtimeSubscriptions: [],
     // Real-Time listeners for auto-refresh
+    catalogSubscriptions: [],
+    refreshInFlight: null,
+    queuedRefresh: null,
+    realtimeRefreshPending: null,
+    realtimeRefreshTimer: null
   };
   const settings = () => state.settings;
   const isGM = () => state.devRole === "GM" ? true : state.devRole === "PLAYER" ? false : state.role === "GM";
@@ -33416,6 +33602,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const player = await withTimeout3(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null);
     if (player?.role) {
       state.role = String(player.role).toUpperCase() === "GM" ? "GM" : "PLAYER";
+      if (isGM()) {
+        setupCatalogSubscriptions();
+        refreshGmCatalogs().catch(() => {
+        });
+      } else {
+        cleanupCatalogSubscriptions();
+      }
       render();
     }
   })();
@@ -33447,6 +33640,19 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     state.skillDefs = arr2(skills);
     state.weaponDefs = arr2(weapons);
     state.equipmentDefs = arr2(equipment);
+  }
+  async function refreshGmCatalogs() {
+    await Promise.all([
+      fetchAmmoAndMagazineDefs().catch(() => {
+      }),
+      fetchGmDefs().catch(() => {
+      }),
+      fetchItemDefs().then((rows) => {
+        state.itemDefs = arr2(rows);
+      }).catch(() => {
+      })
+    ]);
+    render();
   }
   function applyBundle(bundle) {
     if (!bundle || bundle.ok === false || !bundle.character) return false;
@@ -33511,6 +33717,17 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     return resolved.settings;
   }
   const ALL_SECTIONS = ["summary", "combat", "attributes", "skills", "perks", "equipment", "inventory", "abilities", "effects"];
+  const DEFAULT_REFRESH = { sheet: true, armory: true, equipment: true, inventory: true, abilities: false, perkAvailability: false };
+  function mergeRefreshOptions(base = {}, extra = {}) {
+    return {
+      sheet: !!(base.sheet || extra.sheet),
+      armory: !!(base.armory || extra.armory),
+      equipment: !!(base.equipment || extra.equipment),
+      inventory: !!(base.inventory || extra.inventory),
+      abilities: !!(base.abilities || extra.abilities),
+      perkAvailability: !!(base.perkAvailability || extra.perkAvailability)
+    };
+  }
   async function loadCharacter(id) {
     state.loading = true;
     state.error = null;
@@ -33554,9 +33771,10 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       render();
     }
   }
-  async function refresh({ sheet = true, armory = true, equipment = true, inventory = true, abilities = false } = {}) {
+  async function performRefresh(options) {
     const id = state.characterId;
     if (!id) return;
+    const { sheet, armory, equipment, inventory, abilities, perkAvailability } = options;
     const sections = [
       ...sheet ? ["summary", "combat", "attributes", "skills"] : [],
       ...sheet ? ["perks"] : [],
@@ -33567,13 +33785,47 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const bundlePromise = sections.length ? loadBundle(id, sections).catch(() => null) : Promise.resolve(null);
     const armoryPromise = armory ? api.weapon.getCharacterArmory(id, settings()).catch(() => null) : Promise.resolve(null);
     const perksPromise = sheet ? api.perk.getCharacterPerks({ character_id: id }, settings()).catch(() => null) : Promise.resolve(null);
-    const availablePerksPromise = isGM() ? api.perk.getCharacterAvailablePerks({ character_id: id }, settings()).catch(() => null) : Promise.resolve(null);
+    const availablePerksPromise = isGM() && perkAvailability ? api.perk.getCharacterAvailablePerks({ character_id: id }, settings()).catch(() => null) : Promise.resolve(null);
     const [bundle, armoryData, perksResult, availablePerksResult] = await Promise.all([bundlePromise, armoryPromise, perksPromise, availablePerksPromise]);
     if (bundle) applyBundle(bundle);
     if (armoryData) state.armory = armoryData;
     if (perksResult?.ok) state.perks = arr2(perksResult.perks);
-    state.perkAvailability = isGM() && availablePerksResult?.ok ? arr2(availablePerksResult.perks) : [];
+    if (perkAvailability) {
+      state.perkAvailability = isGM() && availablePerksResult?.ok ? arr2(availablePerksResult.perks) : [];
+    }
     render();
+  }
+  async function refresh(options = {}) {
+    const merged = { ...DEFAULT_REFRESH, ...options };
+    if (state.refreshInFlight) {
+      state.queuedRefresh = state.queuedRefresh ? mergeRefreshOptions(state.queuedRefresh, merged) : merged;
+      return state.refreshInFlight;
+    }
+    state.refreshInFlight = (async () => {
+      await performRefresh(merged);
+    })();
+    try {
+      await state.refreshInFlight;
+    } finally {
+      state.refreshInFlight = null;
+      if (state.queuedRefresh) {
+        const next = state.queuedRefresh;
+        state.queuedRefresh = null;
+        return refresh(next);
+      }
+    }
+    return null;
+  }
+  function queueRealtimeRefresh(options = {}) {
+    state.realtimeRefreshPending = state.realtimeRefreshPending ? mergeRefreshOptions(state.realtimeRefreshPending, options) : { ...DEFAULT_REFRESH, ...options };
+    if (state.realtimeRefreshTimer) clearTimeout(state.realtimeRefreshTimer);
+    state.realtimeRefreshTimer = setTimeout(() => {
+      const pending = state.realtimeRefreshPending;
+      state.realtimeRefreshPending = null;
+      state.realtimeRefreshTimer = null;
+      refresh(pending).catch(() => {
+      });
+    }, 120);
   }
   function setupRealtimeSubscriptions(characterId) {
     const sb = getRealtimeClient(settings());
@@ -33602,6 +33854,31 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       ).subscribe();
       state.realtimeSubscriptions.push(channel);
     }
+    if (isGM()) setupCatalogSubscriptions(sb);
+  }
+  function setupCatalogSubscriptions(sb = getRealtimeClient(settings())) {
+    if (!sb) return;
+    cleanupCatalogSubscriptions(sb);
+    const tables = [
+      "odyssey_item_defs",
+      "odyssey_skill_defs",
+      "odyssey_weapon_model_defs",
+      "odyssey_equipment_model_defs",
+      "odyssey_magazine_defs",
+      "odyssey_ammo_type_defs"
+    ];
+    const epoch = Date.now();
+    for (const table of tables) {
+      const channel = sb.channel(`cp:def:${epoch}:${table}`).on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        () => {
+          refreshGmCatalogs().catch(() => {
+          });
+        }
+      ).subscribe();
+      state.catalogSubscriptions.push(channel);
+    }
   }
   function cleanupRealtimeSubscriptions() {
     const sb = getRealtimeClient(settings());
@@ -33611,33 +33888,45 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     }
     for (const channel of state.realtimeSubscriptions) sb.removeChannel(channel);
     state.realtimeSubscriptions = [];
+    cleanupCatalogSubscriptions(sb);
+    if (state.realtimeRefreshTimer) clearTimeout(state.realtimeRefreshTimer);
+    state.realtimeRefreshTimer = null;
+    state.realtimeRefreshPending = null;
+  }
+  function cleanupCatalogSubscriptions(sb = getRealtimeClient(settings())) {
+    if (!sb) {
+      state.catalogSubscriptions = [];
+      return;
+    }
+    for (const channel of state.catalogSubscriptions) sb.removeChannel(channel);
+    state.catalogSubscriptions = [];
   }
   function onRealtimeUpdate(table) {
     switch (table) {
       case "odyssey_character_body_parts":
-        refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false });
+        queueRealtimeRefresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: false });
         break;
       case "odyssey_character_equipment_items":
-        refresh({ sheet: true, armory: false, equipment: true, inventory: false, abilities: false });
+        queueRealtimeRefresh({ sheet: true, armory: false, equipment: true, inventory: false, abilities: false, perkAvailability: false });
         break;
       case "odyssey_character_items":
-        refresh({ sheet: false, armory: false, equipment: false, inventory: true, abilities: false });
+        queueRealtimeRefresh({ sheet: false, armory: false, equipment: false, inventory: true, abilities: false, perkAvailability: false });
         break;
       case "odyssey_character_attributes":
-        refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false });
+        queueRealtimeRefresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: true });
         break;
       case "odyssey_character_perks":
       case "odyssey_character_effects":
-        refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false });
+        queueRealtimeRefresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: true });
         break;
       case "odyssey_character_weapons":
       case "odyssey_character_weapon_profile_states":
       case "odyssey_character_magazines":
-        refresh({ sheet: false, armory: true, equipment: false, inventory: true, abilities: false });
+        queueRealtimeRefresh({ sheet: false, armory: true, equipment: false, inventory: true, abilities: false, perkAvailability: false });
         break;
       case "odyssey_character_abilities":
       case "odyssey_character_resource_pools":
-        refresh({ sheet: false, armory: false, equipment: false, inventory: false, abilities: true });
+        queueRealtimeRefresh({ sheet: false, armory: false, equipment: false, inventory: false, abilities: true, perkAvailability: false });
         break;
     }
   }
@@ -33754,7 +34043,9 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         <div class="cp-name">${esc2(ch.name || ch.character_key || "Character")}</div>
         <div class="cp-muted">${meta.join(" \u0412\xB7 ") || "&nbsp;"}</div>
       </div>
-      ${isGM() ? `<span class="cp-pill good">GM</span>` : `<span class="cp-pill">Player</span>`}
+      <div class="cp-head-actions">
+        ${isGM() ? `<button data-ref="refreshCatalogsTop" type="button" class="cp-pill cp-head-btn">Sync</button><span class="cp-pill good">GM</span>` : `<span class="cp-pill">Player</span>`}
+      </div>
     </div>
     ${poolChips ? `<div class="cp-row" style="margin-top:8px">${poolChips}</div>` : ""}`;
   }
@@ -33809,10 +34100,16 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   function attrCard(a) {
     const label = a.name || a.code;
     const pending = state.rollingAttr === a.code;
+    const modifier = Number(a?.effect_modifier ?? 0) || 0;
+    const effectiveValue = Number(
+      a?.effective_value ?? (Number(a?.value ?? 0) || 0) + modifier
+    ) || 0;
     const editBtn = isGM() ? `<button class="cp-attr-edit" data-attr-edit="${esc2(a.code)}" aria-label="Edit ${esc2(label)} (GM)" title="Edit (GM)">E</button>` : "";
     return `<div class="cp-attr" role="button" tabindex="${pending ? -1 : 0}" data-attr-roll="${esc2(a.code)}" aria-label="Roll ${esc2(label)}" aria-disabled="${pending}" title="Roll ${esc2(label)}">
       ${editBtn}
-      <div class="cp-attr-val">${dash2(a.value)}</div>
+      ${modifier > 0 ? `<div class="cp-attr-mod cp-attr-mod-pos">+${esc2(modifier)}</div>` : ""}
+      ${modifier < 0 ? `<div class="cp-attr-mod cp-attr-mod-neg">${esc2(modifier)}</div>` : ""}
+      <div class="cp-attr-val">${dash2(effectiveValue)}</div>
       <div class="cp-attr-code">${esc2(a.code)}</div>
       ${pending ? `<div class="cp-attr-pending">Rolling...</div>` : ""}
     </div>`;
@@ -33896,8 +34193,12 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   function skillRow(s) {
     const baseMax = Number(s?.max_level ?? 0) || 5;
     const max = skillDisplayMaxLevel(s);
-    const eff = s.effective_level ?? s.level ?? 0;
-    const purchased = s.purchased_level;
+    const eff = Number(s?.effective_level ?? s?.level ?? 0) || 0;
+    const purchased = Number(s?.purchased_level ?? s?.level ?? 0) || 0;
+    const levelModifier = Number(s?.effect_level_modifier ?? eff - purchased) || 0;
+    const rollBonusBase = Number(s?.skill_bonus ?? 0) || 0;
+    const rollBonusModifier = Number(s?.effect_skill_bonus ?? 0) || 0;
+    const rollBonusTotal = rollBonusBase + rollBonusModifier;
     const pips = Array.from({ length: max }).map((_, i) => `<span class="cp-pip ${i < eff ? "on" : ""}"></span>`).join("");
     const attrs = [s.main_attribute, s.secondary_attribute].filter(Boolean).join(" \u0412\xB7 ");
     const perks = arr2(s.perks).map((p) => `<span class="cp-pill good">${esc2(p.name || p.code || p)}</span>`).join("");
@@ -33906,14 +34207,16 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const isPsionics = s.category?.toLowerCase() === "psionics";
     const isClickable = !passive && !isPsionics;
     const attrs_str = attrs ? ` <span class="cp-muted">(${esc2(attrs)})</span>` : "";
-    const buyStr = purchased != null && purchased !== eff ? ` <span class="cp-muted cp-mono">buy ${esc2(purchased)}</span>` : "";
+    const levelModChip = levelModifier > 0 ? `<span class="cp-skill-mod cp-skill-mod-pos">lvl +${esc2(levelModifier)}</span>` : levelModifier < 0 ? `<span class="cp-skill-mod cp-skill-mod-neg">lvl ${esc2(levelModifier)}</span>` : "";
+    const rollModChip = rollBonusModifier > 0 ? `<span class="cp-skill-mod cp-skill-mod-pos">roll +${esc2(rollBonusModifier)}</span>` : rollBonusModifier < 0 ? `<span class="cp-skill-mod cp-skill-mod-neg">roll ${esc2(rollBonusModifier)}</span>` : "";
+    const totalRollChip = rollBonusTotal !== 0 ? `<span class="cp-chip"><span class="cp-mono">roll ${rollBonusTotal > 0 ? `+${esc2(rollBonusTotal)}` : esc2(rollBonusTotal)}</span></span>` : "";
     const capStr = max > baseMax ? `<span class="cp-chip">base ${dash2(baseMax)} / GM ${dash2(max)}</span>` : "";
     const editBtn = isGM() ? `<button class="cp-skill-edit" data-skill-edit="${esc2(s.id)}" aria-label="Edit ${esc2(s.name)} (GM)" title="Edit ${esc2(s.name)} (GM)" type="button">E</button>` : "";
     return `<div class="cp-card"${isClickable ? ` role="button" tabindex="0" data-skill-roll="${esc2(s.code)}"` : ""} aria-label="Skill ${esc2(s.name)}" ${isClickable ? 'title="Skill check"' : ""}>
       <div class="cp-rowitem">
         <span>${esc2(s.name)}${attrs_str}
-          <span class="cp-pill">${passive ? "passive" : "trained"}</span>${buyStr}</span>
-        <span class="cp-row" style="gap:6px">${perks}<span class="cp-pips" title="${dash2(eff)}/${max}">${pips}</span>${locked ? `<span class="cp-pill bad">locked</span>` : ""}${editBtn}</span>
+          <span class="cp-pill">${passive ? "passive" : "trained"}</span></span>
+        <span class="cp-row" style="gap:6px">${perks}${levelModChip}${rollModChip}${totalRollChip}<span class="cp-pips" title="${dash2(eff)}/${max}">${pips}</span>${locked ? `<span class="cp-pill bad">locked</span>` : ""}${editBtn}</span>
       </div>
       ${capStr ? `<div class="cp-row" style="gap:6px;margin-top:6px">${capStr}</div>` : ""}
       ${isGM() ? `<div class="button-row" style="margin-top:4px"><button class="cp-btn-sm secondary" data-gmdel="skill" data-id="${esc2(s.id)}" type="button">GM delete</button></div>` : ""}
@@ -34181,7 +34484,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       <div class="cp-card"><div class="cp-row" style="gap:8px">
         <label class="cp-field"><span>Item</span><select data-ref="gmAddCode">${itemOpts}</select></label>
         <label class="cp-field" style="max-width:90px"><span>qty</span><input data-ref="gmAddQty" type="number" min="1" value="1" class="cp-mono"></label>
-        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="additem" type="button" ${state.itemDefs.length ? "" : "disabled"}>Add item</button></div>
+        <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-gmbtn="additem" type="button" ${state.itemDefs.length ? "" : "disabled"}>Add item</button><button class="cp-btn-sm secondary" data-gmbtn="refreshcatalogs" type="button">Refresh catalogs</button></div>
       </div></div>`;
   }
   function gmSkillsBlock() {
@@ -34290,15 +34593,23 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const eff = it.model?.effect_data;
     const effTxt = eff && typeof eff === "object" ? eff.summary || eff.description || "" : "";
     const active = it.is_equipped;
+    const slot = it.body_part?.name || it.model?.default_body_part_code || "-";
+    const canInstall = isGM() && it.model?.can_equip !== false && it.model?.can_equip_to_body_part !== false;
+    const slotOptions = equipmentSlotOptions(it);
+    const hasCompatiblePart = !slotOptions.includes("-- no compatible body parts --");
     return `<div class="cp-card">
       <div class="cp-rowitem"><span><b>${esc2(it.name)}</b> <span class="cp-pill">${esc2(it.model?.item_type || "implant")}</span></span>
       <span class="cp-pill ${active ? "good" : ""}">${active ? "installed" : "inactive"}</span></div>
       ${it.model?.description ? `<div class="cp-muted" style="margin-top:6px">${esc2(it.model.description)}</div>` : ""}
       <div class="cp-row" style="gap:6px;margin-top:6px">
+        <span class="cp-chip">${active ? `Installed \xB7 ${esc2(slot)}` : "Not installed"}</span>
         ${it.max_charges ? `<span class="cp-chip">charges ${dash2(it.current_charges)}/${dash2(it.max_charges)}</span>` : ""}
         ${effTxt ? `<span class="cp-chip">${esc2(effTxt)}</span>` : ""}
       </div>
-      ${isGM() ? `<div class="button-row" style="margin-top:6px"><button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button></div>` : ""}
+      ${isGM() && active ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-armorbtn="unequip" data-equip="${esc2(it.id)}" type="button">Uninstall</button><button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button></div>` : isGM() && canInstall ? `<div class="cp-row" style="gap:8px;margin-top:8px">
+              <label class="cp-field" style="min-width:150px"><span>Install to body part</span><select data-equip-part="${esc2(it.id)}">${slotOptions}</select></label>
+              <div class="button-row" style="margin:0;align-items:flex-end"><button class="cp-btn-sm" data-armorbtn="equip" data-equip="${esc2(it.id)}" type="button" ${hasCompatiblePart ? "" : "disabled"}>Install</button><button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button></div>
+            </div>` : isGM() ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-gmdel="equip" data-id="${esc2(it.id)}" type="button">GM delete</button></div>` : ""}
     </div>`;
   }
   function bindStaticEvents() {
@@ -34316,11 +34627,20 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     $("charId")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") $("loadBtn").click();
     });
+    $("refreshCatalogsTop")?.addEventListener("click", () => refreshGmCatalogs().catch(() => {
+    }));
     $("devRole")?.addEventListener("change", async (e) => {
       state.devRole = e.target.value;
+      if (isGM()) {
+        setupCatalogSubscriptions();
+        refreshGmCatalogs().catch(() => {
+        });
+      } else {
+        cleanupCatalogSubscriptions();
+      }
       render();
       if (state.characterId && isGM()) {
-        await refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false });
+        await refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: true });
       }
     });
     $("useToken")?.addEventListener("click", onUseToken);
@@ -34328,6 +34648,10 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       state.section = b.dataset.section;
       state.notice = "";
       render();
+      if (isGM() && ["inventory", "armor", "implants", "skills", "perks"].includes(state.section)) {
+        refreshGmCatalogs().catch(() => {
+        });
+      }
     }));
     if (!root2._poolAdjBound) {
       root2._poolAdjBound = true;
@@ -34603,7 +34927,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       onSave: (value) => runMutation(
         "Update attribute",
         () => api.gm.gmUpdateCharacterAttribute({ character_id: state.characterId, attribute_code: code, operation: "set", value, reason: "GM edit" }, settings()),
-        () => refresh({ armory: false, equipment: false, inventory: false })
+        () => refresh({ armory: false, equipment: false, inventory: false, perkAvailability: true })
       )
     });
   }
@@ -34723,7 +35047,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     }
     runMutation("Use item", () => api.inventory.useCharacterItem({ character_item_id: itemId, target_body_part_id: partId, used_by_character_id: state.characterId }, settings()), () => refresh());
   }
-  function armorSlotOptions(it) {
+  function equipmentSlotOptions(it) {
     const def = String(it.model?.default_body_part_code || "").toLowerCase();
     const allowed = arr2(it.model?.flags?.allowed_body_part_codes || []).map((c) => String(c).toLowerCase());
     const lastId = state.lastSlot[it.id];
@@ -34743,6 +35067,9 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       const sel = b.id === selected?.id ? "selected" : "";
       return `<option value="${esc2(b.id)}" ${sel}>${esc2(b.name)}</option>`;
     }).join("");
+  }
+  function armorSlotOptions(it) {
+    return equipmentSlotOptions(it);
   }
   function onEquip(equipId) {
     const partId = root2.querySelector(`select[data-equip-part="${CSS.escape(equipId)}"]`)?.value;
@@ -34802,7 +35129,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       { character_id: state.characterId, skill_def_id: defId, level },
       settings(),
       { method: "POST", prefer: "return=minimal" }
-    ), () => refresh({ armory: false, equipment: false, inventory: false }));
+    ), () => refresh({ armory: false, equipment: false, inventory: false, perkAvailability: true }));
   }
   function onGmAddPerk() {
     const perkCode = root2.querySelector('[data-ref="gmPerkCode"]')?.value?.trim();
@@ -34826,7 +35153,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     runMutation("Add perk", () => api.perk.grantCharacterPerk(
       { character_id: state.characterId, perk_code: perkCode, created_by: "GM", spend_development_point: false },
       settings()
-    ), () => refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false }));
+    ), () => refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: true }));
   }
   function onGmAddWeapon() {
     const defId = root2.querySelector('[data-ref="gmWeaponDef"]')?.value;
@@ -34896,7 +35223,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         null,
         settings(),
         DEL
-      ), () => refresh({ armory: false, equipment: false, inventory: false }));
+      ), () => refresh({ armory: false, equipment: false, inventory: false, perkAvailability: true }));
     } else if (type === "weapon") {
       runMutation("Delete weapon", () => bridges.supabase.mutateSupabaseRows(
         `odyssey_character_weapons?${idFilter}&${charIdFilter}`,
@@ -34942,6 +35269,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     if (kind === "addweapon") return onGmAddWeapon();
     if (kind === "addmag") return onGmAddMagazine();
     if (kind === "addammo") return onGmAddAmmo();
+    if (kind === "refreshcatalogs") return refreshGmCatalogs();
     if (kind === "addarmor") return onGmAddEquipment("gmArmorDef", "Add armor");
     if (kind === "addimplant") return onGmAddEquipment("gmImplantDef", "Add implant");
     if (kind === "heal") return runMutation("GM heal", () => api.gm.gmHealCharacter(state.characterId, settings()), () => refresh());
