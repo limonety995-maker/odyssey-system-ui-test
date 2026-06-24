@@ -242,7 +242,7 @@ export function mountPlacementScreen({ root, runtime }) {
     if (b === "player") return "Player";
     if (b === "npc_template") return "NPC Template";
     if (b === "npc_active") return "NPC Active";
-    return b || "—";
+    return b || "-";
   }
   function bucketBadge(b) {
     const cls = b === "player" ? "pl-badge-player" : b === "npc_template" ? "pl-badge-template" : "pl-badge-active";
@@ -256,7 +256,7 @@ export function mountPlacementScreen({ root, runtime }) {
 
   function renderTokenPanel() {
     const t = state.selectedToken;
-    if (!t) return `<div class="pl-empty">No token selected — click a token on the scene.</div>`;
+    if (!t) return `<div class="pl-empty">No token selected - click a token on the scene.</div>`;
     const link = state.existingLink;
     const loading = state.sceneLinksLoading;
     return `
@@ -265,16 +265,16 @@ export function mountPlacementScreen({ root, runtime }) {
           <span class="pl-token-name">${esc(t.name)}</span>
           <span class="pl-token-layer pl-badge">${esc(t.layer || "CHARACTER")}</span>
         </div>
-        ${loading ? `<div class="pl-muted">Checking link…</div>` : link ? `
+        ${loading ? `<div class="pl-muted">Checking link...</div>` : link ? `
           <div class="pl-link-row">
             <span class="pl-muted">Linked to:</span>
-            <strong>${esc(link.character?.display_name || link.character?.character_key || link.character_id || "—")}</strong>
+            <strong>${esc(link.character?.display_name || link.character?.character_key || link.character_id || "-")}</strong>
             ${bucketBadge(link.character?.character_bucket)}
           </div>
           <div class="pl-link-state">${esc(link.state?.status_summary || "")}</div>
           <div class="pl-actions-row">
             <button class="pl-btn pl-btn-danger" data-action="unbind" ${state.busy ? "disabled" : ""}>Unbind</button>
-          </div>` : `<div class="pl-muted">No active link — select a character below to bind.</div>`}
+          </div>` : `<div class="pl-muted">No active link - select a character below to bind.</div>`}
       </div>`;
   }
 

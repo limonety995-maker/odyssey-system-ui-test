@@ -44,6 +44,8 @@ const esc = (v) => escapeHtml(v);
 const arr = (v) => (Array.isArray(v) ? v : []);
 const dash = (v) => (v === null || v === undefined || v === "" ? "-" : v);
 const normPart = (p) => { const c = String(p?.code || p?.part_key || "").toLowerCase(); return PART_ALIASES[c] || c; };
+const isShieldPart = (p) => normPart(p) === "shield";
+const isSpecialPart = (p) => normPart(p) === "special";
 
 function injectStylesOnce() {
   if (document.getElementById("cp-screen-styles")) return;
@@ -206,13 +208,35 @@ export function mountCharacterScreen({ root, runtime }) {
     }
     if (s.equipment !== undefined) {
       // Bundle returns a flat array; add model/body_part sub-objects for render compat
-      state.equipment = arr(s.equipment).map((it) => ({
-        ...it,
-        model: { item_type: it.item_type, can_equip: it.can_equip !== false },
-        body_part: (it.is_equipped && it.equipped_body_part_id)
-          ? { id: it.equipped_body_part_id, name: it.equipped_body_part_name }
-          : null,
-      }));
+      state.equipment = arr(s.equipment).map((it) => {
+        const model = it.model && typeof it.model === "object"
+          ? it.model
+          : {
+              id: it.equipment_model_id ?? null,
+              code: it.equipment_model_code ?? null,
+              name: it.equipment_model_name ?? it.name ?? null,
+              item_type: it.item_type,
+              description: it.model_description ?? "",
+              default_body_part_code: it.default_body_part_code ?? null,
+              can_equip: it.can_equip !== false,
+              can_equip_to_body_part: it.can_equip_to_body_part !== false,
+              effect_data: it.effect_data ?? {},
+              flags: it.flags ?? {},
+              tags: arr(it.tags),
+            };
+        return {
+          ...it,
+          model,
+          effective_flags: (it.effective_flags && typeof it.effective_flags === "object")
+            ? it.effective_flags
+            : (it.flags && typeof it.flags === "object" ? it.flags : (model.flags || {})),
+          body_part: it.body_part && typeof it.body_part === "object"
+            ? it.body_part
+            : ((it.is_equipped && it.equipped_body_part_id)
+              ? { id: it.equipped_body_part_id, name: it.equipped_body_part_name, code: it.equipped_body_part_code, part_key: it.equipped_body_part_key }
+              : null),
+        };
+      });
     }
     if (s.inventory) {
       state.inv = {
@@ -573,7 +597,7 @@ export function mountCharacterScreen({ root, runtime }) {
       <div class="cp-avatar">${portrait ? `<img src="${esc(portrait)}" alt="">` : esc((ch.name || "?").slice(0, 1).toUpperCase())}</div>
       <div style="flex:1;min-width:120px">
         <div class="cp-name">${esc(ch.name || ch.character_key || "Character")}</div>
-        <div class="cp-muted">${meta.join(" В· ") || "&nbsp;"}</div>
+        <div class="cp-muted">${meta.join(" - ") || "&nbsp;"}</div>
       </div>
       <div class="cp-head-actions">
         ${isGM() ? `<button data-ref="refreshCatalogsTop" type="button" class="cp-pill cp-head-btn">Sync</button><span class="cp-pill good">GM</span>` : `<span class="cp-pill">Player</span>`}
@@ -627,9 +651,9 @@ export function mountCharacterScreen({ root, runtime }) {
   function attrCard(a) {
     const label = a.name || a.code;
     const pending = state.rollingAttr === a.code;
-    const modifier = Number(a?.effect_modifier ?? 0) || 0;
+    const modifier = Number(a?.effect_modifier ?? a?.modifier ?? 0) || 0;
     const effectiveValue = Number(
-      a?.effective_value ?? ((Number(a?.value ?? 0) || 0) + modifier),
+      a?.effective_value ?? ((Number(a?.value ?? a?.base_value ?? 0) || 0) + modifier),
     ) || 0;
     const editBtn = isGM()
       ? `<button class="cp-attr-edit" data-attr-edit="${esc(a.code)}" aria-label="Edit ${esc(label)} (GM)" title="Edit (GM)">E</button>`
@@ -658,10 +682,50 @@ export function mountCharacterScreen({ root, runtime }) {
     return ["Intact", "cp-sb-intact"];
   }
   function armorStatusText(p) {
-    if (p.armor_destroyed) return ["Armor destroyed", "cp-sb-danger"];
-    if ((p.armor_critical || 0) > 0) return ["Armor damaged", "cp-sb-warn"];
-    if ((p.armor_value || 0) > 0) return ["Armor ok", "cp-sb-intact"];
+    const src = armorInfoForPart(p);
+    if (src.armor_destroyed) return ["Armor destroyed", "cp-sb-danger"];
+    if ((src.armor_critical || 0) > 0) return ["Armor damaged", "cp-sb-warn"];
+    if ((src.armor_value || 0) > 0) return ["Armor ok", "cp-sb-intact"];
     return ["No armor", "cp-sb-intact"];
+  }
+  function equippedArmorItemForPart(p) {
+    return equipmentItems().find((it) =>
+      it?.is_equipped
+      && ARMOR_TYPES.has(it.model?.item_type)
+      && it.body_part?.id === p?.id,
+    ) || null;
+  }
+  function armorInfoForPart(p) {
+    const item = equippedArmorItemForPart(p);
+    if (item) {
+      return {
+        source: item,
+        armor_value: item.armor_value ?? 0,
+        armor_critical: item.armor_critical ?? 0,
+        armor_max_critical: item.armor_max_critical ?? 0,
+        armor_destroyed: !!item.armor_destroyed,
+      };
+    }
+    return {
+      source: null,
+      armor_value: p?.armor_value ?? 0,
+      armor_critical: p?.armor_critical ?? 0,
+      armor_max_critical: p?.armor_max_critical ?? 0,
+      armor_destroyed: !!p?.armor_destroyed,
+    };
+  }
+  function shouldShowAdditionalPart(p) {
+    if (!p || PART_GEOMETRY[normPart(p)]) return false;
+    if (isShieldPart(p)) return !!equippedArmorItemForPart(p);
+    if (isSpecialPart(p)) {
+      return (p.critical || 0) > 0
+        || (p.max_critical || 0) > 0
+        || (p.armor_value || 0) > 0
+        || (p.armor_critical || 0) > 0
+        || !!p.disabled
+        || !!p.destroyed;
+    }
+    return true;
   }
   function renderDoll() {
     const parts = arr(state.sheet.body_parts);
@@ -680,15 +744,16 @@ export function mountCharacterScreen({ root, runtime }) {
     return doll;
   }
   function renderAdditionalParts() {
-    const additional = arr(state.sheet.body_parts).filter((p) => !PART_GEOMETRY[normPart(p)]);
+    const additional = arr(state.sheet.body_parts).filter(shouldShowAdditionalPart);
     if (!additional.length) return "";
     return `<div class="cp-section-title">Additional body parts / modules</div><div class="cp-list">${additional.map((p) => {
       const [bs, bcls] = bodyStatusText(p);
       return `<div class="cp-card cp-rowitem" tabindex="0" role="button" data-part="${esc(p.id)}" aria-label="${esc(p.name)}">
-        <span>${esc(p.name)}</span><span class="cp-statebadge ${bcls}">${bs} В· crit ${dash(p.critical)}/${dash(p.max_critical)}</span></div>`;
+        <span>${esc(p.name)}</span><span class="cp-statebadge ${bcls}">${bs} - crit ${dash(p.critical)}/${dash(p.max_critical)}</span></div>`;
     }).join("")}</div>`;
   }
   function partTipHtml(p) {
+    const armor = armorInfoForPart(p);
     const [bs, bcls] = bodyStatusText(p);
     const [as, acls] = armorStatusText(p);
     return `<b>${esc(p.name)}</b>
@@ -697,8 +762,9 @@ export function mountCharacterScreen({ root, runtime }) {
       <div class="cp-kv"><span>Serious injuries</span><span>${dash(p.serious)}</span></div>
       <div class="cp-kv"><span>Critical injuries</span><span>${dash(p.critical)}/${dash(p.max_critical)}</span></div>
       <div class="cp-kv"><span>Armor</span><span class="cp-statebadge ${acls}">${as}</span></div>
-      <div class="cp-kv"><span>Armor value</span><span>${dash(p.armor_value)}</span></div>
-      <div class="cp-kv"><span>Armor critical</span><span>${dash(p.armor_critical)}/${dash(p.armor_max_critical)}</span></div>`;
+      <div class="cp-kv"><span>Armor value</span><span>${dash(armor.armor_value)}</span></div>
+      <div class="cp-kv"><span>Armor critical</span><span>${dash(armor.armor_critical)}/${dash(armor.armor_max_critical)}</span></div>
+      ${armor.source ? `<div class="cp-kv"><span>Armor item</span><span>${esc(armor.source.name || armor.source.model?.name || "Armor")}</span></div>` : ""}`;
   }
 
   /* ---- SKILLS ---- */
@@ -732,7 +798,7 @@ export function mountCharacterScreen({ root, runtime }) {
     const rollBonusModifier = Number(s?.effect_skill_bonus ?? 0) || 0;
     const rollBonusTotal = rollBonusBase + rollBonusModifier;
     const pips = Array.from({ length: max }).map((_, i) => `<span class="cp-pip ${i < eff ? "on" : ""}"></span>`).join("");
-    const attrs = [s.main_attribute, s.secondary_attribute].filter(Boolean).join(" В· ");
+    const attrs = [s.main_attribute, s.secondary_attribute].filter(Boolean).join(" - ");
     const perks = arr(s.perks).map((p) => `<span class="cp-pill good">${esc(p.name || p.code || p)}</span>`).join("");
     const locked = s.locked || s.is_locked;
     const passive = s.is_passive || s.category === "passive";
@@ -1142,7 +1208,7 @@ export function mountCharacterScreen({ root, runtime }) {
   function gmArmorBlock() {
     const defs = state.equipmentDefs.filter((d) => ARMOR_TYPES.has(d.item_type));
     const opts = defs.length
-      ? defs.map((d) => `<option value="${esc(d.code)}">${esc(d.name)} В· ${esc(d.item_type)}</option>`).join("")
+        ? defs.map((d) => `<option value="${esc(d.code)}">${esc(d.name)} - ${esc(d.item_type)}</option>`).join("")
       : `<option value="">-- no armor models --</option>`;
     return `<div class="cp-section-title">GM - add armor</div>
       <div class="cp-card"><div class="cp-row" style="gap:8px">
@@ -1153,7 +1219,7 @@ export function mountCharacterScreen({ root, runtime }) {
   function gmImplantsBlock() {
     const defs = state.equipmentDefs.filter((d) => IMPLANT_TYPES.has(d.item_type));
     const opts = defs.length
-      ? defs.map((d) => `<option value="${esc(d.code)}">${esc(d.name)} В· ${esc(d.item_type)}</option>`).join("")
+        ? defs.map((d) => `<option value="${esc(d.code)}">${esc(d.name)} - ${esc(d.item_type)}</option>`).join("")
       : `<option value="">-- no implant models --</option>`;
     return `<div class="cp-section-title">GM - add implant</div>
       <div class="cp-card"><div class="cp-row" style="gap:8px">
@@ -1190,7 +1256,7 @@ export function mountCharacterScreen({ root, runtime }) {
       <div class="cp-rowitem"><span><b>${esc(it.name)}</b> <span class="cp-pill">${esc(it.model?.item_type || "armor")}</span></span>
       <span class="cp-pill ${status[1]}">${status[0]}</span></div>
       <div class="cp-row" style="gap:6px;margin-top:6px">
-        <span class="cp-chip">${it.is_equipped ? `Equipped В· ${esc(slot)}` : "Unequipped"}</span>
+        <span class="cp-chip">${it.is_equipped ? `Equipped - ${esc(slot)}` : "Unequipped"}</span>
         <span class="cp-chip">AV ${dash(it.armor_value)}</span>
         <span class="cp-chip${(it.armor_minor||0) > 0 ? " warn" : ""}">Minor ${dash(it.armor_minor)}/${dash(it.armor_max_minor)}</span>
         <span class="cp-chip${(it.armor_serious||0) > 0 ? " warn" : ""}">Serious ${dash(it.armor_serious)}/${dash(it.armor_max_serious)}</span>
@@ -1227,7 +1293,7 @@ export function mountCharacterScreen({ root, runtime }) {
       <span class="cp-pill ${active ? "good" : ""}">${active ? "installed" : "inactive"}</span></div>
       ${it.model?.description ? `<div class="cp-muted" style="margin-top:6px">${esc(it.model.description)}</div>` : ""}
       <div class="cp-row" style="gap:6px;margin-top:6px">
-        <span class="cp-chip">${active ? `Installed · ${esc(slot)}` : "Not installed"}</span>
+        <span class="cp-chip">${active ? `Installed - ${esc(slot)}` : "Not installed"}</span>
         ${it.max_charges ? `<span class="cp-chip">charges ${dash(it.current_charges)}/${dash(it.max_charges)}</span>` : ""}
         ${effTxt ? `<span class="cp-chip">${esc(effTxt)}</span>` : ""}
       </div>
@@ -1418,7 +1484,7 @@ export function mountCharacterScreen({ root, runtime }) {
   }
   function rollResultText(r) {
     const a = r.attribute || {}, roll = r.roll || {}, res = r.result || {};
-    const crit = res.is_critical_success ? " В· CRIT SUCCESS" : res.is_critical_failure ? " В· CRIT FAIL" : "";
+      const crit = res.is_critical_success ? " - CRIT SUCCESS" : res.is_critical_failure ? " - CRIT FAIL" : "";
     const name = ATTR_RU[a.code] || a.name || a.code;
     return `${esc(name)} check - d20 <span class="cp-mono">${dash(roll.natural_roll)} <= ${dash(roll.target_value)}</span> -> <b>${res.success ? "SUCCESS" : "FAILURE"}</b>${crit}`;
   }
@@ -1589,7 +1655,7 @@ export function mountCharacterScreen({ root, runtime }) {
   // unequipped item can always be re-equipped.
   function equipmentSlotOptions(it) {
     const def = String(it.model?.default_body_part_code || "").toLowerCase();
-    const allowed = arr(it.model?.flags?.allowed_body_part_codes || []).map((c) => String(c).toLowerCase());
+    const allowed = arr(it.effective_flags?.allowed_body_part_codes || it.model?.flags?.allowed_body_part_codes || []).map((c) => String(c).toLowerCase());
     const lastId = state.lastSlot[it.id]; // previously-equipped part wins as default
     let parts = arr(state.sheet?.body_parts);
 
@@ -1598,6 +1664,11 @@ export function mountCharacterScreen({ root, runtime }) {
       parts = parts.filter((b) => {
         const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
         return codes.some((c) => allowed.includes(c));
+      });
+    } else if (def) {
+      parts = parts.filter((b) => {
+        const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
+        return codes.includes(def);
       });
     }
 

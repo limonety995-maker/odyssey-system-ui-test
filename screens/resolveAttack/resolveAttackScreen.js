@@ -37,10 +37,38 @@ const DOLL_SCALE = 1.5;
 const OBR_TIMEOUT_MS = 1500;
 
 /* ---------------- small helpers ---------------- */
-const dash = (v) => (v === null || v === undefined || v === "" ? "—" : v);
+const dash = (v) => (v === null || v === undefined || v === "" ? "-" : v);
 const esc = (v) => escapeHtml(v);
 const fmt = (v) => (Number(v) > 0 ? "+" : "") + (Number(v) || 0);
 const arr = (v) => (Array.isArray(v) ? v : []);
+function bodyPartKey(part) {
+  const code = normPartCode(part);
+  if (code) return code;
+  return String(part?.name || part?.id || "").trim().toLowerCase();
+}
+function dedupeBodyParts(parts) {
+  const byKey = new Map();
+  for (const part of arr(parts)) {
+    const key = bodyPartKey(part);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, part);
+      continue;
+    }
+    const prevTargetable = isTargetable(prev);
+    const nextTargetable = isTargetable(part);
+    if (!prevTargetable && nextTargetable) {
+      byKey.set(key, part);
+      continue;
+    }
+    const prevDrawable = Boolean(PART_GEOMETRY[normPartCode(prev)]);
+    const nextDrawable = Boolean(PART_GEOMETRY[normPartCode(part)]);
+    if (!prevDrawable && nextDrawable) {
+      byKey.set(key, part);
+    }
+  }
+  return Array.from(byKey.values());
+}
 
 function injectStylesOnce() {
   if (document.getElementById("ra-screen-styles")) return;
@@ -337,7 +365,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
       state.attacker.pools = arr(abilitiesRes?.resource_pools);
       state.target.id = targetId;
       state.target.sheet = sheet;
-      state.target.bodyParts = arr(sheet?.body_parts);
+      state.target.bodyParts = dedupeBodyParts(sheet?.body_parts);
       state.target.effectSummary = await loadEffectSummary(targetId);
 
       const weapons = arr(armory?.weapons);
@@ -398,15 +426,15 @@ export function mountResolveAttackScreen({ root, runtime }) {
   function renderWeaponSelect() {
     const weapons = arr(state.attacker.armory?.weapons);
     refs.weaponSelect.innerHTML = weapons.length
-      ? weapons.map((w) => `<option value="${esc(w.id)}" ${w.id === state.attacker.weaponId ? "selected" : ""}>${esc(w.name)} · ${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</option>`).join("")
-      : `<option value="">— no weapons —</option>`;
+      ? weapons.map((w) => `<option value="${esc(w.id)}" ${w.id === state.attacker.weaponId ? "selected" : ""}>${esc(w.name)} - ${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</option>`).join("")
+      : `<option value="">- no weapons -</option>`;
   }
 
   function renderAbilitySelect() {
     const abilities = attackAbilities();
     refs.abilitySelect.innerHTML = abilities.length
-      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} · lvl ${dash(a.effective_level)}</option>`).join("")
-      : `<option value="">— no attack abilities —</option>`;
+      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${dash(a.effective_level)}</option>`).join("")
+      : `<option value="">- no attack abilities -</option>`;
   }
 
   function renderProfileAndFireMode() {
@@ -419,11 +447,11 @@ export function mountResolveAttackScreen({ root, runtime }) {
     let html = "";
     if (profiles.length > 1) {
       html += `<label class="ra-field"><span>Weapon profile</span><select data-sel="profile">${profiles
-        .map((p) => `<option value="${esc(p.id)}" ${p.id === w.active_profile_id ? "selected" : ""}>${esc(p.name || p.code || "profile")}${p.attack_type ? " · " + esc(p.attack_type) : ""}</option>`)
+        .map((p) => `<option value="${esc(p.id)}" ${p.id === w.active_profile_id ? "selected" : ""}>${esc(p.name || p.code || "profile")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</option>`)
         .join("")}</select></label>`;
     } else if (profiles.length === 1) {
       const p = profiles[0];
-      html += `<label class="ra-field"><span>Weapon profile</span><div class="ra-chip">${esc(p.name || p.code || "default")}${p.attack_type ? " · " + esc(p.attack_type) : ""}</div></label>`;
+      html += `<label class="ra-field"><span>Weapon profile</span><div class="ra-chip">${esc(p.name || p.code || "default")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</div></label>`;
     }
     if (fireModes.length) {
       html += `<label class="ra-field"><span>Fire mode</span><select data-sel="fireMode">${fireModes
@@ -442,13 +470,13 @@ export function mountResolveAttackScreen({ root, runtime }) {
       const fm = w.selected_fire_mode || w.active_profile?.selected_fire_mode || null;
       let chips = "";
       if (isMelee) {
-        chips += `<span class="ra-chip">melee · str-based</span>`;
+        chips += `<span class="ra-chip">melee - str-based</span>`;
       } else {
         chips += fm ? `<span class="ra-chip">mode: ${esc(fm.name || fm.code)}</span>` : `<span class="ra-chip neg">no fire mode</span>`;
         if (mag) {
-          const ammo = mag.ammo_type_name || mag.ammo_type?.name || mag.ammo_type || "—";
+          const ammo = mag.ammo_type_name || mag.ammo_type?.name || mag.ammo_type || "-";
           const cal = mag.magazine_def?.caliber_name || mag.caliber_name || mag.caliber || "";
-          chips += `<span class="ra-chip">mag ${dash(mag.current_rounds)} / ${dash(mag.capacity || mag.magazine_def?.capacity)} · ${esc(ammo)}${cal ? " · " + esc(cal) : ""}</span>`;
+          chips += `<span class="ra-chip">mag ${dash(mag.current_rounds)} / ${dash(mag.capacity || mag.magazine_def?.capacity)} - ${esc(ammo)}${cal ? " - " + esc(cal) : ""}</span>`;
           if ((mag.current_rounds ?? 0) <= 0) chips += `<span class="ra-chip neg">magazine empty</span>`;
         } else {
           chips += `<span class="ra-chip neg">no magazine loaded</span>`;
@@ -465,7 +493,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
       const ignore = a.level_data?.ignore_armor;
       const cd = a.current_cooldown_rounds;
       refs.attackBlock.innerHTML = `<div class="ra-block">
-        <span class="ra-chip">cost к:${esc(cost)}</span>
+        <span class="ra-chip">cost k:${esc(cost)}</span>
         ${pool ? `<span class="ra-row" style="gap:6px"><span class="ra-muted">${esc(pool.name || "Energy")}</span><span class="ra-ebar"><span style="width:${pct}%"></span></span><span class="ra-mono">${cur} / ${max}</span></span>` : `<span class="ra-chip neg">resource pool not found</span>`}
         ${cd ? `<span class="ra-chip neg">cooldown ${esc(cd)}</span>` : ""}
         ${ignore ? `<span class="ra-chip">ignores armor</span>` : ""}
@@ -488,7 +516,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
           if (f.requires_reload) bits.push("needs reload");
           if (f.current_cooldown_rounds) bits.push(`cd ${f.current_cooldown_rounds}`);
           if (f.uses_left !== undefined && f.uses_left !== null) bits.push(`uses ${f.uses_left}`);
-          return `<div class="ra-feature"><span>${esc(f.name || f.code || "feature")}</span><span class="${active ? "on" : "off"}">${active ? "active" : "inactive"}${bits.length ? " · " + esc(bits.join(" · ")) : ""}</span></div>`;
+          return `<div class="ra-feature"><span>${esc(f.name || f.code || "feature")}</span><span class="${active ? "on" : "off"}">${active ? "active" : "inactive"}${bits.length ? " - " + esc(bits.join(" - ")) : ""}</span></div>`;
         })
         .join("");
   }
@@ -508,7 +536,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
     return h;
   }
   function renderDoll() {
-    refs.targetName.textContent = state.target.sheet?.character?.name || (state.target.id ? state.target.id.slice(0, 8) + "…" : "Target");
+    refs.targetName.textContent = state.target.sheet?.character?.name || (state.target.id ? state.target.id.slice(0, 8) + "..." : "Target");
     refs.doll.innerHTML = makeDoll();
   }
 
@@ -521,7 +549,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
         if (p.id === state.target.partId) cls.push("active");
         if (!drawable) cls.push("custom");
         if (!targetable) cls.push("disabled");
-        const aim = p.aim_difficulty ? ` <span class="ra-mono ra-muted">−${esc(p.aim_difficulty)}</span>` : "";
+        const aim = p.aim_difficulty ? ` <span class="ra-mono ra-muted">-${esc(p.aim_difficulty)}</span>` : "";
         const reason = p.destroyed ? " (destroyed)" : p.can_be_targeted === false ? " (untargetable)" : "";
         return `<span class="${cls.join(" ")}" data-part="${esc(p.id)}" data-targetable="${targetable}">${esc(p.name)}${aim}${reason}</span>`;
       })
@@ -546,7 +574,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
       ["target_token_id", o.targetTokenId],
     ].filter(([, v]) => v);
     refs.obrContext.innerHTML = rows.length
-      ? rows.map(([k, v]) => `<span class="ra-chip"><span class="ra-muted">${k}</span> <span class="ra-mono">${esc(String(v).slice(0, 12))}…</span></span>`).join("")
+      ? rows.map(([k, v]) => `<span class="ra-chip"><span class="ra-muted">${k}</span> <span class="ra-mono">${esc(String(v).slice(0, 12))}...</span></span>`).join("")
       : `<span class="ra-muted">No Owlbear context captured (manual/dev mode).</span>`;
   }
 
@@ -599,45 +627,45 @@ export function mountResolveAttackScreen({ root, runtime }) {
 
   function magOption(m, selId) {
     const cap = m.magazine_def?.capacity ?? m.capacity;
-    const ammoName = m.ammo_type?.name || m.ammo_type_name || "—";
+    const ammoName = m.ammo_type?.name || m.ammo_type_name || "-";
     const loaded = magLoadedInWeaponName(m.id);
-    return `<option value="${esc(m.id)}" ${m.id === selId ? "selected" : ""}>${esc(m.name)} · ${dash(m.current_rounds)}/${dash(cap)} · ${esc(ammoName)}${loaded ? " · in " + esc(loaded) : ""}</option>`;
+    return `<option value="${esc(m.id)}" ${m.id === selId ? "selected" : ""}>${esc(m.name)} - ${dash(m.current_rounds)}/${dash(cap)} - ${esc(ammoName)}${loaded ? " - in " + esc(loaded) : ""}</option>`;
   }
   function ammoOption(a, selId) {
-    return `<option value="${esc(a.id)}" ${a.id === selId ? "selected" : ""}>${esc(a.display_name)} · ${esc(a.ammo_type_name || a.ammo_type_code || "")} · x${dash(a.quantity)}</option>`;
+    return `<option value="${esc(a.id)}" ${a.id === selId ? "selected" : ""}>${esc(a.display_name)} - ${esc(a.ammo_type_name || a.ammo_type_code || "")} - x${dash(a.quantity)}</option>`;
   }
   function magRow(m) {
     const inW = magLoadedInWeaponName(m.id);
-    return `<div class="ra-feature"><span>${esc(m.name)}</span><span class="ra-mono">${dash(m.current_rounds)}/${dash(m.magazine_def?.capacity ?? m.capacity)} · ${esc(m.ammo_type?.name || m.ammo_type_name || "empty")} · ${esc(m.magazine_def?.caliber_name || m.magazine_def?.caliber || "")}${inW ? " · in " + esc(inW) : ""}</span></div>`;
+    return `<div class="ra-feature"><span>${esc(m.name)}</span><span class="ra-mono">${dash(m.current_rounds)}/${dash(m.magazine_def?.capacity ?? m.capacity)} - ${esc(m.ammo_type?.name || m.ammo_type_name || "empty")} - ${esc(m.magazine_def?.caliber_name || m.magazine_def?.caliber || "")}${inW ? " - in " + esc(inW) : ""}</span></div>`;
   }
   function ammoRow(a) {
-    return `<div class="ra-feature"><span>${esc(a.display_name)}</span><span class="ra-mono">${esc(a.ammo_type_name || a.ammo_type_code || "")} · ${esc(a.caliber_name || a.caliber_code || "")} · x${dash(a.quantity)}</span></div>`;
+    return `<div class="ra-feature"><span>${esc(a.display_name)}</span><span class="ra-mono">${esc(a.ammo_type_name || a.ammo_type_code || "")} - ${esc(a.caliber_name || a.caliber_code || "")} - x${dash(a.quantity)}</span></div>`;
   }
 
   function renderInventory() {
     const w = currentWeapon();
     const mags = characterMagazines();
     const ammo = ammoStockList();
-    const profileName = w?.active_profile?.name || w?.active_profile?.code || "—";
+    const profileName = w?.active_profile?.name || w?.active_profile?.code || "-";
     const loadedMag = w ? w.loaded_magazine || w.active_profile?.loaded_magazine : null;
     const compatMags = w ? compatibleMagazinesForWeapon(w) : mags;
-    const reloadOpts = compatMags.length ? compatMags.map((m) => magOption(m, state.inv.reloadMagId)).join("") : `<option value="">— no compatible magazines —</option>`;
-    const opsOpts = mags.length ? mags.map((m) => magOption(m, state.inv.opsMagId)).join("") : `<option value="">— no magazines —</option>`;
+    const reloadOpts = compatMags.length ? compatMags.map((m) => magOption(m, state.inv.reloadMagId)).join("") : `<option value="">- no compatible magazines -</option>`;
+    const opsOpts = mags.length ? mags.map((m) => magOption(m, state.inv.opsMagId)).join("") : `<option value="">- no magazines -</option>`;
     const compatAmmo = compatibleAmmoForMagazine(magById(state.inv.opsMagId));
-    const ammoOpts = compatAmmo.length ? compatAmmo.map((a) => ammoOption(a, state.inv.ammoStockId)).join("") : `<option value="">— no compatible ammo —</option>`;
+    const ammoOpts = compatAmmo.length ? compatAmmo.map((a) => ammoOption(a, state.inv.ammoStockId)).join("") : `<option value="">- no compatible ammo -</option>`;
 
     refs.inventoryBody.innerHTML = `
       ${state.attacker.inventory.fallback ? `<div class="ra-banner warn">Ammo stock read via fallback (backend get_character_inventory error 25006). Magazines/ammo shown are still server truth.</div>` : ""}
-      <div class="ra-section-title" style="margin-top:0">Reload weapon — insert / replace magazine</div>
+      <div class="ra-section-title" style="margin-top:0">Reload weapon - insert / replace magazine</div>
       <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
-        <div class="ra-muted">${w ? esc(w.name) : "—"} · profile ${esc(profileName)} · loaded ${loadedMag ? `<span class="ra-mono">${dash(loadedMag.current_rounds)}/${dash(loadedMag.capacity || loadedMag.magazine_def?.capacity)}</span> ${esc(loadedMag.ammo_type_name || loadedMag.ammo_type?.name || "")}` : "—"}</div>
+        <div class="ra-muted">${w ? esc(w.name) : "-"} - profile ${esc(profileName)} - loaded ${loadedMag ? `<span class="ra-mono">${dash(loadedMag.current_rounds)}/${dash(loadedMag.capacity || loadedMag.magazine_def?.capacity)}</span> ${esc(loadedMag.ammo_type_name || loadedMag.ammo_type?.name || "")}` : "-"}</div>
         <div class="ra-row">
           <label class="ra-field"><span>Magazine to insert</span><select data-inv="reloadMag">${reloadOpts}</select></label>
           <button data-inv-action="reload" type="button" style="align-self:flex-end">Reload weapon</button>
         </div>
       </div>
 
-      <div class="ra-section-title">Magazine rounds — load / unload</div>
+      <div class="ra-section-title">Magazine rounds - load / unload</div>
       <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
         <label class="ra-field"><span>Magazine</span><select data-inv="opsMag">${opsOpts}</select></label>
         <div class="ra-row">
@@ -817,10 +845,10 @@ export function mountResolveAttackScreen({ root, runtime }) {
       if (healedSheet && healedSheet.ok !== false && healedSheet.character) {
         if (who === "attacker") {
           state.attacker.sheet = healedSheet;
-          state.attacker.bodyParts = arr(healedSheet.body_parts);
+          state.attacker.bodyParts = dedupeBodyParts(healedSheet.body_parts);
         } else {
           state.target.sheet = healedSheet;
-          state.target.bodyParts = arr(healedSheet.body_parts);
+          state.target.bodyParts = dedupeBodyParts(healedSheet.body_parts);
           if (!state.target.bodyParts.some((p) => p.id === state.target.partId && isTargetable(p))) selectFirstTargetablePart();
         }
       }
@@ -856,10 +884,10 @@ export function mountResolveAttackScreen({ root, runtime }) {
     if (sheet && sheet.ok !== false && sheet.character) {
       if (which === "attacker") {
         state.attacker.sheet = sheet;
-        state.attacker.bodyParts = arr(sheet.body_parts);
+        state.attacker.bodyParts = dedupeBodyParts(sheet.body_parts);
       } else {
         state.target.sheet = sheet;
-        state.target.bodyParts = arr(sheet.body_parts);
+        state.target.bodyParts = dedupeBodyParts(sheet.body_parts);
         if (!state.target.bodyParts.some((p) => p.id === state.target.partId && isTargetable(p))) selectFirstTargetablePart();
       }
     }
@@ -965,9 +993,9 @@ export function mountResolveAttackScreen({ root, runtime }) {
   /* ---- result summary (task #4) ---- */
   function renderSummary(n) {
     const data = n || {};
-    const hitTxt = data.hit === true ? "HIT" : data.hit === false ? "MISS" : "—";
+    const hitTxt = data.hit === true ? "HIT" : data.hit === false ? "MISS" : "-";
     const hitCls = data.hit === true ? "hit" : data.hit === false ? "miss" : "";
-    const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "—";
+    const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
     const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
     const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
     refs.summary.innerHTML = [
@@ -975,25 +1003,25 @@ export function mountResolveAttackScreen({ root, runtime }) {
       stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
       stat("Attack total", esc(dash(data.attackTotal))),
       stat("Defense total", esc(dash(data.defenseTotal))),
-      stat("Damage", `${esc(dash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">Δ${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
+      stat("Damage", `${esc(dash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
       stat("Body part", esc(dash(data.targetBodyPartName))),
       stat("Ammo spent", esc(dash(data.ammoSpent))),
       stat("Energy spent", esc(dash(data.energySpent))),
-      stat("Pending", esc(pending || "—")),
-      stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? String(data.combatLogId).slice(0, 8) + "…" : "—")}</span>`),
-      stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "—", data.targetAlive === false ? "danger" : ""),
+      stat("Pending", esc(pending || "-")),
+      stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? String(data.combatLogId).slice(0, 8) + "..." : "-")}</span>`),
+      stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : ""),
     ].join("");
     refs.summaryCard.classList.remove("ra-hidden");
   }
 
   /* ---- debug panel (task #3) ---- */
   function renderDebug() {
-    refs.dbgPayload.textContent = state.debug.payload ? prettyJson(state.debug.payload) : "—";
-    refs.dbgRaw.textContent = state.debug.raw ? prettyJson(state.debug.raw) : "—";
-    refs.dbgNormalized.textContent = state.debug.normalized ? prettyJson(state.debug.normalized) : "—";
-    refs.dbgError.textContent = state.debug.error ? prettyJson(state.debug.error) : "—";
-    refs.dbgRefresh.textContent = state.debug.refresh ? prettyJson(state.debug.refresh) : "—";
-    refs.dbgInventory.textContent = state.debug.inventory ? prettyJson(state.debug.inventory) : "—";
+    refs.dbgPayload.textContent = state.debug.payload ? prettyJson(state.debug.payload) : "-";
+    refs.dbgRaw.textContent = state.debug.raw ? prettyJson(state.debug.raw) : "-";
+    refs.dbgNormalized.textContent = state.debug.normalized ? prettyJson(state.debug.normalized) : "-";
+    refs.dbgError.textContent = state.debug.error ? prettyJson(state.debug.error) : "-";
+    refs.dbgRefresh.textContent = state.debug.refresh ? prettyJson(state.debug.refresh) : "-";
+    refs.dbgInventory.textContent = state.debug.inventory ? prettyJson(state.debug.inventory) : "-";
   }
   refs.dbgCopyPayload.addEventListener("click", () => copyJson(state.debug.payload));
   refs.dbgCopyResult.addEventListener("click", () => copyJson(state.debug.raw));
@@ -1038,7 +1066,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
       }
       if (sheet && sheet.ok !== false && sheet.character) {
         state.target.sheet = sheet;
-        state.target.bodyParts = arr(sheet.body_parts);
+        state.target.bodyParts = dedupeBodyParts(sheet.body_parts);
         if (!state.target.bodyParts.some((p) => p.id === state.target.partId && isTargetable(p))) {
           selectFirstTargetablePart();
         }
@@ -1059,6 +1087,233 @@ export function mountResolveAttackScreen({ root, runtime }) {
       renderDebug();
       banner(refs.resolveStatus, "warn", "Attack applied, but refresh failed (server result above is still valid).");
     }
+  }
+
+  // Clean UI string rendering and body-part presentation without touching backend data.
+  function uiDash(v) {
+    return v === null || v === undefined || v === "" ? "-" : v;
+  }
+  function renderWeaponSelect() {
+    const weapons = arr(state.attacker.armory?.weapons);
+    refs.weaponSelect.innerHTML = weapons.length
+      ? weapons.map((w) => `<option value="${esc(w.id)}" ${w.id === state.attacker.weaponId ? "selected" : ""}>${esc(w.name)} - ${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</option>`).join("")
+      : `<option value="">- no weapons -</option>`;
+  }
+  function renderAbilitySelect() {
+    const abilities = attackAbilities();
+    refs.abilitySelect.innerHTML = abilities.length
+      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${uiDash(a.effective_level)}</option>`).join("")
+      : `<option value="">- no attack abilities -</option>`;
+  }
+  function renderProfileAndFireMode() {
+    const w = currentWeapon();
+    if (!w) { refs.profileRow.innerHTML = ""; return; }
+    const profiles = arr(w.profiles);
+    const fireModes = arr(w.available_fire_modes.length ? w.available_fire_modes : w.active_profile?.available_fire_modes);
+    const selFmId = (w.selected_fire_mode || w.active_profile?.selected_fire_mode)?.id || "";
+    let html = "";
+    if (profiles.length > 1) {
+      html += `<label class="ra-field"><span>Weapon profile</span><select data-sel="profile">${profiles
+        .map((p) => `<option value="${esc(p.id)}" ${p.id === w.active_profile_id ? "selected" : ""}>${esc(p.name || p.code || "profile")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</option>`)
+        .join("")}</select></label>`;
+    } else if (profiles.length === 1) {
+      const p = profiles[0];
+      html += `<label class="ra-field"><span>Weapon profile</span><div class="ra-chip">${esc(p.name || p.code || "default")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</div></label>`;
+    }
+    if (fireModes.length) {
+      html += `<label class="ra-field"><span>Fire mode</span><select data-sel="fireMode">${fireModes
+        .map((f) => `<option value="${esc(f.id)}" ${f.id === selFmId ? "selected" : ""}>${esc(f.name || f.code || "fire mode")}</option>`)
+        .join("")}</select></label>`;
+    }
+    refs.profileRow.innerHTML = html;
+  }
+  function renderAttackBlock() {
+    if (state.mode === "weapon") {
+      const w = currentWeapon();
+      if (!w) { refs.attackBlock.innerHTML = ""; return; }
+      const isMelee = !w.model?.caliber;
+      const mag = w.loaded_magazine || w.active_profile?.loaded_magazine || null;
+      const fm = w.selected_fire_mode || w.active_profile?.selected_fire_mode || null;
+      let chips = "";
+      if (isMelee) {
+        chips += `<span class="ra-chip">melee - str-based</span>`;
+      } else {
+        chips += fm ? `<span class="ra-chip">mode: ${esc(fm.name || fm.code)}</span>` : `<span class="ra-chip neg">no fire mode</span>`;
+        if (mag) {
+          const ammo = mag.ammo_type_name || mag.ammo_type?.name || mag.ammo_type || "-";
+          const cal = mag.magazine_def?.caliber_name || mag.caliber_name || mag.caliber || "";
+          chips += `<span class="ra-chip">mag ${uiDash(mag.current_rounds)} / ${uiDash(mag.capacity || mag.magazine_def?.capacity)} - ${esc(ammo)}${cal ? " - " + esc(cal) : ""}</span>`;
+          if ((mag.current_rounds ?? 0) <= 0) chips += `<span class="ra-chip neg">magazine empty</span>`;
+        } else {
+          chips += `<span class="ra-chip neg">no magazine loaded</span>`;
+        }
+      }
+      refs.attackBlock.innerHTML = `<div class="ra-block">${chips}</div>`;
+      return;
+    }
+    const a = currentAbility();
+    if (!a) { refs.attackBlock.innerHTML = ""; return; }
+    const cost = a.resource?.cost ?? 0;
+    const pool = state.attacker.pools.find((p) => p.code === a.resource?.pool_code);
+    const cur = pool?.current_value ?? 0;
+    const max = pool?.max_value ?? 0;
+    const pct = max > 0 ? Math.round((cur / max) * 100) : 0;
+    const ignore = a.level_data?.ignore_armor;
+    const cd = a.current_cooldown_rounds;
+    refs.attackBlock.innerHTML = `<div class="ra-block">
+      <span class="ra-chip">cost k:${esc(cost)}</span>
+      ${pool ? `<span class="ra-row" style="gap:6px"><span class="ra-muted">${esc(pool.name || "Energy")}</span><span class="ra-ebar"><span style="width:${pct}%"></span></span><span class="ra-mono">${cur} / ${max}</span></span>` : `<span class="ra-chip neg">resource pool not found</span>`}
+      ${cd ? `<span class="ra-chip neg">cooldown ${esc(cd)}</span>` : ""}
+      ${ignore ? `<span class="ra-chip">ignores armor</span>` : ""}
+    </div>`;
+  }
+  function renderFeatures() {
+    const w = currentWeapon();
+    const features = arr(w?.features);
+    if (state.mode !== "weapon" || !features.length) { refs.features.innerHTML = ""; return; }
+    refs.features.innerHTML =
+      `<div class="ra-section-title">Weapon features (read-only)</div>` +
+      features.map((f) => {
+        const active = f.is_active ?? f.active;
+        const charges = f.current_charges ?? f.charges;
+        const bits = [];
+        if (charges !== undefined && charges !== null) bits.push(`charges ${charges}${f.max_charges ? `/${f.max_charges}` : ""}`);
+        if (f.requires_reload) bits.push("needs reload");
+        if (f.current_cooldown_rounds) bits.push(`cd ${f.current_cooldown_rounds}`);
+        if (f.uses_left !== undefined && f.uses_left !== null) bits.push(`uses ${f.uses_left}`);
+        return `<div class="ra-feature"><span>${esc(f.name || f.code || "feature")}</span><span class="${active ? "on" : "off"}">${active ? "active" : "inactive"}${bits.length ? " - " + esc(bits.join(" - ")) : ""}</span></div>`;
+      }).join("");
+  }
+  function renderDoll() {
+    refs.targetName.textContent = state.target.sheet?.character?.name || (state.target.id ? `${state.target.id.slice(0, 8)}...` : "Target");
+    refs.doll.innerHTML = makeDoll();
+  }
+  function renderParts() {
+    refs.parts.innerHTML = dedupeBodyParts(state.target.bodyParts)
+      .map((p) => {
+        const cls = ["ra-partchip"];
+        const targetable = isTargetable(p);
+        const drawable = Boolean(PART_GEOMETRY[normPartCode(p)]);
+        if (p.id === state.target.partId) cls.push("active");
+        if (!drawable) cls.push("custom");
+        if (!targetable) cls.push("disabled");
+        const aim = p.aim_difficulty ? ` <span class="ra-mono ra-muted">-${esc(p.aim_difficulty)}</span>` : "";
+        const reason = p.destroyed ? " (destroyed)" : p.can_be_targeted === false ? " (untargetable)" : "";
+        return `<span class="${cls.join(" ")}" data-part="${esc(p.id)}" data-targetable="${targetable}">${esc(p.name)}${aim}${reason}</span>`;
+      })
+      .join("");
+  }
+  function magOption(m, selId) {
+    const cap = m.magazine_def?.capacity ?? m.capacity;
+    const ammoName = m.ammo_type?.name || m.ammo_type_name || "-";
+    const loaded = magLoadedInWeaponName(m.id);
+    return `<option value="${esc(m.id)}" ${m.id === selId ? "selected" : ""}>${esc(m.name)} - ${uiDash(m.current_rounds)}/${uiDash(cap)} - ${esc(ammoName)}${loaded ? " - in " + esc(loaded) : ""}</option>`;
+  }
+  function ammoOption(a, selId) {
+    return `<option value="${esc(a.id)}" ${a.id === selId ? "selected" : ""}>${esc(a.display_name)} - ${esc(a.ammo_type_name || a.ammo_type_code || "")} - x${uiDash(a.quantity)}</option>`;
+  }
+  function magRow(m) {
+    const inW = magLoadedInWeaponName(m.id);
+    return `<div class="ra-feature"><span>${esc(m.name)}</span><span class="ra-mono">${uiDash(m.current_rounds)}/${uiDash(m.magazine_def?.capacity ?? m.capacity)} - ${esc(m.ammo_type?.name || m.ammo_type_name || "empty")} - ${esc(m.magazine_def?.caliber_name || m.magazine_def?.caliber || "")}${inW ? " - in " + esc(inW) : ""}</span></div>`;
+  }
+  function ammoRow(a) {
+    return `<div class="ra-feature"><span>${esc(a.display_name)}</span><span class="ra-mono">${esc(a.ammo_type_name || a.ammo_type_code || "")} - ${esc(a.caliber_name || a.caliber_code || "")} - x${uiDash(a.quantity)}</span></div>`;
+  }
+  function renderInventory() {
+    const w = currentWeapon();
+    const mags = characterMagazines();
+    const ammo = ammoStockList();
+    const profileName = w?.active_profile?.name || w?.active_profile?.code || "-";
+    const loadedMag = w ? w.loaded_magazine || w.active_profile?.loaded_magazine : null;
+    const compatMags = w ? compatibleMagazinesForWeapon(w) : mags;
+    const reloadOpts = compatMags.length ? compatMags.map((m) => magOption(m, state.inv.reloadMagId)).join("") : `<option value="">- no compatible magazines -</option>`;
+    const opsOpts = mags.length ? mags.map((m) => magOption(m, state.inv.opsMagId)).join("") : `<option value="">- no magazines -</option>`;
+    const compatAmmo = compatibleAmmoForMagazine(magById(state.inv.opsMagId));
+    const ammoOpts = compatAmmo.length ? compatAmmo.map((a) => ammoOption(a, state.inv.ammoStockId)).join("") : `<option value="">- no compatible ammo -</option>`;
+    refs.inventoryBody.innerHTML = `
+      ${state.attacker.inventory.fallback ? `<div class="ra-banner warn">Ammo stock read via fallback (backend get_character_inventory error 25006). Magazines/ammo shown are still server truth.</div>` : ""}
+      <div class="ra-section-title" style="margin-top:0">Reload weapon - insert / replace magazine</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="ra-muted">${w ? esc(w.name) : "-"} - profile ${esc(profileName)} - loaded ${loadedMag ? `<span class="ra-mono">${uiDash(loadedMag.current_rounds)}/${uiDash(loadedMag.capacity || loadedMag.magazine_def?.capacity)}</span> ${esc(loadedMag.ammo_type_name || loadedMag.ammo_type?.name || "")}` : "-"}</div>
+        <div class="ra-row">
+          <label class="ra-field"><span>Magazine to insert</span><select data-inv="reloadMag">${reloadOpts}</select></label>
+          <button data-inv-action="reload" type="button" style="align-self:flex-end">Reload weapon</button>
+        </div>
+      </div>
+      <div class="ra-section-title">Magazine rounds - load / unload</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        <label class="ra-field"><span>Magazine</span><select data-inv="opsMag">${opsOpts}</select></label>
+        <div class="ra-row">
+          <label class="ra-field"><span>Ammo stock to load</span><select data-inv="ammoStock">${ammoOpts}</select></label>
+          <button data-inv-action="load" type="button" class="secondary" style="align-self:flex-end">Load / Top up</button>
+          <button data-inv-action="unload" type="button" class="secondary" style="align-self:flex-end">Unload all</button>
+        </div>
+      </div>
+      <div class="ra-section-title">Magazines (${mags.length})</div>
+      <div class="ra-list">${mags.length ? mags.map(magRow).join("") : `<div class="ra-muted">No magazines.</div>`}</div>
+      <div class="ra-section-title">Ammo stock (${ammo.length})</div>
+      <div class="ra-list">${ammo.length ? ammo.map(ammoRow).join("") : `<div class="ra-muted">No ammo in stock.</div>`}</div>
+      <div class="ra-section-title">Items (${allItems().length})</div>
+      <div class="ra-list">${allItems().length ? allItems().map(itemRow).join("") : `<div class="ra-muted">No items.</div>`}</div>
+      <div class="ra-section-title">Use medkit - heal a body part</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        ${healItems().length ? `
+        <div class="ra-row">
+          <label class="ra-field"><span>Medkit</span><select data-heal="item">${healItems().map(healItemOption).join("")}</select></label>
+          <label class="ra-field"><span>Apply to</span><select data-heal="applyTo">
+            <option value="attacker" ${state.heal.applyTo === "attacker" ? "selected" : ""}>Attacker (self)</option>
+            <option value="target" ${state.heal.applyTo === "target" ? "selected" : ""}>Target</option>
+          </select></label>
+        </div>
+        <label class="ra-field"><span>Body part to heal</span><select data-heal="part">${healPartOptions()}</select></label>
+        <div class="ra-row">
+          <button data-heal-action="use" type="button">Use medkit</button>
+          <span class="ra-muted">heals 1 serious, or crit->serious, or clears minor; removes unconscious; not consumed if nothing to heal</span>
+        </div>` : `<div class="ra-muted">No medkit / healing item in inventory.</div>`}
+      </div>
+      <div class="ra-section-title">GM tools</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        <label class="ra-field"><span>Character</span><select data-gm="target">
+          <option value="attacker" ${state.gmTarget === "attacker" ? "selected" : ""}>Attacker</option>
+          <option value="target" ${state.gmTarget === "target" ? "selected" : ""}>Target</option>
+        </select></label>
+        <div class="ra-row">
+          <button data-gm-action="heal" type="button">Heal (full)</button>
+          <button data-gm-action="repair" type="button" class="secondary">Repair armor</button>
+          <span class="ra-muted">heals all body parts / repairs all armor sections (Shield &amp; Special excluded)</span>
+        </div>
+      </div>
+    `;
+  }
+  function renderSummary(n) {
+    const data = n || {};
+    const hitTxt = data.hit === true ? "HIT" : data.hit === false ? "MISS" : "-";
+    const hitCls = data.hit === true ? "hit" : data.hit === false ? "miss" : "";
+    const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
+    const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+    const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
+    refs.summary.innerHTML = [
+      stat("Result", esc(hitTxt), hitCls),
+      stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
+      stat("Attack total", esc(uiDash(data.attackTotal))),
+      stat("Defense total", esc(uiDash(data.defenseTotal))),
+      stat("Damage", `${esc(uiDash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
+      stat("Body part", esc(uiDash(data.targetBodyPartName))),
+      stat("Ammo spent", esc(uiDash(data.ammoSpent))),
+      stat("Energy spent", esc(uiDash(data.energySpent))),
+      stat("Pending", esc(pending || "-")),
+      stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? `${String(data.combatLogId).slice(0, 8)}...` : "-")}</span>`),
+      stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : ""),
+    ].join("");
+    refs.summaryCard.classList.remove("ra-hidden");
+  }
+  function logResult(n) {
+    if (!n) { pushLog(`<span class="ra-muted">result received (no detail)</span>`); return; }
+    const autoTxt = n.auto === "crit" ? " - auto-crit" : n.auto === "fail" ? " - auto-fail" : "";
+    pushLog(`<span class="who">accuracy</span> - <span class="ra-mono">${uiDash(n.attackRoll)} -> ${uiDash(n.attackTotal)}</span> vs <span class="ra-mono">${uiDash(n.defenseTotal)}</span> - ${n.hit ? "hit" : "miss"}${autoTxt}`);
+    if (n.hit) pushLog(`<span class="who">damage</span> - ${esc(uiDash(n.targetBodyPartName))} - <span class="ra-mono">D ${uiDash(n.damageDiff)}</span> - ${esc(uiDash(n.damageLevel))}`);
+    if (n.targetAlive === false) pushLog(`<span class="ra-neg">target is dead</span>`);
+    else if (n.targetConscious === false) pushLog(`<span class="ra-neg">target is unconscious</span>`);
   }
 
   /* ---- events: selects, chips, distance, mode ---- */

@@ -32556,7 +32556,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
       state.settings = resolved.settings;
     }
     const s = state.settings;
-    state._debug.settingsUrl = s.url ? s.url.slice(0, 30) + (s.url.length > 30 ? "\u2026" : "") : "(empty)";
+    state._debug.settingsUrl = s.url ? s.url.slice(0, 30) + (s.url.length > 30 ? "..." : "") : "(empty)";
     state._debug.settingsKey = !!s.apiKey;
     const player = await withTimeout2(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null);
     if (player?.role) state.role = String(player.role).toUpperCase() === "GM" ? "GM" : "PLAYER";
@@ -32668,7 +32668,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
     }
     if (state.busy) return;
     state.busy = true;
-    setNotice("info", "Binding\u2026");
+    setNotice("info", "Binding...");
     render();
     try {
       const selectedChar = arr(state.catalog).find((c) => c.id === sourceCharacterId);
@@ -32706,7 +32706,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
     if (!state.selectedToken || !state.existingLink) return;
     if (state.busy) return;
     state.busy = true;
-    setNotice("info", "Unbinding\u2026");
+    setNotice("info", "Unbinding...");
     render();
     try {
       const res = await api.placement.unbindTokenCharacter({
@@ -32730,7 +32730,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
   async function onDelete(characterId, mode) {
     if (state.busy) return;
     state.busy = true;
-    setNotice("info", mode === "hard_delete" ? "Deleting permanently\u2026" : "Archiving\u2026");
+    setNotice("info", mode === "hard_delete" ? "Deleting permanently..." : "Archiving...");
     render();
     try {
       const res = await api.placement.purgeActiveNpcs({ character_id: characterId, mode }, settings());
@@ -32760,7 +32760,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
     if (b === "player") return "Player";
     if (b === "npc_template") return "NPC Template";
     if (b === "npc_active") return "NPC Active";
-    return b || "\u2014";
+    return b || "-";
   }
   function bucketBadge(b) {
     const cls = b === "player" ? "pl-badge-player" : b === "npc_template" ? "pl-badge-template" : "pl-badge-active";
@@ -32772,7 +32772,7 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
   }
   function renderTokenPanel() {
     const t = state.selectedToken;
-    if (!t) return `<div class="pl-empty">No token selected \u2014 click a token on the scene.</div>`;
+    if (!t) return `<div class="pl-empty">No token selected - click a token on the scene.</div>`;
     const link = state.existingLink;
     const loading = state.sceneLinksLoading;
     return `
@@ -32781,16 +32781,16 @@ function mountPlacementScreen({ root: root2, runtime: runtime2 }) {
           <span class="pl-token-name">${esc(t.name)}</span>
           <span class="pl-token-layer pl-badge">${esc(t.layer || "CHARACTER")}</span>
         </div>
-        ${loading ? `<div class="pl-muted">Checking link\u2026</div>` : link ? `
+        ${loading ? `<div class="pl-muted">Checking link...</div>` : link ? `
           <div class="pl-link-row">
             <span class="pl-muted">Linked to:</span>
-            <strong>${esc(link.character?.display_name || link.character?.character_key || link.character_id || "\u2014")}</strong>
+            <strong>${esc(link.character?.display_name || link.character?.character_key || link.character_id || "-")}</strong>
             ${bucketBadge(link.character?.character_bucket)}
           </div>
           <div class="pl-link-state">${esc(link.state?.status_summary || "")}</div>
           <div class="pl-actions-row">
             <button class="pl-btn pl-btn-danger" data-action="unbind" ${state.busy ? "disabled" : ""}>Unbind</button>
-          </div>` : `<div class="pl-muted">No active link \u2014 select a character below to bind.</div>`}
+          </div>` : `<div class="pl-muted">No active link - select a character below to bind.</div>`}
       </div>`;
   }
   function renderCatalog() {

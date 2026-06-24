@@ -10153,32 +10153,110 @@ declare
 begin
   with active_effect_rows as (
     select
-      e.id,
-      e.character_id,
-      e.effect_def_id,
-      coalesce(d.code, nullif(e.effect_key, ''), 'custom') as code,
-      e.effect_key,
-      e.name,
-      coalesce(d.category, nullif(e.data->>'category', ''), 'custom') as category,
-      e.description,
-      e.source,
-      coalesce(e.source_type, '') as source_type,
-      e.source_id,
-      e.source_character_id,
-      e.duration_type,
-      e.rounds_left,
-      e.stacks,
-      e.data,
-      coalesce(d.stacking_mode, 'stack') as stacking_mode,
-      coalesce(d.is_negative, false) as is_negative,
-      coalesce(d.is_narrative, false) as is_narrative,
-      e.created_by,
-      e.created_at,
-      e.updated_at
-    from public.odyssey_character_effects e
-    left join public.odyssey_effect_defs d on d.id = e.effect_def_id
-    where e.character_id = p_character_id
-      and e.is_active = true
+      effect_rows.id,
+      effect_rows.character_id,
+      effect_rows.effect_def_id,
+      effect_rows.code,
+      effect_rows.effect_key,
+      effect_rows.name,
+      effect_rows.category,
+      effect_rows.description,
+      effect_rows.source,
+      effect_rows.source_type,
+      effect_rows.source_id,
+      effect_rows.source_character_id,
+      effect_rows.duration_type,
+      effect_rows.rounds_left,
+      effect_rows.stacks,
+      effect_rows.data,
+      effect_rows.stacking_mode,
+      effect_rows.is_negative,
+      effect_rows.is_narrative,
+      effect_rows.created_by,
+      effect_rows.created_at,
+      effect_rows.updated_at
+    from (
+      select
+        e.id,
+        e.character_id,
+        e.effect_def_id,
+        coalesce(d.code, nullif(e.effect_key, ''), 'custom') as code,
+        e.effect_key,
+        e.name,
+        coalesce(d.category, nullif(e.data->>'category', ''), 'custom') as category,
+        e.description,
+        e.source,
+        coalesce(e.source_type, '') as source_type,
+        e.source_id,
+        e.source_character_id,
+        e.duration_type,
+        e.rounds_left,
+        e.stacks,
+        e.data,
+        coalesce(d.stacking_mode, 'stack') as stacking_mode,
+        coalesce(d.is_negative, false) as is_negative,
+        coalesce(d.is_narrative, false) as is_narrative,
+        e.created_by,
+        e.created_at,
+        e.updated_at
+      from public.odyssey_character_effects e
+      left join public.odyssey_effect_defs d on d.id = e.effect_def_id
+      where e.character_id = p_character_id
+        and e.is_active = true
+
+      union all
+
+      select
+        item.id,
+        item.character_id,
+        null::uuid as effect_def_id,
+        coalesce(nullif(trim(model.code), ''), 'equipment') as code,
+        'equipment:' || item.id::text as effect_key,
+        coalesce(nullif(trim(item.custom_name), ''), model.name) as name,
+        coalesce(nullif(trim(item_effect.effect_data->>'category'), ''), 'equipment') as category,
+        coalesce(
+          nullif(trim(item_effect.effect_data->>'description'), ''),
+          nullif(trim(model.description), ''),
+          coalesce(nullif(trim(item.custom_name), ''), model.name)
+        ) as description,
+        coalesce(nullif(trim(item.custom_name), ''), model.name) as source,
+        coalesce(nullif(trim(model.item_type), ''), 'equipment') as source_type,
+        item.id as source_id,
+        item.character_id as source_character_id,
+        'manual'::text as duration_type,
+        null::integer as rounds_left,
+        1 as stacks,
+        item_effect.effect_data as data,
+        coalesce(nullif(trim(item_effect.effect_data->>'stacking_mode'), ''), 'stack') as stacking_mode,
+        coalesce(nullif(trim(item_effect.effect_data->>'is_negative'), '')::boolean, false) as is_negative,
+        coalesce(nullif(trim(item_effect.effect_data->>'is_narrative'), '')::boolean, false) as is_narrative,
+        ''::text as created_by,
+        item.created_at,
+        item.updated_at
+      from public.odyssey_character_equipment_items item
+      join public.odyssey_equipment_model_defs model on model.id = item.equipment_model_id
+      cross join lateral (
+        select public.odyssey_merge_effect_data(
+          coalesce(model.effect_data, '{}'::jsonb),
+          case
+            when jsonb_typeof(item.data->'effect_data') = 'object' then item.data->'effect_data'
+            else '{}'::jsonb
+          end
+        ) as effect_data
+      ) item_effect
+      where item.character_id = p_character_id
+        and item.is_equipped = true
+        and (
+          (
+            jsonb_typeof(item_effect.effect_data->'modifiers') = 'array'
+            and jsonb_array_length(item_effect.effect_data->'modifiers') > 0
+          )
+          or (
+            jsonb_typeof(item_effect.effect_data->'flags') = 'object'
+            and item_effect.effect_data->'flags' <> '{}'::jsonb
+          )
+        )
+    ) effect_rows
   ),
   modifier_raw as (
     select
@@ -10187,8 +10265,8 @@ begin
       aer.category,
       aer.stacking_mode,
       lower(coalesce(modifier.value->>'target', '')) as target,
-      nullif(trim(coalesce(modifier.value->>'attribute', '')), '') as attribute_code,
-      nullif(trim(coalesce(modifier.value->>'skill_code', modifier.value->>'skill', '')), '') as skill_code,
+      nullif(trim(coalesce(modifier.value->>'attribute', '')), '') as attribute_ref,
+      nullif(trim(coalesce(modifier.value->>'skill_code', modifier.value->>'skill', '')), '') as skill_ref,
       coalesce(nullif(trim(coalesce(modifier.value->>'value', '')), '')::integer, 0) as value
     from active_effect_rows aer
     join lateral jsonb_array_elements(
@@ -10197,6 +10275,32 @@ begin
         else '[]'::jsonb
       end
     ) modifier(value) on true
+  ),
+  modifier_resolved as (
+    select
+      raw.effect_key,
+      raw.code,
+      raw.category,
+      raw.stacking_mode,
+      raw.target,
+      case
+        when raw.target = 'attribute' then coalesce(attribute_by_id.code, attribute_by_code.code, lower(raw.attribute_ref))
+        else null
+      end as attribute_code,
+      case
+        when raw.target = 'skill' then coalesce(skill_by_id.code, skill_by_code.code, lower(raw.skill_ref))
+        else null
+      end as skill_code,
+      raw.value
+    from modifier_raw raw
+    left join public.odyssey_attribute_defs attribute_by_id
+      on attribute_by_id.id = public.odyssey_try_parse_uuid(raw.attribute_ref)
+    left join public.odyssey_attribute_defs attribute_by_code
+      on lower(attribute_by_code.code) = lower(raw.attribute_ref)
+    left join public.odyssey_skill_defs skill_by_id
+      on skill_by_id.id = public.odyssey_try_parse_uuid(raw.skill_ref)
+    left join public.odyssey_skill_defs skill_by_code
+      on lower(skill_by_code.code) = lower(raw.skill_ref)
   ),
   modifier_summary as (
     select
@@ -10217,7 +10321,7 @@ begin
         when bool_or(stacking_mode = 'unique') then 'unique'
         else 'stack'
       end as aggregation
-    from modifier_raw
+    from modifier_resolved
     where target <> ''
     group by target, attribute_code, skill_code
   ),
@@ -53886,6 +53990,7 @@ declare
   v_item text;
   v_bundle jsonb := '{}'::jsonb;
   v_sections jsonb := '{}'::jsonb;
+  v_rule_sheet jsonb := '{}'::jsonb;
   v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
   v_campaign_id text := coalesce(nullif(trim(coalesce(v_payload->>'campaign_id', '')), ''), '');
   v_room_id text := coalesce(nullif(trim(coalesce(v_payload->>'room_id', '')), ''), '');
@@ -53986,6 +54091,27 @@ begin
   end if;
 
   v_sections := coalesce(v_bundle->'sections', '{}'::jsonb);
+  if v_character_id is not null then
+    v_rule_sheet := public.get_character_rule_sheet(v_character_id);
+    if jsonb_typeof(v_rule_sheet) = 'object' then
+      if v_sections ? 'attributes' then
+        v_sections := jsonb_set(
+          v_sections,
+          '{attributes}',
+          coalesce(v_rule_sheet->'attributes', '[]'::jsonb),
+          true
+        );
+      end if;
+      if v_sections ? 'skills' then
+        v_sections := jsonb_set(
+          v_sections,
+          '{skills}',
+          coalesce(v_rule_sheet->'skills', '[]'::jsonb),
+          true
+        );
+      end if;
+    end if;
+  end if;
   if v_wants_combat_session then
     v_sections := v_sections || jsonb_build_object('combat_session', coalesce(v_combat_session, 'null'::jsonb));
   end if;

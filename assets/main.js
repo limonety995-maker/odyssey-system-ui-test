@@ -32295,10 +32295,38 @@ var PART_ALIASES = {
 };
 var DOLL_SCALE = 1.5;
 var OBR_TIMEOUT_MS = 1500;
-var dash = (v) => v === null || v === void 0 || v === "" ? "\u2014" : v;
+var dash = (v) => v === null || v === void 0 || v === "" ? "-" : v;
 var esc = (v) => escapeHtml(v);
 var fmt = (v) => (Number(v) > 0 ? "+" : "") + (Number(v) || 0);
 var arr = (v) => Array.isArray(v) ? v : [];
+function bodyPartKey(part) {
+  const code = normPartCode(part);
+  if (code) return code;
+  return String(part?.name || part?.id || "").trim().toLowerCase();
+}
+function dedupeBodyParts(parts) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const part of arr(parts)) {
+    const key = bodyPartKey(part);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, part);
+      continue;
+    }
+    const prevTargetable = isTargetable(prev);
+    const nextTargetable = isTargetable(part);
+    if (!prevTargetable && nextTargetable) {
+      byKey.set(key, part);
+      continue;
+    }
+    const prevDrawable = Boolean(PART_GEOMETRY[normPartCode(prev)]);
+    const nextDrawable = Boolean(PART_GEOMETRY[normPartCode(part)]);
+    if (!prevDrawable && nextDrawable) {
+      byKey.set(key, part);
+    }
+  }
+  return Array.from(byKey.values());
+}
 function injectStylesOnce() {
   if (document.getElementById("ra-screen-styles")) return;
   const style = document.createElement("style");
@@ -32547,7 +32575,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       state.attacker.pools = arr(abilitiesRes?.resource_pools);
       state.target.id = targetId;
       state.target.sheet = sheet;
-      state.target.bodyParts = arr(sheet?.body_parts);
+      state.target.bodyParts = dedupeBodyParts(sheet?.body_parts);
       state.target.effectSummary = await loadEffectSummary(targetId);
       const weapons = arr(armory?.weapons);
       state.attacker.weaponId = weapons[0]?.id || "";
@@ -32600,11 +32628,11 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
   }
   function renderWeaponSelect() {
     const weapons = arr(state.attacker.armory?.weapons);
-    refs.weaponSelect.innerHTML = weapons.length ? weapons.map((w) => `<option value="${esc(w.id)}" ${w.id === state.attacker.weaponId ? "selected" : ""}>${esc(w.name)} \xB7 ${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</option>`).join("") : `<option value="">\u2014 no weapons \u2014</option>`;
+    refs.weaponSelect.innerHTML = weapons.length ? weapons.map((w) => `<option value="${esc(w.id)}" ${w.id === state.attacker.weaponId ? "selected" : ""}>${esc(w.name)} - ${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</option>`).join("") : `<option value="">- no weapons -</option>`;
   }
   function renderAbilitySelect() {
     const abilities = attackAbilities();
-    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} \xB7 lvl ${dash(a.effective_level)}</option>`).join("") : `<option value="">\u2014 no attack abilities \u2014</option>`;
+    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${dash(a.effective_level)}</option>`).join("") : `<option value="">- no attack abilities -</option>`;
   }
   function renderProfileAndFireMode() {
     const w = currentWeapon();
@@ -32617,10 +32645,10 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
     const selFmId = (w.selected_fire_mode || w.active_profile?.selected_fire_mode)?.id || "";
     let html = "";
     if (profiles.length > 1) {
-      html += `<label class="ra-field"><span>Weapon profile</span><select data-sel="profile">${profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === w.active_profile_id ? "selected" : ""}>${esc(p.name || p.code || "profile")}${p.attack_type ? " \xB7 " + esc(p.attack_type) : ""}</option>`).join("")}</select></label>`;
+      html += `<label class="ra-field"><span>Weapon profile</span><select data-sel="profile">${profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === w.active_profile_id ? "selected" : ""}>${esc(p.name || p.code || "profile")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</option>`).join("")}</select></label>`;
     } else if (profiles.length === 1) {
       const p = profiles[0];
-      html += `<label class="ra-field"><span>Weapon profile</span><div class="ra-chip">${esc(p.name || p.code || "default")}${p.attack_type ? " \xB7 " + esc(p.attack_type) : ""}</div></label>`;
+      html += `<label class="ra-field"><span>Weapon profile</span><div class="ra-chip">${esc(p.name || p.code || "default")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</div></label>`;
     }
     if (fireModes.length) {
       html += `<label class="ra-field"><span>Fire mode</span><select data-sel="fireMode">${fireModes.map((f) => `<option value="${esc(f.id)}" ${f.id === selFmId ? "selected" : ""}>${esc(f.name || f.code || "fire mode")}</option>`).join("")}</select></label>`;
@@ -32639,13 +32667,13 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       const fm = w.selected_fire_mode || w.active_profile?.selected_fire_mode || null;
       let chips = "";
       if (isMelee) {
-        chips += `<span class="ra-chip">melee \xB7 str-based</span>`;
+        chips += `<span class="ra-chip">melee - str-based</span>`;
       } else {
         chips += fm ? `<span class="ra-chip">mode: ${esc(fm.name || fm.code)}</span>` : `<span class="ra-chip neg">no fire mode</span>`;
         if (mag) {
-          const ammo = mag.ammo_type_name || mag.ammo_type?.name || mag.ammo_type || "\u2014";
+          const ammo = mag.ammo_type_name || mag.ammo_type?.name || mag.ammo_type || "-";
           const cal = mag.magazine_def?.caliber_name || mag.caliber_name || mag.caliber || "";
-          chips += `<span class="ra-chip">mag ${dash(mag.current_rounds)} / ${dash(mag.capacity || mag.magazine_def?.capacity)} \xB7 ${esc(ammo)}${cal ? " \xB7 " + esc(cal) : ""}</span>`;
+          chips += `<span class="ra-chip">mag ${dash(mag.current_rounds)} / ${dash(mag.capacity || mag.magazine_def?.capacity)} - ${esc(ammo)}${cal ? " - " + esc(cal) : ""}</span>`;
           if ((mag.current_rounds ?? 0) <= 0) chips += `<span class="ra-chip neg">magazine empty</span>`;
         } else {
           chips += `<span class="ra-chip neg">no magazine loaded</span>`;
@@ -32665,7 +32693,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       const ignore = a.level_data?.ignore_armor;
       const cd = a.current_cooldown_rounds;
       refs.attackBlock.innerHTML = `<div class="ra-block">
-        <span class="ra-chip">cost \u043A:${esc(cost)}</span>
+        <span class="ra-chip">cost k:${esc(cost)}</span>
         ${pool ? `<span class="ra-row" style="gap:6px"><span class="ra-muted">${esc(pool.name || "Energy")}</span><span class="ra-ebar"><span style="width:${pct}%"></span></span><span class="ra-mono">${cur} / ${max}</span></span>` : `<span class="ra-chip neg">resource pool not found</span>`}
         ${cd ? `<span class="ra-chip neg">cooldown ${esc(cd)}</span>` : ""}
         ${ignore ? `<span class="ra-chip">ignores armor</span>` : ""}
@@ -32687,7 +32715,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       if (f.requires_reload) bits.push("needs reload");
       if (f.current_cooldown_rounds) bits.push(`cd ${f.current_cooldown_rounds}`);
       if (f.uses_left !== void 0 && f.uses_left !== null) bits.push(`uses ${f.uses_left}`);
-      return `<div class="ra-feature"><span>${esc(f.name || f.code || "feature")}</span><span class="${active ? "on" : "off"}">${active ? "active" : "inactive"}${bits.length ? " \xB7 " + esc(bits.join(" \xB7 ")) : ""}</span></div>`;
+      return `<div class="ra-feature"><span>${esc(f.name || f.code || "feature")}</span><span class="${active ? "on" : "off"}">${active ? "active" : "inactive"}${bits.length ? " - " + esc(bits.join(" - ")) : ""}</span></div>`;
     }).join("");
   }
   function makeDoll() {
@@ -32705,7 +32733,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
     return h;
   }
   function renderDoll() {
-    refs.targetName.textContent = state.target.sheet?.character?.name || (state.target.id ? state.target.id.slice(0, 8) + "\u2026" : "Target");
+    refs.targetName.textContent = state.target.sheet?.character?.name || (state.target.id ? state.target.id.slice(0, 8) + "..." : "Target");
     refs.doll.innerHTML = makeDoll();
   }
   function renderParts() {
@@ -32716,7 +32744,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       if (p.id === state.target.partId) cls.push("active");
       if (!drawable) cls.push("custom");
       if (!targetable) cls.push("disabled");
-      const aim = p.aim_difficulty ? ` <span class="ra-mono ra-muted">\u2212${esc(p.aim_difficulty)}</span>` : "";
+      const aim = p.aim_difficulty ? ` <span class="ra-mono ra-muted">-${esc(p.aim_difficulty)}</span>` : "";
       const reason = p.destroyed ? " (destroyed)" : p.can_be_targeted === false ? " (untargetable)" : "";
       return `<span class="${cls.join(" ")}" data-part="${esc(p.id)}" data-targetable="${targetable}">${esc(p.name)}${aim}${reason}</span>`;
     }).join("");
@@ -32735,7 +32763,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       ["actor_token_id", o.actorTokenId],
       ["target_token_id", o.targetTokenId]
     ].filter(([, v]) => v);
-    refs.obrContext.innerHTML = rows.length ? rows.map(([k, v]) => `<span class="ra-chip"><span class="ra-muted">${k}</span> <span class="ra-mono">${esc(String(v).slice(0, 12))}\u2026</span></span>`).join("") : `<span class="ra-muted">No Owlbear context captured (manual/dev mode).</span>`;
+    refs.obrContext.innerHTML = rows.length ? rows.map(([k, v]) => `<span class="ra-chip"><span class="ra-muted">${k}</span> <span class="ra-mono">${esc(String(v).slice(0, 12))}...</span></span>`).join("") : `<span class="ra-muted">No Owlbear context captured (manual/dev mode).</span>`;
   }
   function storeInventory(inventory, armory) {
     const inv = inventory && inventory.ok !== false ? inventory : null;
@@ -32784,43 +32812,43 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
   }
   function magOption(m, selId) {
     const cap = m.magazine_def?.capacity ?? m.capacity;
-    const ammoName = m.ammo_type?.name || m.ammo_type_name || "\u2014";
+    const ammoName = m.ammo_type?.name || m.ammo_type_name || "-";
     const loaded = magLoadedInWeaponName(m.id);
-    return `<option value="${esc(m.id)}" ${m.id === selId ? "selected" : ""}>${esc(m.name)} \xB7 ${dash(m.current_rounds)}/${dash(cap)} \xB7 ${esc(ammoName)}${loaded ? " \xB7 in " + esc(loaded) : ""}</option>`;
+    return `<option value="${esc(m.id)}" ${m.id === selId ? "selected" : ""}>${esc(m.name)} - ${dash(m.current_rounds)}/${dash(cap)} - ${esc(ammoName)}${loaded ? " - in " + esc(loaded) : ""}</option>`;
   }
   function ammoOption(a, selId) {
-    return `<option value="${esc(a.id)}" ${a.id === selId ? "selected" : ""}>${esc(a.display_name)} \xB7 ${esc(a.ammo_type_name || a.ammo_type_code || "")} \xB7 x${dash(a.quantity)}</option>`;
+    return `<option value="${esc(a.id)}" ${a.id === selId ? "selected" : ""}>${esc(a.display_name)} - ${esc(a.ammo_type_name || a.ammo_type_code || "")} - x${dash(a.quantity)}</option>`;
   }
   function magRow(m) {
     const inW = magLoadedInWeaponName(m.id);
-    return `<div class="ra-feature"><span>${esc(m.name)}</span><span class="ra-mono">${dash(m.current_rounds)}/${dash(m.magazine_def?.capacity ?? m.capacity)} \xB7 ${esc(m.ammo_type?.name || m.ammo_type_name || "empty")} \xB7 ${esc(m.magazine_def?.caliber_name || m.magazine_def?.caliber || "")}${inW ? " \xB7 in " + esc(inW) : ""}</span></div>`;
+    return `<div class="ra-feature"><span>${esc(m.name)}</span><span class="ra-mono">${dash(m.current_rounds)}/${dash(m.magazine_def?.capacity ?? m.capacity)} - ${esc(m.ammo_type?.name || m.ammo_type_name || "empty")} - ${esc(m.magazine_def?.caliber_name || m.magazine_def?.caliber || "")}${inW ? " - in " + esc(inW) : ""}</span></div>`;
   }
   function ammoRow(a) {
-    return `<div class="ra-feature"><span>${esc(a.display_name)}</span><span class="ra-mono">${esc(a.ammo_type_name || a.ammo_type_code || "")} \xB7 ${esc(a.caliber_name || a.caliber_code || "")} \xB7 x${dash(a.quantity)}</span></div>`;
+    return `<div class="ra-feature"><span>${esc(a.display_name)}</span><span class="ra-mono">${esc(a.ammo_type_name || a.ammo_type_code || "")} - ${esc(a.caliber_name || a.caliber_code || "")} - x${dash(a.quantity)}</span></div>`;
   }
   function renderInventory() {
     const w = currentWeapon();
     const mags = characterMagazines();
     const ammo = ammoStockList();
-    const profileName = w?.active_profile?.name || w?.active_profile?.code || "\u2014";
+    const profileName = w?.active_profile?.name || w?.active_profile?.code || "-";
     const loadedMag = w ? w.loaded_magazine || w.active_profile?.loaded_magazine : null;
     const compatMags = w ? compatibleMagazinesForWeapon(w) : mags;
-    const reloadOpts = compatMags.length ? compatMags.map((m) => magOption(m, state.inv.reloadMagId)).join("") : `<option value="">\u2014 no compatible magazines \u2014</option>`;
-    const opsOpts = mags.length ? mags.map((m) => magOption(m, state.inv.opsMagId)).join("") : `<option value="">\u2014 no magazines \u2014</option>`;
+    const reloadOpts = compatMags.length ? compatMags.map((m) => magOption(m, state.inv.reloadMagId)).join("") : `<option value="">- no compatible magazines -</option>`;
+    const opsOpts = mags.length ? mags.map((m) => magOption(m, state.inv.opsMagId)).join("") : `<option value="">- no magazines -</option>`;
     const compatAmmo = compatibleAmmoForMagazine(magById(state.inv.opsMagId));
-    const ammoOpts = compatAmmo.length ? compatAmmo.map((a) => ammoOption(a, state.inv.ammoStockId)).join("") : `<option value="">\u2014 no compatible ammo \u2014</option>`;
+    const ammoOpts = compatAmmo.length ? compatAmmo.map((a) => ammoOption(a, state.inv.ammoStockId)).join("") : `<option value="">- no compatible ammo -</option>`;
     refs.inventoryBody.innerHTML = `
       ${state.attacker.inventory.fallback ? `<div class="ra-banner warn">Ammo stock read via fallback (backend get_character_inventory error 25006). Magazines/ammo shown are still server truth.</div>` : ""}
-      <div class="ra-section-title" style="margin-top:0">Reload weapon \u2014 insert / replace magazine</div>
+      <div class="ra-section-title" style="margin-top:0">Reload weapon - insert / replace magazine</div>
       <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
-        <div class="ra-muted">${w ? esc(w.name) : "\u2014"} \xB7 profile ${esc(profileName)} \xB7 loaded ${loadedMag ? `<span class="ra-mono">${dash(loadedMag.current_rounds)}/${dash(loadedMag.capacity || loadedMag.magazine_def?.capacity)}</span> ${esc(loadedMag.ammo_type_name || loadedMag.ammo_type?.name || "")}` : "\u2014"}</div>
+        <div class="ra-muted">${w ? esc(w.name) : "-"} - profile ${esc(profileName)} - loaded ${loadedMag ? `<span class="ra-mono">${dash(loadedMag.current_rounds)}/${dash(loadedMag.capacity || loadedMag.magazine_def?.capacity)}</span> ${esc(loadedMag.ammo_type_name || loadedMag.ammo_type?.name || "")}` : "-"}</div>
         <div class="ra-row">
           <label class="ra-field"><span>Magazine to insert</span><select data-inv="reloadMag">${reloadOpts}</select></label>
           <button data-inv-action="reload" type="button" style="align-self:flex-end">Reload weapon</button>
         </div>
       </div>
 
-      <div class="ra-section-title">Magazine rounds \u2014 load / unload</div>
+      <div class="ra-section-title">Magazine rounds - load / unload</div>
       <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
         <label class="ra-field"><span>Magazine</span><select data-inv="opsMag">${opsOpts}</select></label>
         <div class="ra-row">
@@ -33003,10 +33031,10 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       if (healedSheet && healedSheet.ok !== false && healedSheet.character) {
         if (who === "attacker") {
           state.attacker.sheet = healedSheet;
-          state.attacker.bodyParts = arr(healedSheet.body_parts);
+          state.attacker.bodyParts = dedupeBodyParts(healedSheet.body_parts);
         } else {
           state.target.sheet = healedSheet;
-          state.target.bodyParts = arr(healedSheet.body_parts);
+          state.target.bodyParts = dedupeBodyParts(healedSheet.body_parts);
           if (!state.target.bodyParts.some((p) => p.id === state.target.partId && isTargetable(p))) selectFirstTargetablePart();
         }
       }
@@ -33045,10 +33073,10 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
     if (sheet && sheet.ok !== false && sheet.character) {
       if (which === "attacker") {
         state.attacker.sheet = sheet;
-        state.attacker.bodyParts = arr(sheet.body_parts);
+        state.attacker.bodyParts = dedupeBodyParts(sheet.body_parts);
       } else {
         state.target.sheet = sheet;
-        state.target.bodyParts = arr(sheet.body_parts);
+        state.target.bodyParts = dedupeBodyParts(sheet.body_parts);
         if (!state.target.bodyParts.some((p) => p.id === state.target.partId && isTargetable(p))) selectFirstTargetablePart();
       }
     }
@@ -33150,9 +33178,9 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
   }
   function renderSummary(n) {
     const data = n || {};
-    const hitTxt = data.hit === true ? "HIT" : data.hit === false ? "MISS" : "\u2014";
+    const hitTxt = data.hit === true ? "HIT" : data.hit === false ? "MISS" : "-";
     const hitCls = data.hit === true ? "hit" : data.hit === false ? "miss" : "";
-    const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "\u2014";
+    const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
     const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
     const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
     refs.summary.innerHTML = [
@@ -33160,23 +33188,23 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
       stat("Attack total", esc(dash(data.attackTotal))),
       stat("Defense total", esc(dash(data.defenseTotal))),
-      stat("Damage", `${esc(dash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">\u0394${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
+      stat("Damage", `${esc(dash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
       stat("Body part", esc(dash(data.targetBodyPartName))),
       stat("Ammo spent", esc(dash(data.ammoSpent))),
       stat("Energy spent", esc(dash(data.energySpent))),
-      stat("Pending", esc(pending || "\u2014")),
-      stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? String(data.combatLogId).slice(0, 8) + "\u2026" : "\u2014")}</span>`),
-      stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "\u2014", data.targetAlive === false ? "danger" : "")
+      stat("Pending", esc(pending || "-")),
+      stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? String(data.combatLogId).slice(0, 8) + "..." : "-")}</span>`),
+      stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : "")
     ].join("");
     refs.summaryCard.classList.remove("ra-hidden");
   }
   function renderDebug() {
-    refs.dbgPayload.textContent = state.debug.payload ? prettyJson(state.debug.payload) : "\u2014";
-    refs.dbgRaw.textContent = state.debug.raw ? prettyJson(state.debug.raw) : "\u2014";
-    refs.dbgNormalized.textContent = state.debug.normalized ? prettyJson(state.debug.normalized) : "\u2014";
-    refs.dbgError.textContent = state.debug.error ? prettyJson(state.debug.error) : "\u2014";
-    refs.dbgRefresh.textContent = state.debug.refresh ? prettyJson(state.debug.refresh) : "\u2014";
-    refs.dbgInventory.textContent = state.debug.inventory ? prettyJson(state.debug.inventory) : "\u2014";
+    refs.dbgPayload.textContent = state.debug.payload ? prettyJson(state.debug.payload) : "-";
+    refs.dbgRaw.textContent = state.debug.raw ? prettyJson(state.debug.raw) : "-";
+    refs.dbgNormalized.textContent = state.debug.normalized ? prettyJson(state.debug.normalized) : "-";
+    refs.dbgError.textContent = state.debug.error ? prettyJson(state.debug.error) : "-";
+    refs.dbgRefresh.textContent = state.debug.refresh ? prettyJson(state.debug.refresh) : "-";
+    refs.dbgInventory.textContent = state.debug.inventory ? prettyJson(state.debug.inventory) : "-";
   }
   refs.dbgCopyPayload.addEventListener("click", () => copyJson(state.debug.payload));
   refs.dbgCopyResult.addEventListener("click", () => copyJson(state.debug.raw));
@@ -33226,7 +33254,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       }
       if (sheet && sheet.ok !== false && sheet.character) {
         state.target.sheet = sheet;
-        state.target.bodyParts = arr(sheet.body_parts);
+        state.target.bodyParts = dedupeBodyParts(sheet.body_parts);
         if (!state.target.bodyParts.some((p) => p.id === state.target.partId && isTargetable(p))) {
           selectFirstTargetablePart();
         }
@@ -33249,6 +33277,234 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
       renderDebug();
       banner(refs.resolveStatus, "warn", "Attack applied, but refresh failed (server result above is still valid).");
     }
+  }
+  function uiDash(v) {
+    return v === null || v === void 0 || v === "" ? "-" : v;
+  }
+  function renderWeaponSelect() {
+    const weapons = arr(state.attacker.armory?.weapons);
+    refs.weaponSelect.innerHTML = weapons.length ? weapons.map((w) => `<option value="${esc(w.id)}" ${w.id === state.attacker.weaponId ? "selected" : ""}>${esc(w.name)} - ${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</option>`).join("") : `<option value="">- no weapons -</option>`;
+  }
+  function renderAbilitySelect() {
+    const abilities = attackAbilities();
+    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${uiDash(a.effective_level)}</option>`).join("") : `<option value="">- no attack abilities -</option>`;
+  }
+  function renderProfileAndFireMode() {
+    const w = currentWeapon();
+    if (!w) {
+      refs.profileRow.innerHTML = "";
+      return;
+    }
+    const profiles = arr(w.profiles);
+    const fireModes = arr(w.available_fire_modes.length ? w.available_fire_modes : w.active_profile?.available_fire_modes);
+    const selFmId = (w.selected_fire_mode || w.active_profile?.selected_fire_mode)?.id || "";
+    let html = "";
+    if (profiles.length > 1) {
+      html += `<label class="ra-field"><span>Weapon profile</span><select data-sel="profile">${profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === w.active_profile_id ? "selected" : ""}>${esc(p.name || p.code || "profile")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</option>`).join("")}</select></label>`;
+    } else if (profiles.length === 1) {
+      const p = profiles[0];
+      html += `<label class="ra-field"><span>Weapon profile</span><div class="ra-chip">${esc(p.name || p.code || "default")}${p.attack_type ? " - " + esc(p.attack_type) : ""}</div></label>`;
+    }
+    if (fireModes.length) {
+      html += `<label class="ra-field"><span>Fire mode</span><select data-sel="fireMode">${fireModes.map((f) => `<option value="${esc(f.id)}" ${f.id === selFmId ? "selected" : ""}>${esc(f.name || f.code || "fire mode")}</option>`).join("")}</select></label>`;
+    }
+    refs.profileRow.innerHTML = html;
+  }
+  function renderAttackBlock() {
+    if (state.mode === "weapon") {
+      const w = currentWeapon();
+      if (!w) {
+        refs.attackBlock.innerHTML = "";
+        return;
+      }
+      const isMelee = !w.model?.caliber;
+      const mag = w.loaded_magazine || w.active_profile?.loaded_magazine || null;
+      const fm = w.selected_fire_mode || w.active_profile?.selected_fire_mode || null;
+      let chips = "";
+      if (isMelee) {
+        chips += `<span class="ra-chip">melee - str-based</span>`;
+      } else {
+        chips += fm ? `<span class="ra-chip">mode: ${esc(fm.name || fm.code)}</span>` : `<span class="ra-chip neg">no fire mode</span>`;
+        if (mag) {
+          const ammo = mag.ammo_type_name || mag.ammo_type?.name || mag.ammo_type || "-";
+          const cal = mag.magazine_def?.caliber_name || mag.caliber_name || mag.caliber || "";
+          chips += `<span class="ra-chip">mag ${uiDash(mag.current_rounds)} / ${uiDash(mag.capacity || mag.magazine_def?.capacity)} - ${esc(ammo)}${cal ? " - " + esc(cal) : ""}</span>`;
+          if ((mag.current_rounds ?? 0) <= 0) chips += `<span class="ra-chip neg">magazine empty</span>`;
+        } else {
+          chips += `<span class="ra-chip neg">no magazine loaded</span>`;
+        }
+      }
+      refs.attackBlock.innerHTML = `<div class="ra-block">${chips}</div>`;
+      return;
+    }
+    const a = currentAbility();
+    if (!a) {
+      refs.attackBlock.innerHTML = "";
+      return;
+    }
+    const cost = a.resource?.cost ?? 0;
+    const pool = state.attacker.pools.find((p) => p.code === a.resource?.pool_code);
+    const cur = pool?.current_value ?? 0;
+    const max = pool?.max_value ?? 0;
+    const pct = max > 0 ? Math.round(cur / max * 100) : 0;
+    const ignore = a.level_data?.ignore_armor;
+    const cd = a.current_cooldown_rounds;
+    refs.attackBlock.innerHTML = `<div class="ra-block">
+      <span class="ra-chip">cost k:${esc(cost)}</span>
+      ${pool ? `<span class="ra-row" style="gap:6px"><span class="ra-muted">${esc(pool.name || "Energy")}</span><span class="ra-ebar"><span style="width:${pct}%"></span></span><span class="ra-mono">${cur} / ${max}</span></span>` : `<span class="ra-chip neg">resource pool not found</span>`}
+      ${cd ? `<span class="ra-chip neg">cooldown ${esc(cd)}</span>` : ""}
+      ${ignore ? `<span class="ra-chip">ignores armor</span>` : ""}
+    </div>`;
+  }
+  function renderFeatures() {
+    const w = currentWeapon();
+    const features = arr(w?.features);
+    if (state.mode !== "weapon" || !features.length) {
+      refs.features.innerHTML = "";
+      return;
+    }
+    refs.features.innerHTML = `<div class="ra-section-title">Weapon features (read-only)</div>` + features.map((f) => {
+      const active = f.is_active ?? f.active;
+      const charges = f.current_charges ?? f.charges;
+      const bits = [];
+      if (charges !== void 0 && charges !== null) bits.push(`charges ${charges}${f.max_charges ? `/${f.max_charges}` : ""}`);
+      if (f.requires_reload) bits.push("needs reload");
+      if (f.current_cooldown_rounds) bits.push(`cd ${f.current_cooldown_rounds}`);
+      if (f.uses_left !== void 0 && f.uses_left !== null) bits.push(`uses ${f.uses_left}`);
+      return `<div class="ra-feature"><span>${esc(f.name || f.code || "feature")}</span><span class="${active ? "on" : "off"}">${active ? "active" : "inactive"}${bits.length ? " - " + esc(bits.join(" - ")) : ""}</span></div>`;
+    }).join("");
+  }
+  function renderDoll() {
+    refs.targetName.textContent = state.target.sheet?.character?.name || (state.target.id ? `${state.target.id.slice(0, 8)}...` : "Target");
+    refs.doll.innerHTML = makeDoll();
+  }
+  function renderParts() {
+    refs.parts.innerHTML = dedupeBodyParts(state.target.bodyParts).map((p) => {
+      const cls = ["ra-partchip"];
+      const targetable = isTargetable(p);
+      const drawable = Boolean(PART_GEOMETRY[normPartCode(p)]);
+      if (p.id === state.target.partId) cls.push("active");
+      if (!drawable) cls.push("custom");
+      if (!targetable) cls.push("disabled");
+      const aim = p.aim_difficulty ? ` <span class="ra-mono ra-muted">-${esc(p.aim_difficulty)}</span>` : "";
+      const reason = p.destroyed ? " (destroyed)" : p.can_be_targeted === false ? " (untargetable)" : "";
+      return `<span class="${cls.join(" ")}" data-part="${esc(p.id)}" data-targetable="${targetable}">${esc(p.name)}${aim}${reason}</span>`;
+    }).join("");
+  }
+  function magOption(m, selId) {
+    const cap = m.magazine_def?.capacity ?? m.capacity;
+    const ammoName = m.ammo_type?.name || m.ammo_type_name || "-";
+    const loaded = magLoadedInWeaponName(m.id);
+    return `<option value="${esc(m.id)}" ${m.id === selId ? "selected" : ""}>${esc(m.name)} - ${uiDash(m.current_rounds)}/${uiDash(cap)} - ${esc(ammoName)}${loaded ? " - in " + esc(loaded) : ""}</option>`;
+  }
+  function ammoOption(a, selId) {
+    return `<option value="${esc(a.id)}" ${a.id === selId ? "selected" : ""}>${esc(a.display_name)} - ${esc(a.ammo_type_name || a.ammo_type_code || "")} - x${uiDash(a.quantity)}</option>`;
+  }
+  function magRow(m) {
+    const inW = magLoadedInWeaponName(m.id);
+    return `<div class="ra-feature"><span>${esc(m.name)}</span><span class="ra-mono">${uiDash(m.current_rounds)}/${uiDash(m.magazine_def?.capacity ?? m.capacity)} - ${esc(m.ammo_type?.name || m.ammo_type_name || "empty")} - ${esc(m.magazine_def?.caliber_name || m.magazine_def?.caliber || "")}${inW ? " - in " + esc(inW) : ""}</span></div>`;
+  }
+  function ammoRow(a) {
+    return `<div class="ra-feature"><span>${esc(a.display_name)}</span><span class="ra-mono">${esc(a.ammo_type_name || a.ammo_type_code || "")} - ${esc(a.caliber_name || a.caliber_code || "")} - x${uiDash(a.quantity)}</span></div>`;
+  }
+  function renderInventory() {
+    const w = currentWeapon();
+    const mags = characterMagazines();
+    const ammo = ammoStockList();
+    const profileName = w?.active_profile?.name || w?.active_profile?.code || "-";
+    const loadedMag = w ? w.loaded_magazine || w.active_profile?.loaded_magazine : null;
+    const compatMags = w ? compatibleMagazinesForWeapon(w) : mags;
+    const reloadOpts = compatMags.length ? compatMags.map((m) => magOption(m, state.inv.reloadMagId)).join("") : `<option value="">- no compatible magazines -</option>`;
+    const opsOpts = mags.length ? mags.map((m) => magOption(m, state.inv.opsMagId)).join("") : `<option value="">- no magazines -</option>`;
+    const compatAmmo = compatibleAmmoForMagazine(magById(state.inv.opsMagId));
+    const ammoOpts = compatAmmo.length ? compatAmmo.map((a) => ammoOption(a, state.inv.ammoStockId)).join("") : `<option value="">- no compatible ammo -</option>`;
+    refs.inventoryBody.innerHTML = `
+      ${state.attacker.inventory.fallback ? `<div class="ra-banner warn">Ammo stock read via fallback (backend get_character_inventory error 25006). Magazines/ammo shown are still server truth.</div>` : ""}
+      <div class="ra-section-title" style="margin-top:0">Reload weapon - insert / replace magazine</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="ra-muted">${w ? esc(w.name) : "-"} - profile ${esc(profileName)} - loaded ${loadedMag ? `<span class="ra-mono">${uiDash(loadedMag.current_rounds)}/${uiDash(loadedMag.capacity || loadedMag.magazine_def?.capacity)}</span> ${esc(loadedMag.ammo_type_name || loadedMag.ammo_type?.name || "")}` : "-"}</div>
+        <div class="ra-row">
+          <label class="ra-field"><span>Magazine to insert</span><select data-inv="reloadMag">${reloadOpts}</select></label>
+          <button data-inv-action="reload" type="button" style="align-self:flex-end">Reload weapon</button>
+        </div>
+      </div>
+      <div class="ra-section-title">Magazine rounds - load / unload</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        <label class="ra-field"><span>Magazine</span><select data-inv="opsMag">${opsOpts}</select></label>
+        <div class="ra-row">
+          <label class="ra-field"><span>Ammo stock to load</span><select data-inv="ammoStock">${ammoOpts}</select></label>
+          <button data-inv-action="load" type="button" class="secondary" style="align-self:flex-end">Load / Top up</button>
+          <button data-inv-action="unload" type="button" class="secondary" style="align-self:flex-end">Unload all</button>
+        </div>
+      </div>
+      <div class="ra-section-title">Magazines (${mags.length})</div>
+      <div class="ra-list">${mags.length ? mags.map(magRow).join("") : `<div class="ra-muted">No magazines.</div>`}</div>
+      <div class="ra-section-title">Ammo stock (${ammo.length})</div>
+      <div class="ra-list">${ammo.length ? ammo.map(ammoRow).join("") : `<div class="ra-muted">No ammo in stock.</div>`}</div>
+      <div class="ra-section-title">Items (${allItems().length})</div>
+      <div class="ra-list">${allItems().length ? allItems().map(itemRow).join("") : `<div class="ra-muted">No items.</div>`}</div>
+      <div class="ra-section-title">Use medkit - heal a body part</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        ${healItems().length ? `
+        <div class="ra-row">
+          <label class="ra-field"><span>Medkit</span><select data-heal="item">${healItems().map(healItemOption).join("")}</select></label>
+          <label class="ra-field"><span>Apply to</span><select data-heal="applyTo">
+            <option value="attacker" ${state.heal.applyTo === "attacker" ? "selected" : ""}>Attacker (self)</option>
+            <option value="target" ${state.heal.applyTo === "target" ? "selected" : ""}>Target</option>
+          </select></label>
+        </div>
+        <label class="ra-field"><span>Body part to heal</span><select data-heal="part">${healPartOptions()}</select></label>
+        <div class="ra-row">
+          <button data-heal-action="use" type="button">Use medkit</button>
+          <span class="ra-muted">heals 1 serious, or crit->serious, or clears minor; removes unconscious; not consumed if nothing to heal</span>
+        </div>` : `<div class="ra-muted">No medkit / healing item in inventory.</div>`}
+      </div>
+      <div class="ra-section-title">GM tools</div>
+      <div class="ra-block" style="flex-direction:column;align-items:stretch;gap:8px">
+        <label class="ra-field"><span>Character</span><select data-gm="target">
+          <option value="attacker" ${state.gmTarget === "attacker" ? "selected" : ""}>Attacker</option>
+          <option value="target" ${state.gmTarget === "target" ? "selected" : ""}>Target</option>
+        </select></label>
+        <div class="ra-row">
+          <button data-gm-action="heal" type="button">Heal (full)</button>
+          <button data-gm-action="repair" type="button" class="secondary">Repair armor</button>
+          <span class="ra-muted">heals all body parts / repairs all armor sections (Shield &amp; Special excluded)</span>
+        </div>
+      </div>
+    `;
+  }
+  function renderSummary(n) {
+    const data = n || {};
+    const hitTxt = data.hit === true ? "HIT" : data.hit === false ? "MISS" : "-";
+    const hitCls = data.hit === true ? "hit" : data.hit === false ? "miss" : "";
+    const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
+    const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+    const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
+    refs.summary.innerHTML = [
+      stat("Result", esc(hitTxt), hitCls),
+      stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
+      stat("Attack total", esc(uiDash(data.attackTotal))),
+      stat("Defense total", esc(uiDash(data.defenseTotal))),
+      stat("Damage", `${esc(uiDash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
+      stat("Body part", esc(uiDash(data.targetBodyPartName))),
+      stat("Ammo spent", esc(uiDash(data.ammoSpent))),
+      stat("Energy spent", esc(uiDash(data.energySpent))),
+      stat("Pending", esc(pending || "-")),
+      stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? `${String(data.combatLogId).slice(0, 8)}...` : "-")}</span>`),
+      stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : "")
+    ].join("");
+    refs.summaryCard.classList.remove("ra-hidden");
+  }
+  function logResult(n) {
+    if (!n) {
+      pushLog(`<span class="ra-muted">result received (no detail)</span>`);
+      return;
+    }
+    const autoTxt = n.auto === "crit" ? " - auto-crit" : n.auto === "fail" ? " - auto-fail" : "";
+    pushLog(`<span class="who">accuracy</span> - <span class="ra-mono">${uiDash(n.attackRoll)} -> ${uiDash(n.attackTotal)}</span> vs <span class="ra-mono">${uiDash(n.defenseTotal)}</span> - ${n.hit ? "hit" : "miss"}${autoTxt}`);
+    if (n.hit) pushLog(`<span class="who">damage</span> - ${esc(uiDash(n.targetBodyPartName))} - <span class="ra-mono">D ${uiDash(n.damageDiff)}</span> - ${esc(uiDash(n.damageLevel))}`);
+    if (n.targetAlive === false) pushLog(`<span class="ra-neg">target is dead</span>`);
+    else if (n.targetConscious === false) pushLog(`<span class="ra-neg">target is unconscious</span>`);
   }
   refs.weaponSelect.addEventListener("change", (e) => {
     state.attacker.weaponId = e.target.value;
@@ -33538,6 +33794,8 @@ var normPart = (p) => {
   const c = String(p?.code || p?.part_key || "").toLowerCase();
   return PART_ALIASES2[c] || c;
 };
+var isShieldPart = (p) => normPart(p) === "shield";
+var isSpecialPart = (p) => normPart(p) === "special";
 function injectStylesOnce2() {
   if (document.getElementById("cp-screen-styles")) return;
   const s = document.createElement("style");
@@ -33690,11 +33948,27 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       state.perks = arr2(s.perks);
     }
     if (s.equipment !== void 0) {
-      state.equipment = arr2(s.equipment).map((it) => ({
-        ...it,
-        model: { item_type: it.item_type, can_equip: it.can_equip !== false },
-        body_part: it.is_equipped && it.equipped_body_part_id ? { id: it.equipped_body_part_id, name: it.equipped_body_part_name } : null
-      }));
+      state.equipment = arr2(s.equipment).map((it) => {
+        const model = it.model && typeof it.model === "object" ? it.model : {
+          id: it.equipment_model_id ?? null,
+          code: it.equipment_model_code ?? null,
+          name: it.equipment_model_name ?? it.name ?? null,
+          item_type: it.item_type,
+          description: it.model_description ?? "",
+          default_body_part_code: it.default_body_part_code ?? null,
+          can_equip: it.can_equip !== false,
+          can_equip_to_body_part: it.can_equip_to_body_part !== false,
+          effect_data: it.effect_data ?? {},
+          flags: it.flags ?? {},
+          tags: arr2(it.tags)
+        };
+        return {
+          ...it,
+          model,
+          effective_flags: it.effective_flags && typeof it.effective_flags === "object" ? it.effective_flags : it.flags && typeof it.flags === "object" ? it.flags : model.flags || {},
+          body_part: it.body_part && typeof it.body_part === "object" ? it.body_part : it.is_equipped && it.equipped_body_part_id ? { id: it.equipped_body_part_id, name: it.equipped_body_part_name, code: it.equipped_body_part_code, part_key: it.equipped_body_part_key } : null
+        };
+      });
     }
     if (s.inventory) {
       state.inv = {
@@ -34041,7 +34315,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       <div class="cp-avatar">${portrait ? `<img src="${esc2(portrait)}" alt="">` : esc2((ch.name || "?").slice(0, 1).toUpperCase())}</div>
       <div style="flex:1;min-width:120px">
         <div class="cp-name">${esc2(ch.name || ch.character_key || "Character")}</div>
-        <div class="cp-muted">${meta.join(" \u0412\xB7 ") || "&nbsp;"}</div>
+        <div class="cp-muted">${meta.join(" - ") || "&nbsp;"}</div>
       </div>
       <div class="cp-head-actions">
         ${isGM() ? `<button data-ref="refreshCatalogsTop" type="button" class="cp-pill cp-head-btn">Sync</button><span class="cp-pill good">GM</span>` : `<span class="cp-pill">Player</span>`}
@@ -34100,9 +34374,9 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   function attrCard(a) {
     const label = a.name || a.code;
     const pending = state.rollingAttr === a.code;
-    const modifier = Number(a?.effect_modifier ?? 0) || 0;
+    const modifier = Number(a?.effect_modifier ?? a?.modifier ?? 0) || 0;
     const effectiveValue = Number(
-      a?.effective_value ?? (Number(a?.value ?? 0) || 0) + modifier
+      a?.effective_value ?? (Number(a?.value ?? a?.base_value ?? 0) || 0) + modifier
     ) || 0;
     const editBtn = isGM() ? `<button class="cp-attr-edit" data-attr-edit="${esc2(a.code)}" aria-label="Edit ${esc2(label)} (GM)" title="Edit (GM)">E</button>` : "";
     return `<div class="cp-attr" role="button" tabindex="${pending ? -1 : 0}" data-attr-roll="${esc2(a.code)}" aria-label="Roll ${esc2(label)}" aria-disabled="${pending}" title="Roll ${esc2(label)}">
@@ -34127,10 +34401,43 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     return ["Intact", "cp-sb-intact"];
   }
   function armorStatusText(p) {
-    if (p.armor_destroyed) return ["Armor destroyed", "cp-sb-danger"];
-    if ((p.armor_critical || 0) > 0) return ["Armor damaged", "cp-sb-warn"];
-    if ((p.armor_value || 0) > 0) return ["Armor ok", "cp-sb-intact"];
+    const src = armorInfoForPart(p);
+    if (src.armor_destroyed) return ["Armor destroyed", "cp-sb-danger"];
+    if ((src.armor_critical || 0) > 0) return ["Armor damaged", "cp-sb-warn"];
+    if ((src.armor_value || 0) > 0) return ["Armor ok", "cp-sb-intact"];
     return ["No armor", "cp-sb-intact"];
+  }
+  function equippedArmorItemForPart(p) {
+    return equipmentItems().find(
+      (it) => it?.is_equipped && ARMOR_TYPES.has(it.model?.item_type) && it.body_part?.id === p?.id
+    ) || null;
+  }
+  function armorInfoForPart(p) {
+    const item = equippedArmorItemForPart(p);
+    if (item) {
+      return {
+        source: item,
+        armor_value: item.armor_value ?? 0,
+        armor_critical: item.armor_critical ?? 0,
+        armor_max_critical: item.armor_max_critical ?? 0,
+        armor_destroyed: !!item.armor_destroyed
+      };
+    }
+    return {
+      source: null,
+      armor_value: p?.armor_value ?? 0,
+      armor_critical: p?.armor_critical ?? 0,
+      armor_max_critical: p?.armor_max_critical ?? 0,
+      armor_destroyed: !!p?.armor_destroyed
+    };
+  }
+  function shouldShowAdditionalPart(p) {
+    if (!p || PART_GEOMETRY2[normPart(p)]) return false;
+    if (isShieldPart(p)) return !!equippedArmorItemForPart(p);
+    if (isSpecialPart(p)) {
+      return (p.critical || 0) > 0 || (p.max_critical || 0) > 0 || (p.armor_value || 0) > 0 || (p.armor_critical || 0) > 0 || !!p.disabled || !!p.destroyed;
+    }
+    return true;
   }
   function renderDoll() {
     const parts = arr2(state.sheet.body_parts);
@@ -34149,15 +34456,16 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     return doll;
   }
   function renderAdditionalParts() {
-    const additional = arr2(state.sheet.body_parts).filter((p) => !PART_GEOMETRY2[normPart(p)]);
+    const additional = arr2(state.sheet.body_parts).filter(shouldShowAdditionalPart);
     if (!additional.length) return "";
     return `<div class="cp-section-title">Additional body parts / modules</div><div class="cp-list">${additional.map((p) => {
       const [bs, bcls] = bodyStatusText(p);
       return `<div class="cp-card cp-rowitem" tabindex="0" role="button" data-part="${esc2(p.id)}" aria-label="${esc2(p.name)}">
-        <span>${esc2(p.name)}</span><span class="cp-statebadge ${bcls}">${bs} \u0412\xB7 crit ${dash2(p.critical)}/${dash2(p.max_critical)}</span></div>`;
+        <span>${esc2(p.name)}</span><span class="cp-statebadge ${bcls}">${bs} - crit ${dash2(p.critical)}/${dash2(p.max_critical)}</span></div>`;
     }).join("")}</div>`;
   }
   function partTipHtml(p) {
+    const armor = armorInfoForPart(p);
     const [bs, bcls] = bodyStatusText(p);
     const [as, acls] = armorStatusText(p);
     return `<b>${esc2(p.name)}</b>
@@ -34166,8 +34474,9 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       <div class="cp-kv"><span>Serious injuries</span><span>${dash2(p.serious)}</span></div>
       <div class="cp-kv"><span>Critical injuries</span><span>${dash2(p.critical)}/${dash2(p.max_critical)}</span></div>
       <div class="cp-kv"><span>Armor</span><span class="cp-statebadge ${acls}">${as}</span></div>
-      <div class="cp-kv"><span>Armor value</span><span>${dash2(p.armor_value)}</span></div>
-      <div class="cp-kv"><span>Armor critical</span><span>${dash2(p.armor_critical)}/${dash2(p.armor_max_critical)}</span></div>`;
+      <div class="cp-kv"><span>Armor value</span><span>${dash2(armor.armor_value)}</span></div>
+      <div class="cp-kv"><span>Armor critical</span><span>${dash2(armor.armor_critical)}/${dash2(armor.armor_max_critical)}</span></div>
+      ${armor.source ? `<div class="cp-kv"><span>Armor item</span><span>${esc2(armor.source.name || armor.source.model?.name || "Armor")}</span></div>` : ""}`;
   }
   function renderSkills() {
     var _a;
@@ -34200,7 +34509,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const rollBonusModifier = Number(s?.effect_skill_bonus ?? 0) || 0;
     const rollBonusTotal = rollBonusBase + rollBonusModifier;
     const pips = Array.from({ length: max }).map((_, i) => `<span class="cp-pip ${i < eff ? "on" : ""}"></span>`).join("");
-    const attrs = [s.main_attribute, s.secondary_attribute].filter(Boolean).join(" \u0412\xB7 ");
+    const attrs = [s.main_attribute, s.secondary_attribute].filter(Boolean).join(" - ");
     const perks = arr2(s.perks).map((p) => `<span class="cp-pill good">${esc2(p.name || p.code || p)}</span>`).join("");
     const locked = s.locked || s.is_locked;
     const passive = s.is_passive || s.category === "passive";
@@ -34527,7 +34836,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function gmArmorBlock() {
     const defs = state.equipmentDefs.filter((d) => ARMOR_TYPES.has(d.item_type));
-    const opts = defs.length ? defs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)} \u0412\xB7 ${esc2(d.item_type)}</option>`).join("") : `<option value="">-- no armor models --</option>`;
+    const opts = defs.length ? defs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)} - ${esc2(d.item_type)}</option>`).join("") : `<option value="">-- no armor models --</option>`;
     return `<div class="cp-section-title">GM - add armor</div>
       <div class="cp-card"><div class="cp-row" style="gap:8px">
         <label class="cp-field"><span>Model</span><select data-ref="gmArmorDef">${opts}</select></label>
@@ -34536,7 +34845,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function gmImplantsBlock() {
     const defs = state.equipmentDefs.filter((d) => IMPLANT_TYPES.has(d.item_type));
-    const opts = defs.length ? defs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)} \u0412\xB7 ${esc2(d.item_type)}</option>`).join("") : `<option value="">-- no implant models --</option>`;
+    const opts = defs.length ? defs.map((d) => `<option value="${esc2(d.code)}">${esc2(d.name)} - ${esc2(d.item_type)}</option>`).join("") : `<option value="">-- no implant models --</option>`;
     return `<div class="cp-section-title">GM - add implant</div>
       <div class="cp-card"><div class="cp-row" style="gap:8px">
         <label class="cp-field"><span>Model</span><select data-ref="gmImplantDef">${opts}</select></label>
@@ -34569,7 +34878,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       <div class="cp-rowitem"><span><b>${esc2(it.name)}</b> <span class="cp-pill">${esc2(it.model?.item_type || "armor")}</span></span>
       <span class="cp-pill ${status[1]}">${status[0]}</span></div>
       <div class="cp-row" style="gap:6px;margin-top:6px">
-        <span class="cp-chip">${it.is_equipped ? `Equipped \u0412\xB7 ${esc2(slot)}` : "Unequipped"}</span>
+        <span class="cp-chip">${it.is_equipped ? `Equipped - ${esc2(slot)}` : "Unequipped"}</span>
         <span class="cp-chip">AV ${dash2(it.armor_value)}</span>
         <span class="cp-chip${(it.armor_minor || 0) > 0 ? " warn" : ""}">Minor ${dash2(it.armor_minor)}/${dash2(it.armor_max_minor)}</span>
         <span class="cp-chip${(it.armor_serious || 0) > 0 ? " warn" : ""}">Serious ${dash2(it.armor_serious)}/${dash2(it.armor_max_serious)}</span>
@@ -34602,7 +34911,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       <span class="cp-pill ${active ? "good" : ""}">${active ? "installed" : "inactive"}</span></div>
       ${it.model?.description ? `<div class="cp-muted" style="margin-top:6px">${esc2(it.model.description)}</div>` : ""}
       <div class="cp-row" style="gap:6px;margin-top:6px">
-        <span class="cp-chip">${active ? `Installed \xB7 ${esc2(slot)}` : "Not installed"}</span>
+        <span class="cp-chip">${active ? `Installed - ${esc2(slot)}` : "Not installed"}</span>
         ${it.max_charges ? `<span class="cp-chip">charges ${dash2(it.current_charges)}/${dash2(it.max_charges)}</span>` : ""}
         ${effTxt ? `<span class="cp-chip">${esc2(effTxt)}</span>` : ""}
       </div>
@@ -34868,7 +35177,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function rollResultText(r) {
     const a = r.attribute || {}, roll = r.roll || {}, res = r.result || {};
-    const crit = res.is_critical_success ? " \u0412\xB7 CRIT SUCCESS" : res.is_critical_failure ? " \u0412\xB7 CRIT FAIL" : "";
+    const crit = res.is_critical_success ? " - CRIT SUCCESS" : res.is_critical_failure ? " - CRIT FAIL" : "";
     const name = ATTR_RU[a.code] || a.name || a.code;
     return `${esc2(name)} check - d20 <span class="cp-mono">${dash2(roll.natural_roll)} <= ${dash2(roll.target_value)}</span> -> <b>${res.success ? "SUCCESS" : "FAILURE"}</b>${crit}`;
   }
@@ -35049,13 +35358,18 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function equipmentSlotOptions(it) {
     const def = String(it.model?.default_body_part_code || "").toLowerCase();
-    const allowed = arr2(it.model?.flags?.allowed_body_part_codes || []).map((c) => String(c).toLowerCase());
+    const allowed = arr2(it.effective_flags?.allowed_body_part_codes || it.model?.flags?.allowed_body_part_codes || []).map((c) => String(c).toLowerCase());
     const lastId = state.lastSlot[it.id];
     let parts = arr2(state.sheet?.body_parts);
     if (allowed.length > 0) {
       parts = parts.filter((b) => {
         const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
         return codes.some((c) => allowed.includes(c));
+      });
+    } else if (def) {
+      parts = parts.filter((b) => {
+        const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
+        return codes.includes(def);
       });
     }
     if (!parts.length) return `<option value="">-- no compatible body parts --</option>`;

@@ -146,7 +146,7 @@ function asArray(v) {
 }
 
 // Normalize the (varied) backend result into a flat, render-friendly summary.
-// Every field may be null — the UI shows "—" for nulls. Tolerates weapon and
+// Every field may be null - the UI shows "-" for nulls. Tolerates weapon and
 // ability result shapes, and renamed/missing fields.
 export function normalizeResult(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
