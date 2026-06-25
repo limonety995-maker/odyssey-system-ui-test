@@ -529,15 +529,23 @@ function hasTokenCharacterLink(raw) {
 var obrBridge_exports = {};
 __export(obrBridge_exports, {
   OBR: () => lib_default,
+  activateTool: () => activateTool,
+  activateToolMode: () => activateToolMode,
+  getActiveTool: () => getActiveTool,
+  getActiveToolMode: () => getActiveToolMode,
   getPlayerInfo: () => getPlayerInfo,
   getRoomMetadata: () => getRoomMetadata,
   getRoomSceneContext: () => getRoomSceneContext,
+  getSceneGrid: () => getSceneGrid,
   getSceneItems: () => getSceneItems,
   getSelectedOwlbearTokens: () => getSelectedOwlbearTokens,
   getSelectedTokenIds: () => getSelectedTokenIds,
   setRoomMetadata: () => setRoomMetadata,
+  snapScenePosition: () => snapScenePosition,
   subscribePlayerChanges: () => subscribePlayerChanges,
   subscribeSceneItems: () => subscribeSceneItems,
+  subscribeToolChanges: () => subscribeToolChanges,
+  subscribeToolModeChanges: () => subscribeToolModeChanges,
   waitForObrReady: () => waitForObrReady
 });
 
@@ -3703,6 +3711,25 @@ async function getSceneItems() {
   await waitForObrReady();
   return ensureArray(await lib_default.scene.items.getItems().catch(() => []));
 }
+async function getSceneGrid() {
+  await waitForObrReady();
+  const [type, measurement, dpi, scale] = await Promise.all([
+    lib_default.scene.grid.getType().catch(() => "SQUARE"),
+    lib_default.scene.grid.getMeasurement().catch(() => "CHEBYSHEV"),
+    lib_default.scene.grid.getDpi().catch(() => 0),
+    lib_default.scene.grid.getScale().catch(() => null)
+  ]);
+  return { type, measurement, dpi, scale };
+}
+async function snapScenePosition(position, snappingSensitivity = 1, useCorners = false, useCenter = false) {
+  await waitForObrReady();
+  return lib_default.scene.grid.snapPosition(
+    position,
+    snappingSensitivity,
+    useCorners,
+    useCenter
+  );
+}
 async function getSelectedOwlbearTokens() {
   const [selectionIds, items] = await Promise.all([
     getSelectedTokenIds(),
@@ -3746,6 +3773,44 @@ async function subscribeSceneItems(listener) {
   lib_default.scene.items.onChange((items) => {
     if (!active) return;
     listener(ensureArray(items));
+  });
+  return () => {
+    active = false;
+  };
+}
+async function activateTool(toolId) {
+  await waitForObrReady();
+  return lib_default.tool.activateTool(toolId);
+}
+async function activateToolMode(toolId, modeId) {
+  await waitForObrReady();
+  return lib_default.tool.activateMode(toolId, modeId);
+}
+async function getActiveTool() {
+  await waitForObrReady();
+  return lib_default.tool.getActiveTool().catch(() => "");
+}
+async function getActiveToolMode() {
+  await waitForObrReady();
+  return lib_default.tool.getActiveToolMode().catch(() => "");
+}
+async function subscribeToolChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.tool.onToolChange((toolId) => {
+    if (!active) return;
+    listener(String(toolId ?? "").trim());
+  });
+  return () => {
+    active = false;
+  };
+}
+async function subscribeToolModeChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.tool.onToolModeChange((modeId) => {
+    if (!active) return;
+    listener(String(modeId ?? "").trim());
   });
   return () => {
     active = false;
@@ -9708,6 +9773,8 @@ var WEAPON_RPC_NAMES = Object.freeze({
 });
 var COMBAT_RPC_NAMES = Object.freeze({
   performAttack: "perform_attack",
+  moveCharacter: "combat_move_character",
+  syncPositionsFromOwlbear: "combat_sync_positions_from_owlbear",
   startEncounter: "combat_start_encounter",
   addParticipant: "combat_add_participant",
   removeParticipant: "combat_remove_participant",
@@ -10051,17 +10118,33 @@ __export(combatApi_exports, {
   getCombatLog: () => getCombatLog,
   grantReactionAction: () => grantReactionAction,
   markCharacterDead: () => markCharacterDead,
+  moveCharacter: () => moveCharacter,
   performAttack: () => performAttack,
   removeParticipant: () => removeParticipant,
   reorderInitiative: () => reorderInitiative,
   skipTurn: () => skipTurn,
   spendMove: () => spendMove,
-  startEncounter: () => startEncounter
+  startEncounter: () => startEncounter,
+  syncPositionsFromOwlbear: () => syncPositionsFromOwlbear
 });
 function performAttack(payload, settings) {
   return callSupabaseRpc(
     COMBAT_RPC_NAMES.performAttack,
     { p_payload: payload },
+    settings
+  );
+}
+function moveCharacter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.moveCharacter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function syncPositionsFromOwlbear(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.syncPositionsFromOwlbear,
+    { p_payload: payload ?? {} },
     settings
   );
 }

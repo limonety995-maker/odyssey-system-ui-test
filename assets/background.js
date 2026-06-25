@@ -7,6 +7,10 @@ var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -391,6 +395,30 @@ var require_events = __commonJS({
       }
     }
   }
+});
+
+// bridge/obrBridge.js
+var obrBridge_exports = {};
+__export(obrBridge_exports, {
+  OBR: () => lib_default,
+  activateTool: () => activateTool,
+  activateToolMode: () => activateToolMode,
+  getActiveTool: () => getActiveTool,
+  getActiveToolMode: () => getActiveToolMode,
+  getPlayerInfo: () => getPlayerInfo,
+  getRoomMetadata: () => getRoomMetadata,
+  getRoomSceneContext: () => getRoomSceneContext,
+  getSceneGrid: () => getSceneGrid,
+  getSceneItems: () => getSceneItems,
+  getSelectedOwlbearTokens: () => getSelectedOwlbearTokens,
+  getSelectedTokenIds: () => getSelectedTokenIds,
+  setRoomMetadata: () => setRoomMetadata,
+  snapScenePosition: () => snapScenePosition,
+  subscribePlayerChanges: () => subscribePlayerChanges,
+  subscribeSceneItems: () => subscribeSceneItems,
+  subscribeToolChanges: () => subscribeToolChanges,
+  subscribeToolModeChanges: () => subscribeToolModeChanges,
+  waitForObrReady: () => waitForObrReady
 });
 
 // node_modules/@owlbear-rodeo/sdk/lib/api/PlayerApi.js
@@ -3384,6 +3412,261 @@ var BroadcastApi = class {
 };
 var BroadcastApi_default = BroadcastApi;
 
+// node_modules/@owlbear-rodeo/sdk/lib/builders/GenericItemBuilder.js
+var GenericItemBuilder = class {
+  constructor(player) {
+    this._item = {
+      createdUserId: player.id,
+      id: v4_default(),
+      name: "Item",
+      zIndex: Date.now(),
+      lastModified: (/* @__PURE__ */ new Date()).toISOString(),
+      lastModifiedUserId: player.id,
+      locked: false,
+      metadata: {},
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      scale: { x: 1, y: 1 },
+      type: "ITEM",
+      visible: true,
+      layer: "POPOVER"
+    };
+  }
+  createdUserId(createdUserId) {
+    this._item.createdUserId = createdUserId;
+    return this.self();
+  }
+  id(id) {
+    this._item.id = id;
+    return this.self();
+  }
+  name(name) {
+    this._item.name = name;
+    return this.self();
+  }
+  description(description) {
+    this._item.description = description;
+    return this.self();
+  }
+  lastModified(lastModified) {
+    this._item.lastModified = lastModified;
+    return this.self();
+  }
+  zIndex(zIndex) {
+    this._item.zIndex = zIndex;
+    return this.self();
+  }
+  lastModifiedUserId(lastModifiedUserId) {
+    this._item.lastModifiedUserId = lastModifiedUserId;
+    return this.self();
+  }
+  locked(locked) {
+    this._item.locked = locked;
+    return this.self();
+  }
+  metadata(metadata) {
+    this._item.metadata = metadata;
+    return this.self();
+  }
+  position(position) {
+    this._item.position = position;
+    return this.self();
+  }
+  rotation(rotation) {
+    this._item.rotation = rotation;
+    return this.self();
+  }
+  scale(scale) {
+    this._item.scale = scale;
+    return this.self();
+  }
+  visible(visible) {
+    this._item.visible = visible;
+    return this.self();
+  }
+  attachedTo(attachedTo) {
+    this._item.attachedTo = attachedTo;
+    return this.self();
+  }
+  layer(layer) {
+    this._item.layer = layer;
+    return this.self();
+  }
+  disableHit(disable) {
+    this._item.disableHit = disable;
+    return this.self();
+  }
+  disableAutoZIndex(disable) {
+    this._item.disableAutoZIndex = disable;
+    return this.self();
+  }
+  disableAttachmentBehavior(disable) {
+    this._item.disableAttachmentBehavior = disable;
+    return this.self();
+  }
+  self() {
+    return this;
+  }
+};
+
+// node_modules/@owlbear-rodeo/sdk/lib/builders/LineBuilder.js
+var LineBuilder = class extends GenericItemBuilder {
+  constructor(player) {
+    super(player);
+    this._style = {
+      strokeColor: "black",
+      strokeOpacity: 1,
+      strokeWidth: 5,
+      strokeDash: []
+    };
+    this._startPosition = { x: 0, y: 0 };
+    this._endPosition = { x: 0, y: 0 };
+    this._item.layer = "DRAWING";
+    this._item.name = "Line";
+  }
+  style(style) {
+    this._style = style;
+    return this.self();
+  }
+  strokeColor(strokeColor) {
+    this._style.strokeColor = strokeColor;
+    return this.self();
+  }
+  strokeOpacity(strokeOpacity) {
+    this._style.strokeOpacity = strokeOpacity;
+    return this.self();
+  }
+  strokeWidth(strokeWidth) {
+    this._style.strokeWidth = strokeWidth;
+    return this.self();
+  }
+  strokeDash(strokeDash) {
+    this._style.strokeDash = strokeDash;
+    return this.self();
+  }
+  startPosition(startPosition) {
+    this._startPosition = startPosition;
+    return this.self();
+  }
+  endPosition(endPosition) {
+    this._endPosition = endPosition;
+    return this.self();
+  }
+  build() {
+    return Object.assign(Object.assign({}, this._item), { type: "LINE", startPosition: this._startPosition, endPosition: this._endPosition, style: this._style });
+  }
+};
+
+// node_modules/@owlbear-rodeo/sdk/lib/builders/TextBuilder.js
+var TextBuilder = class extends GenericItemBuilder {
+  constructor(player) {
+    super(player);
+    this._text = {
+      richText: [
+        {
+          type: "paragraph",
+          children: [{ text: "" }]
+        }
+      ],
+      plainText: "",
+      style: {
+        padding: 0,
+        fontFamily: "Roboto",
+        fontSize: 16,
+        fontWeight: 400,
+        textAlign: "LEFT",
+        textAlignVertical: "TOP",
+        fillColor: "white",
+        fillOpacity: 1,
+        strokeColor: "white",
+        strokeOpacity: 1,
+        strokeWidth: 0,
+        lineHeight: 1.5
+      },
+      type: "RICH",
+      width: "AUTO",
+      height: "AUTO"
+    };
+    this._item.layer = "TEXT";
+    this._item.name = "Text";
+  }
+  text(text) {
+    this._text = text;
+    return this.self();
+  }
+  width(width) {
+    this._text.width = width;
+    return this.self();
+  }
+  height(height) {
+    this._text.height = height;
+    return this.self();
+  }
+  richText(richText) {
+    this._text.richText = richText;
+    return this.self();
+  }
+  plainText(plainText) {
+    this._text.plainText = plainText;
+    return this.self();
+  }
+  textType(textType) {
+    this._text.type = textType;
+    return this.self();
+  }
+  padding(padding) {
+    this._text.style.padding = padding;
+    return this.self();
+  }
+  fontFamily(fontFamily) {
+    this._text.style.fontFamily = fontFamily;
+    return this.self();
+  }
+  fontSize(fontSize) {
+    this._text.style.fontSize = fontSize;
+    return this.self();
+  }
+  fontWeight(fontWeight) {
+    this._text.style.fontWeight = fontWeight;
+    return this.self();
+  }
+  textAlign(textAlign) {
+    this._text.style.textAlign = textAlign;
+    return this.self();
+  }
+  textAlignVertical(textAlignVertical) {
+    this._text.style.textAlignVertical = textAlignVertical;
+    return this.self();
+  }
+  fillColor(fillColor) {
+    this._text.style.fillColor = fillColor;
+    return this.self();
+  }
+  fillOpacity(fillOpacity) {
+    this._text.style.fillOpacity = fillOpacity;
+    return this.self();
+  }
+  strokeColor(strokeColor) {
+    this._text.style.strokeColor = strokeColor;
+    return this.self();
+  }
+  strokeOpacity(strokeOpacity) {
+    this._text.style.strokeOpacity = strokeOpacity;
+    return this.self();
+  }
+  strokeWidth(strokeWidth) {
+    this._text.style.strokeWidth = strokeWidth;
+    return this.self();
+  }
+  lineHeight(lineHeight) {
+    this._text.style.lineHeight = lineHeight;
+    return this.self();
+  }
+  build() {
+    return Object.assign(Object.assign({}, this._item), { type: "TEXT", text: this._text });
+  }
+};
+
 // node_modules/js-base64/base64.mjs
 var _hasBuffer = typeof Buffer === "function";
 var _TD = typeof TextDecoder === "function" ? new TextDecoder() : void 0;
@@ -3512,6 +3795,12 @@ var OBR = {
   /** True if the current site is embedded in an instance of Owlbear Rodeo */
   isAvailable: Boolean(details.origin)
 };
+function buildLine() {
+  return new LineBuilder(playerApi);
+}
+function buildText() {
+  return new TextBuilder(playerApi);
+}
 var lib_default = OBR;
 
 // bridge/obrBridge.js
@@ -3546,9 +3835,50 @@ async function getPlayerInfo() {
   ]);
   return normalizePlayer({ role, id, name, selection });
 }
+async function getSelectedTokenIds() {
+  await waitForObrReady();
+  const selection = await lib_default.player.getSelection().catch(() => []);
+  return ensureArray(selection).map((value) => String(value ?? "").trim()).filter(Boolean);
+}
+async function getSceneItems() {
+  await waitForObrReady();
+  return ensureArray(await lib_default.scene.items.getItems().catch(() => []));
+}
+async function getSceneGrid() {
+  await waitForObrReady();
+  const [type, measurement, dpi, scale] = await Promise.all([
+    lib_default.scene.grid.getType().catch(() => "SQUARE"),
+    lib_default.scene.grid.getMeasurement().catch(() => "CHEBYSHEV"),
+    lib_default.scene.grid.getDpi().catch(() => 0),
+    lib_default.scene.grid.getScale().catch(() => null)
+  ]);
+  return { type, measurement, dpi, scale };
+}
+async function snapScenePosition(position, snappingSensitivity = 1, useCorners = false, useCenter = false) {
+  await waitForObrReady();
+  return lib_default.scene.grid.snapPosition(
+    position,
+    snappingSensitivity,
+    useCorners,
+    useCenter
+  );
+}
+async function getSelectedOwlbearTokens() {
+  const [selectionIds, items] = await Promise.all([
+    getSelectedTokenIds(),
+    getSceneItems()
+  ]);
+  const selectedSet = new Set(selectionIds);
+  return items.filter((item) => selectedSet.has(String(item?.id ?? "").trim()));
+}
 async function getRoomMetadata() {
   await waitForObrReady();
   return await lib_default.room.getMetadata().catch(() => ({})) ?? {};
+}
+async function setRoomMetadata(patch) {
+  await waitForObrReady();
+  await lib_default.room.setMetadata(patch ?? {});
+  return getRoomMetadata();
 }
 async function getRoomSceneContext() {
   await waitForObrReady();
@@ -3559,11 +3889,106 @@ async function getRoomSceneContext() {
     sceneId: roomId
   };
 }
+async function subscribePlayerChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.player.onChange((player) => {
+    if (!active) return;
+    listener(normalizePlayer(player));
+  });
+  return () => {
+    active = false;
+  };
+}
+async function subscribeSceneItems(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.scene.items.onChange((items) => {
+    if (!active) return;
+    listener(ensureArray(items));
+  });
+  return () => {
+    active = false;
+  };
+}
+async function activateTool(toolId) {
+  await waitForObrReady();
+  return lib_default.tool.activateTool(toolId);
+}
+async function activateToolMode(toolId, modeId) {
+  await waitForObrReady();
+  return lib_default.tool.activateMode(toolId, modeId);
+}
+async function getActiveTool() {
+  await waitForObrReady();
+  return lib_default.tool.getActiveTool().catch(() => "");
+}
+async function getActiveToolMode() {
+  await waitForObrReady();
+  return lib_default.tool.getActiveToolMode().catch(() => "");
+}
+async function subscribeToolChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.tool.onToolChange((toolId) => {
+    if (!active) return;
+    listener(String(toolId ?? "").trim());
+  });
+  return () => {
+    active = false;
+  };
+}
+async function subscribeToolModeChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.tool.onToolModeChange((modeId) => {
+    if (!active) return;
+    listener(String(modeId ?? "").trim());
+  });
+  return () => {
+    active = false;
+  };
+}
+
+// bridge/settingsBridge.js
+var settingsBridge_exports = {};
+__export(settingsBridge_exports, {
+  clearRoomSupabaseSettings: () => clearRoomSupabaseSettings,
+  hasSupabaseSettings: () => hasSupabaseSettings,
+  loadRoomSupabaseSettings: () => loadRoomSupabaseSettings,
+  maskSupabaseApiKey: () => maskSupabaseApiKey,
+  normalizeSupabaseSettings: () => normalizeSupabaseSettings,
+  saveRoomSupabaseSettings: () => saveRoomSupabaseSettings
+});
 
 // constants/metadataKeys.js
+var metadataKeys_exports = {};
+__export(metadataKeys_exports, {
+  EXTENSION_ID: () => EXTENSION_ID,
+  ROOM_SUPABASE_SETTINGS_KEY: () => ROOM_SUPABASE_SETTINGS_KEY,
+  SHELL_GLOBAL_KEY: () => SHELL_GLOBAL_KEY,
+  TOKEN_LINK_KEY: () => TOKEN_LINK_KEY,
+  hasTokenCharacterLink: () => hasTokenCharacterLink,
+  normalizeTokenCharacterLink: () => normalizeTokenCharacterLink
+});
 var EXTENSION_ID = "com.codex.body-hp";
 var ROOM_SUPABASE_SETTINGS_KEY = `${EXTENSION_ID}/supabaseSettings`;
 var TOKEN_LINK_KEY = `${EXTENSION_ID}/link`;
+var SHELL_GLOBAL_KEY = "OdysseyBridge";
+function normalizeTokenCharacterLink(raw) {
+  return {
+    characterId: String(raw?.characterId ?? raw?.character_id ?? "").trim(),
+    stateVersion: Math.max(
+      0,
+      Number(raw?.stateVersion ?? raw?.state_version ?? 0) || 0
+    ),
+    statusSummary: String(raw?.statusSummary ?? raw?.status_summary ?? "").trim(),
+    updatedAt: String(raw?.updatedAt ?? raw?.updated_at ?? "").trim()
+  };
+}
+function hasTokenCharacterLink(raw) {
+  return Boolean(normalizeTokenCharacterLink(raw).characterId);
+}
 
 // bridge/settingsBridge.js
 function normalizeSupabaseSettings(raw) {
@@ -3576,9 +4001,29 @@ function hasSupabaseSettings(settings) {
   const normalized = normalizeSupabaseSettings(settings);
   return Boolean(normalized.url && normalized.apiKey);
 }
+function maskSupabaseApiKey(value) {
+  const normalized = String(value ?? "").trim();
+  if (normalized.length <= 10) {
+    return normalized ? "********" : "";
+  }
+  return `${normalized.slice(0, 6)}...${normalized.slice(-4)}`;
+}
 async function loadRoomSupabaseSettings() {
   const metadata = await getRoomMetadata();
   return normalizeSupabaseSettings(metadata?.[ROOM_SUPABASE_SETTINGS_KEY]);
+}
+async function saveRoomSupabaseSettings(settings) {
+  const normalized = normalizeSupabaseSettings(settings);
+  await setRoomMetadata({
+    [ROOM_SUPABASE_SETTINGS_KEY]: normalized
+  });
+  return normalized;
+}
+async function clearRoomSupabaseSettings() {
+  return saveRoomSupabaseSettings({
+    url: "",
+    apiKey: ""
+  });
 }
 
 // hud/overlay/hudPlacement.js
@@ -3838,6 +4283,165 @@ function setupCombatHudOverlay() {
   });
 }
 
+// constants/rpcNames.js
+var CHARACTER_RPC_NAMES = Object.freeze({
+  getCharacterRuleSheet: "get_character_rule_sheet",
+  initializeCharacterRuleDefaults: "initialize_character_rule_defaults",
+  initializeCharacterCombatDefaults: "initialize_character_combat_defaults",
+  getCharacterSpawnCatalog: "get_character_spawn_catalog",
+  getRoomTokenLinks: "get_room_token_links",
+  deactivateTokenLink: "deactivate_token_link",
+  loadCharacterToToken: "load_character_to_token"
+});
+var CHECK_RPC_NAMES = Object.freeze({
+  rollCharacteristic: "roll_characteristic",
+  rollSkill: "roll_skill",
+  rollDice: "roll_dice"
+});
+var ABILITY_RPC_NAMES = Object.freeze({
+  getCharacterAbilities: "get_character_abilities",
+  syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
+  useAbility: "use_ability",
+  advanceCharacterAbilityStates: "advance_character_ability_states"
+});
+var FEATURE_RPC_NAMES = Object.freeze({
+  reloadFeatureResource: "reload_feature_resource"
+});
+var WEAPON_RPC_NAMES = Object.freeze({
+  getCharacterArmory: "get_character_armory",
+  switchWeaponProfile: "switch_weapon_profile",
+  switchWeaponFireMode: "switch_weapon_fire_mode",
+  loadWeaponProfileMagazine: "load_weapon_profile_magazine",
+  activateWeaponFeature: "activate_weapon_feature",
+  deactivateWeaponFeature: "deactivate_weapon_feature",
+  getCharacterWeaponFeatures: "get_character_weapon_features"
+});
+var COMBAT_RPC_NAMES = Object.freeze({
+  performAttack: "perform_attack",
+  moveCharacter: "combat_move_character",
+  syncPositionsFromOwlbear: "combat_sync_positions_from_owlbear",
+  startEncounter: "combat_start_encounter",
+  addParticipant: "combat_add_participant",
+  removeParticipant: "combat_remove_participant",
+  reorderInitiative: "combat_reorder_initiative",
+  endTurn: "combat_end_turn",
+  skipTurn: "combat_skip_turn",
+  forceNextTurn: "combat_force_next_turn",
+  endEncounter: "combat_end_encounter",
+  getActiveRuntime: "combat_get_active_runtime",
+  markCharacterDead: "combat_mark_character_dead",
+  convertActionToMove: "combat_convert_action_to_move",
+  spendMove: "combat_spend_move",
+  executeAction: "combat_execute_action",
+  getCombatLog: "combat_get_log",
+  grantReactionAction: "combat_grant_reaction_action"
+});
+var GM_RPC_NAMES = Object.freeze({
+  healCharacter: "gm_heal_character",
+  repairCharacterArmor: "gm_repair_character_armor",
+  updateCharacterAttribute: "gm_update_character_attribute"
+});
+var EFFECT_RPC_NAMES = Object.freeze({
+  getCharacterEffectSummary: "get_character_effect_summary",
+  getEffectiveCharacterStats: "get_effective_character_stats",
+  addCharacterEffect: "add_character_effect",
+  removeCharacterEffect: "remove_character_effect",
+  advanceCharacterEffects: "advance_character_effects"
+});
+var PERK_RPC_NAMES = Object.freeze({
+  getCharacterPerks: "get_character_perks",
+  getCharacterAvailablePerks: "get_character_available_perks",
+  grantCharacterPerk: "grant_character_perk",
+  useCharacterPerk: "use_character_perk"
+});
+var EQUIPMENT_RPC_NAMES = Object.freeze({
+  getCharacterArmorSummary: "get_character_armor_summary",
+  getCharacterEquipment: "get_character_equipment",
+  recomputeCharacterArmor: "recompute_character_armor",
+  createCharacterEquipmentItem: "create_character_equipment_item",
+  equipCharacterEquipmentItem: "equip_character_equipment_item",
+  unequipCharacterEquipmentItem: "unequip_character_equipment_item",
+  updateCharacterEquipmentItem: "update_character_equipment_item"
+});
+var INVENTORY_RPC_NAMES = Object.freeze({
+  getCharacterInventory: "get_character_inventory",
+  addCharacterItem: "add_character_item",
+  removeCharacterItemQuantity: "remove_character_item_quantity",
+  getCharacterItemQuantity: "get_character_item_quantity",
+  addCharacterAmmoStock: "add_character_ammo_stock",
+  removeCharacterAmmoStock: "remove_character_ammo_stock",
+  loadRoundsToMagazine: "load_rounds_to_magazine",
+  unloadRoundsFromMagazine: "unload_rounds_from_magazine",
+  useCharacterItem: "use_character_item"
+});
+var CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
+  getCharacterSpawnCatalog: "get_character_spawn_catalog",
+  getCharacterRuntimeBundle: "get_character_runtime_bundle",
+  getSceneTokenLinks: "get_scene_token_links",
+  loadCharacterToToken: "load_character_to_token",
+  unbindTokenCharacter: "unbind_token_character",
+  purgeActiveNpcs: "purge_active_npcs",
+  assignCharacterOwner: "assign_character_owner",
+  clearCharacterOwner: "clear_character_owner",
+  getCharacterQuickbar: "get_character_quickbar",
+  saveCharacterQuickbar: "save_character_quickbar"
+});
+var CREATOR_RPC_NAMES = Object.freeze({
+  getCreatorReferenceData: "get_creator_reference_data",
+  listWeapons: "creator_list_weapons",
+  getWeapon: "creator_get_weapon",
+  upsertWeapon: "creator_upsert_weapon",
+  deleteWeapon: "creator_delete_weapon",
+  listItemDefs: "creator_list_item_defs",
+  getItemDef: "creator_get_item_def",
+  upsertItemDef: "creator_upsert_item_def",
+  deleteItemDef: "creator_delete_item_def",
+  listCalibers: "creator_list_calibers",
+  getCaliber: "creator_get_caliber",
+  upsertCaliber: "creator_upsert_caliber",
+  deleteCaliber: "creator_delete_caliber",
+  listAmmoTypes: "creator_list_ammo_types",
+  getAmmoType: "creator_get_ammo_type",
+  upsertAmmoType: "creator_upsert_ammo_type",
+  deleteAmmoType: "creator_delete_ammo_type",
+  listMagazineDefs: "creator_list_magazine_defs",
+  getMagazineDef: "creator_get_magazine_def",
+  upsertMagazineDef: "creator_upsert_magazine_def",
+  deleteMagazineDef: "creator_delete_magazine_def",
+  listSkills: "creator_list_skills",
+  getSkill: "creator_get_skill",
+  upsertSkill: "creator_upsert_skill",
+  deleteSkill: "creator_delete_skill",
+  listEffects: "creator_list_effects",
+  getEffect: "creator_get_effect",
+  upsertEffect: "creator_upsert_effect",
+  deleteEffect: "creator_delete_effect",
+  listAbilities: "creator_list_abilities",
+  getAbility: "creator_get_ability",
+  upsertAbility: "creator_upsert_ability",
+  deleteAbility: "creator_delete_ability",
+  listPerks: "creator_list_perks",
+  getPerk: "creator_get_perk",
+  upsertPerk: "creator_upsert_perk",
+  deletePerk: "creator_delete_perk",
+  listEquipmentModels: "creator_list_equipment_models",
+  getEquipmentModel: "creator_get_equipment_model",
+  upsertEquipmentModel: "creator_upsert_equipment_model",
+  deleteEquipmentModel: "creator_delete_equipment_model"
+});
+
+// bridge/supabaseBridge.js
+var supabaseBridge_exports = {};
+__export(supabaseBridge_exports, {
+  callSupabaseRpc: () => callSupabaseRpc,
+  deactivateTokenLinkRecord: () => deactivateTokenLinkRecord,
+  fetchSupabaseRows: () => fetchSupabaseRows,
+  fetchTokenLinks: () => fetchTokenLinks,
+  mutateSupabaseRows: () => mutateSupabaseRows,
+  testSupabaseConnection: () => testSupabaseConnection,
+  upsertTokenLinkRecord: () => upsertTokenLinkRecord
+});
+
 // utils/diagnostics.js
 var ENTRY_LIMIT = 40;
 var listeners = /* @__PURE__ */ new Set();
@@ -3863,9 +4467,2022 @@ function addDiagnosticEntry(level, title, details2 = "") {
   return entry;
 }
 
+// utils/errors.js
+function toErrorMessage(error, fallback = "Unknown error.") {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+  if (error && typeof error === "object") {
+    const message = String(
+      error.message ?? error.error_description ?? error.error ?? error.details ?? ""
+    ).trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+function normalizeError(error, fallback = "Unknown error.") {
+  return {
+    name: error instanceof Error ? error.name : "Error",
+    message: toErrorMessage(error, fallback)
+  };
+}
+
+// utils/json.js
+function safeJsonParse(value, fallback = null) {
+  if (typeof value !== "string" || !value.trim()) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+// bridge/supabaseBridge.js
+function getSupabaseSettingsOrThrow(settings) {
+  const normalized = normalizeSupabaseSettings(settings);
+  if (!normalized.url) {
+    throw new Error("Supabase URL is not configured.");
+  }
+  if (!normalized.apiKey) {
+    throw new Error("Supabase public key is not configured.");
+  }
+  return normalized;
+}
+function buildHeaders(apiKey, method, extraHeaders = {}, prefer = "return=representation") {
+  const headers = {
+    apikey: apiKey,
+    Authorization: `Bearer ${apiKey}`,
+    ...extraHeaders
+  };
+  if (method !== "GET" && method !== "HEAD" && prefer) {
+    headers.Prefer = prefer;
+  }
+  return headers;
+}
+async function parseSupabaseResponse(response, fallbackMessage) {
+  const rawText = await response.text();
+  const body = safeJsonParse(rawText, rawText || null);
+  if (!response.ok) {
+    throw new Error(
+      toErrorMessage(body, fallbackMessage || "Supabase request failed.")
+    );
+  }
+  return body;
+}
+async function requestSupabase(path, options = {}) {
+  const {
+    method = "GET",
+    body,
+    settings,
+    headers = {},
+    prefer = "return=representation",
+    fallbackMessage = "Supabase request failed."
+  } = options;
+  const { url, apiKey } = getSupabaseSettingsOrThrow(settings);
+  const requestInit = {
+    method,
+    headers: buildHeaders(apiKey, method, headers, prefer)
+  };
+  if (body !== void 0) {
+    requestInit.body = JSON.stringify(body);
+    requestInit.headers["Content-Type"] = "application/json";
+  }
+  try {
+    const response = await fetch(`${url}/rest/v1/${path}`, requestInit);
+    return await parseSupabaseResponse(response, fallbackMessage);
+  } catch (error) {
+    addDiagnosticEntry(
+      "error",
+      "Supabase request failed",
+      `${method} ${path}: ${toErrorMessage(error)}`
+    );
+    throw error;
+  }
+}
+async function callSupabaseRpc(functionName, payload, settings) {
+  return requestSupabase(`rpc/${functionName}`, {
+    method: "POST",
+    body: payload ?? {},
+    settings,
+    fallbackMessage: `Supabase RPC ${functionName} failed.`
+  });
+}
+async function fetchSupabaseRows(path, settings, fallbackMessage = "Supabase query failed.") {
+  return requestSupabase(path, {
+    method: "GET",
+    settings,
+    fallbackMessage
+  });
+}
+async function mutateSupabaseRows(path, body, settings, options = {}) {
+  return requestSupabase(path, {
+    method: options.method ?? "POST",
+    body,
+    settings,
+    prefer: options.prefer ?? "return=representation",
+    fallbackMessage: options.fallbackMessage ?? "Supabase mutation failed.",
+    headers: options.headers ?? {}
+  });
+}
+async function testSupabaseConnection(settings) {
+  const rows = await fetchSupabaseRows(
+    "odyssey_characters?select=id&limit=1",
+    settings,
+    "Unable to query Supabase connection test."
+  );
+  return {
+    ok: true,
+    sampleRowCount: Array.isArray(rows) ? rows.length : 0
+  };
+}
+async function fetchTokenLinks(roomId, sceneId = "", settings) {
+  const params = [
+    "select=*",
+    `room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}`,
+    `scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}`,
+    "is_active=eq.true"
+  ].join("&");
+  const rows = await fetchSupabaseRows(
+    `odyssey_token_links?${params}`,
+    settings,
+    "Unable to load token links from Supabase."
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+async function upsertTokenLinkRecord(payload, settings) {
+  const row = {
+    campaign_id: String(payload?.campaign_id ?? "").trim(),
+    room_id: String(payload?.room_id ?? "").trim(),
+    scene_id: String(payload?.scene_id ?? "").trim(),
+    token_id: String(payload?.token_id ?? "").trim(),
+    character_id: String(payload?.character_id ?? "").trim(),
+    character_key: String(payload?.character_key ?? "").trim(),
+    token_name: String(payload?.token_name ?? "").trim(),
+    token_layer: String(payload?.token_layer ?? "CHARACTER").trim(),
+    is_active: payload?.is_active !== false,
+    last_seen_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const rows = await mutateSupabaseRows(
+    "odyssey_token_links?on_conflict=room_id,scene_id,token_id",
+    [row],
+    settings,
+    {
+      prefer: "resolution=merge-duplicates,return=representation",
+      fallbackMessage: "Unable to upsert token link in Supabase."
+    }
+  );
+  return Array.isArray(rows) ? rows[0] ?? null : rows;
+}
+async function deactivateTokenLinkRecord(roomId, sceneId, tokenId, settings) {
+  return mutateSupabaseRows(
+    `odyssey_token_links?room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}&scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}&token_id=eq.${encodeURIComponent(String(tokenId ?? "").trim())}`,
+    {
+      is_active: false,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    settings,
+    {
+      method: "PATCH",
+      fallbackMessage: "Unable to deactivate token link in Supabase."
+    }
+  );
+}
+
+// bridge/tokenBridge.js
+var tokenBridge_exports = {};
+__export(tokenBridge_exports, {
+  clearTokenCharacterLink: () => clearTokenCharacterLink,
+  getSelectedTokenCharacterLinks: () => getSelectedTokenCharacterLinks,
+  getTokenCharacterLink: () => getTokenCharacterLink,
+  setTokenCharacterLink: () => setTokenCharacterLink
+});
+function resolveTokenId(tokenOrId) {
+  if (typeof tokenOrId === "string") {
+    return tokenOrId.trim();
+  }
+  return String(tokenOrId?.id ?? "").trim();
+}
+function getTokenCharacterLink(token) {
+  return normalizeTokenCharacterLink(token?.metadata?.[TOKEN_LINK_KEY]);
+}
+async function setTokenCharacterLink(tokenOrId, characterId, fields = {}) {
+  await waitForObrReady();
+  const tokenId = resolveTokenId(tokenOrId);
+  const normalized = normalizeTokenCharacterLink({
+    characterId,
+    ...fields,
+    updatedAt: fields.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString()
+  });
+  await lib_default.scene.items.updateItems([tokenId], (items) => {
+    for (const item of items) {
+      item.metadata ?? (item.metadata = {});
+      item.metadata[TOKEN_LINK_KEY] = normalized;
+    }
+  });
+  return normalized;
+}
+async function clearTokenCharacterLink(tokenOrId) {
+  await waitForObrReady();
+  const tokenId = resolveTokenId(tokenOrId);
+  await lib_default.scene.items.updateItems([tokenId], (items) => {
+    for (const item of items) {
+      item.metadata ?? (item.metadata = {});
+      delete item.metadata[TOKEN_LINK_KEY];
+    }
+  });
+}
+async function getSelectedTokenCharacterLinks() {
+  const tokens = await getSelectedOwlbearTokens();
+  return tokens.map((token) => ({
+    token,
+    link: getTokenCharacterLink(token)
+  }));
+}
+
+// api/abilityApi.js
+var abilityApi_exports = {};
+__export(abilityApi_exports, {
+  advanceCharacterAbilityStates: () => advanceCharacterAbilityStates,
+  getCharacterAbilities: () => getCharacterAbilities,
+  syncCharacterResourcePools: () => syncCharacterResourcePools,
+  useAbility: () => useAbility
+});
+function getCharacterAbilities(characterId, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.getCharacterAbilities,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function syncCharacterResourcePools(characterId, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.syncCharacterResourcePools,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function useAbility(payload, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.useAbility,
+    { p_payload: payload },
+    settings
+  );
+}
+function advanceCharacterAbilityStates(characterId, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.advanceCharacterAbilityStates,
+    { p_character_id: characterId },
+    settings
+  );
+}
+
+// api/characterApi.js
+var characterApi_exports = {};
+__export(characterApi_exports, {
+  deactivateTokenLink: () => deactivateTokenLink,
+  getCharacterRuleSheet: () => getCharacterRuleSheet,
+  getRoomTokenLinks: () => getRoomTokenLinks,
+  initializeCharacterCombatDefaults: () => initializeCharacterCombatDefaults,
+  initializeCharacterRuleDefaults: () => initializeCharacterRuleDefaults,
+  listCharacters: () => listCharacters,
+  loadCharacterToToken: () => loadCharacterToToken
+});
+function getCharacterRuleSheet(characterId, settings) {
+  return callSupabaseRpc(
+    CHARACTER_RPC_NAMES.getCharacterRuleSheet,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function initializeCharacterRuleDefaults(characterId, settings) {
+  return callSupabaseRpc(
+    CHARACTER_RPC_NAMES.initializeCharacterRuleDefaults,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function initializeCharacterCombatDefaults(characterId, settings) {
+  return callSupabaseRpc(
+    CHARACTER_RPC_NAMES.initializeCharacterCombatDefaults,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function listCharacters(settings, { includeDeleted = false } = {}) {
+  const query = [
+    "select=id,character_key,character_bucket,source_template_key,enabled,owner_player_id,owner_player_name,is_deleted",
+    "order=character_bucket.asc,character_key.asc"
+  ];
+  if (!includeDeleted) {
+    query.push("is_deleted=eq.false");
+  }
+  return fetchSupabaseRows(
+    `odyssey_characters?${query.join("&")}`,
+    settings,
+    "Unable to load character catalog."
+  );
+}
+function getRoomTokenLinks(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_RPC_NAMES.getRoomTokenLinks,
+    payload ?? {},
+    settings
+  );
+}
+function deactivateTokenLink(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_RPC_NAMES.deactivateTokenLink,
+    payload ?? {},
+    settings
+  );
+}
+function loadCharacterToToken(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_RPC_NAMES.loadCharacterToToken,
+    payload ?? {},
+    settings
+  );
+}
+
+// api/checksApi.js
+var checksApi_exports = {};
+__export(checksApi_exports, {
+  rollCharacteristic: () => rollCharacteristic,
+  rollDice: () => rollDice,
+  rollSkill: () => rollSkill
+});
+function rollCharacteristic(payload, settings) {
+  return callSupabaseRpc(
+    CHECK_RPC_NAMES.rollCharacteristic,
+    { p_payload: payload },
+    settings
+  );
+}
+function rollSkill(payload, settings) {
+  return callSupabaseRpc(
+    CHECK_RPC_NAMES.rollSkill,
+    { p_payload: payload },
+    settings
+  );
+}
+function rollDice(expression, reason = null, settings) {
+  return callSupabaseRpc(
+    CHECK_RPC_NAMES.rollDice,
+    {
+      p_payload: {
+        expression,
+        reason
+      }
+    },
+    settings
+  );
+}
+
+// api/featureApi.js
+var featureApi_exports = {};
+__export(featureApi_exports, {
+  reloadFeatureResource: () => reloadFeatureResource
+});
+function reloadFeatureResource(payload, settings) {
+  return callSupabaseRpc(
+    FEATURE_RPC_NAMES.reloadFeatureResource,
+    { p_payload: payload },
+    settings
+  );
+}
+
+// api/weaponApi.js
+var weaponApi_exports = {};
+__export(weaponApi_exports, {
+  activateWeaponFeature: () => activateWeaponFeature,
+  deactivateWeaponFeature: () => deactivateWeaponFeature,
+  getCharacterArmory: () => getCharacterArmory,
+  getCharacterWeaponFeatures: () => getCharacterWeaponFeatures,
+  loadWeaponProfileMagazine: () => loadWeaponProfileMagazine,
+  switchWeaponFireMode: () => switchWeaponFireMode,
+  switchWeaponProfile: () => switchWeaponProfile
+});
+function getCharacterArmory(characterId, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.getCharacterArmory,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function switchWeaponProfile(characterWeaponId, profileId, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.switchWeaponProfile,
+    {
+      p_character_weapon_id: characterWeaponId,
+      p_profile_id: profileId
+    },
+    settings
+  );
+}
+function switchWeaponFireMode(characterId, weaponId, fireModeId, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.switchWeaponFireMode,
+    {
+      p_character_id: characterId,
+      p_weapon_id: weaponId,
+      p_fire_mode_id: fireModeId
+    },
+    settings
+  );
+}
+function loadWeaponProfileMagazine(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.loadWeaponProfileMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function activateWeaponFeature(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.activateWeaponFeature,
+    { p_payload: payload },
+    settings
+  );
+}
+function deactivateWeaponFeature(featureStateId, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.deactivateWeaponFeature,
+    { p_state_id: featureStateId },
+    settings
+  );
+}
+function getCharacterWeaponFeatures(characterWeaponId, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.getCharacterWeaponFeatures,
+    { p_character_weapon_id: characterWeaponId },
+    settings
+  );
+}
+
+// api/combatApi.js
+var combatApi_exports = {};
+__export(combatApi_exports, {
+  addParticipant: () => addParticipant,
+  convertActionToMove: () => convertActionToMove,
+  endEncounter: () => endEncounter,
+  endTurn: () => endTurn,
+  executeAction: () => executeAction,
+  forceNextTurn: () => forceNextTurn,
+  getActiveRuntime: () => getActiveRuntime,
+  getCombatLog: () => getCombatLog,
+  grantReactionAction: () => grantReactionAction,
+  markCharacterDead: () => markCharacterDead,
+  moveCharacter: () => moveCharacter,
+  performAttack: () => performAttack,
+  removeParticipant: () => removeParticipant,
+  reorderInitiative: () => reorderInitiative,
+  skipTurn: () => skipTurn,
+  spendMove: () => spendMove,
+  startEncounter: () => startEncounter,
+  syncPositionsFromOwlbear: () => syncPositionsFromOwlbear
+});
+function performAttack(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.performAttack,
+    { p_payload: payload },
+    settings
+  );
+}
+function moveCharacter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.moveCharacter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function syncPositionsFromOwlbear(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.syncPositionsFromOwlbear,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function startEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.startEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function addParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.addParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function removeParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.removeParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function reorderInitiative(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.reorderInitiative,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function skipTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.skipTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function forceNextTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.forceNextTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getActiveRuntime(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getActiveRuntime,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function markCharacterDead(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.markCharacterDead,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function convertActionToMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.convertActionToMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function spendMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.spendMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function executeAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.executeAction,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCombatLog(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function grantReactionAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.grantReactionAction,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+
+// api/gmApi.js
+var gmApi_exports = {};
+__export(gmApi_exports, {
+  gmHealCharacter: () => gmHealCharacter,
+  gmRepairCharacterArmor: () => gmRepairCharacterArmor,
+  gmUpdateCharacterAttribute: () => gmUpdateCharacterAttribute
+});
+function gmHealCharacter(characterId, settings) {
+  return callSupabaseRpc(
+    GM_RPC_NAMES.healCharacter,
+    { p_payload: { character_id: characterId } },
+    settings
+  );
+}
+function gmRepairCharacterArmor(characterId, settings) {
+  return callSupabaseRpc(
+    GM_RPC_NAMES.repairCharacterArmor,
+    { p_payload: { character_id: characterId } },
+    settings
+  );
+}
+function gmUpdateCharacterAttribute(payload, settings) {
+  return callSupabaseRpc(
+    GM_RPC_NAMES.updateCharacterAttribute,
+    { p_payload: payload },
+    settings
+  );
+}
+
+// api/effectsApi.js
+var effectsApi_exports = {};
+__export(effectsApi_exports, {
+  addCharacterEffect: () => addCharacterEffect,
+  advanceCharacterEffects: () => advanceCharacterEffects,
+  getCharacterEffectSummary: () => getCharacterEffectSummary,
+  getEffectiveCharacterStats: () => getEffectiveCharacterStats,
+  removeCharacterEffect: () => removeCharacterEffect
+});
+function getCharacterEffectSummary(characterId, settings) {
+  return callSupabaseRpc(
+    EFFECT_RPC_NAMES.getCharacterEffectSummary,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function getEffectiveCharacterStats(characterId, settings) {
+  return callSupabaseRpc(
+    EFFECT_RPC_NAMES.getEffectiveCharacterStats,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function addCharacterEffect(payload, settings) {
+  return callSupabaseRpc(
+    EFFECT_RPC_NAMES.addCharacterEffect,
+    { p_payload: payload },
+    settings
+  );
+}
+function removeCharacterEffect(effectId, settings) {
+  return callSupabaseRpc(
+    EFFECT_RPC_NAMES.removeCharacterEffect,
+    { p_effect_id: effectId },
+    settings
+  );
+}
+function advanceCharacterEffects(characterId, settings) {
+  return callSupabaseRpc(
+    EFFECT_RPC_NAMES.advanceCharacterEffects,
+    { p_character_id: characterId },
+    settings
+  );
+}
+
+// api/perkApi.js
+var perkApi_exports = {};
+__export(perkApi_exports, {
+  getCharacterAvailablePerks: () => getCharacterAvailablePerks,
+  getCharacterPerks: () => getCharacterPerks,
+  grantCharacterPerk: () => grantCharacterPerk,
+  useCharacterPerk: () => useCharacterPerk
+});
+function getCharacterPerks(payload, settings) {
+  return callSupabaseRpc(
+    PERK_RPC_NAMES.getCharacterPerks,
+    { p_payload: payload },
+    settings
+  );
+}
+function getCharacterAvailablePerks(payload, settings) {
+  return callSupabaseRpc(
+    PERK_RPC_NAMES.getCharacterAvailablePerks,
+    { p_payload: payload },
+    settings
+  );
+}
+function grantCharacterPerk(payload, settings) {
+  return callSupabaseRpc(
+    PERK_RPC_NAMES.grantCharacterPerk,
+    { p_payload: payload },
+    settings
+  );
+}
+function useCharacterPerk(payload, settings) {
+  return callSupabaseRpc(
+    PERK_RPC_NAMES.useCharacterPerk,
+    { p_payload: payload },
+    settings
+  );
+}
+
+// api/equipmentApi.js
+var equipmentApi_exports = {};
+__export(equipmentApi_exports, {
+  createCharacterEquipmentItem: () => createCharacterEquipmentItem,
+  equipCharacterEquipmentItem: () => equipCharacterEquipmentItem,
+  getCharacterArmorSummary: () => getCharacterArmorSummary,
+  getCharacterEquipment: () => getCharacterEquipment,
+  recomputeCharacterArmor: () => recomputeCharacterArmor,
+  unequipCharacterEquipmentItem: () => unequipCharacterEquipmentItem,
+  updateCharacterEquipmentItem: () => updateCharacterEquipmentItem
+});
+function getCharacterArmorSummary(characterId, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.getCharacterArmorSummary,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function getCharacterEquipment(characterId, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.getCharacterEquipment,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function recomputeCharacterArmor(characterId, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.recomputeCharacterArmor,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function createCharacterEquipmentItem(payload, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.createCharacterEquipmentItem,
+    { p_payload: payload },
+    settings
+  );
+}
+function equipCharacterEquipmentItem(equipmentItemId, bodyPartId, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.equipCharacterEquipmentItem,
+    {
+      p_item_id: equipmentItemId,
+      p_body_part_id: bodyPartId
+    },
+    settings
+  );
+}
+function unequipCharacterEquipmentItem(equipmentItemId, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.unequipCharacterEquipmentItem,
+    { p_item_id: equipmentItemId },
+    settings
+  );
+}
+function updateCharacterEquipmentItem(payload, settings) {
+  return callSupabaseRpc(
+    EQUIPMENT_RPC_NAMES.updateCharacterEquipmentItem,
+    { p_payload: payload },
+    settings
+  );
+}
+
+// api/inventoryApi.js
+var inventoryApi_exports = {};
+__export(inventoryApi_exports, {
+  addCharacterAmmoStock: () => addCharacterAmmoStock,
+  addCharacterItem: () => addCharacterItem,
+  getCharacterInventory: () => getCharacterInventory,
+  getCharacterItemQuantity: () => getCharacterItemQuantity,
+  loadRoundsToMagazine: () => loadRoundsToMagazine,
+  removeCharacterAmmoStock: () => removeCharacterAmmoStock,
+  removeCharacterItemQuantity: () => removeCharacterItemQuantity,
+  unloadRoundsFromMagazine: () => unloadRoundsFromMagazine,
+  useCharacterItem: () => useCharacterItem
+});
+function getCharacterInventory(characterId, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.getCharacterInventory,
+    { p_character_id: characterId },
+    settings
+  );
+}
+function addCharacterItem(payload, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.addCharacterItem,
+    { p_payload: payload },
+    settings
+  );
+}
+function removeCharacterItemQuantity(characterId, itemCode, quantity, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.removeCharacterItemQuantity,
+    {
+      p_character_id: characterId,
+      p_item_code: itemCode,
+      p_quantity: quantity
+    },
+    settings
+  );
+}
+function getCharacterItemQuantity(characterId, itemCode, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.getCharacterItemQuantity,
+    {
+      p_character_id: characterId,
+      p_item_code: itemCode
+    },
+    settings
+  );
+}
+function addCharacterAmmoStock(payload, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.addCharacterAmmoStock,
+    { p_payload: payload },
+    settings
+  );
+}
+function removeCharacterAmmoStock(ammoStockId, quantity, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.removeCharacterAmmoStock,
+    {
+      p_ammo_stock_id: ammoStockId,
+      p_quantity: quantity
+    },
+    settings
+  );
+}
+function loadRoundsToMagazine(payload, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.loadRoundsToMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function unloadRoundsFromMagazine(payload, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.unloadRoundsFromMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function useCharacterItem(payload, settings) {
+  return callSupabaseRpc(
+    INVENTORY_RPC_NAMES.useCharacterItem,
+    { p_payload: payload },
+    settings
+  );
+}
+
+// api/logApi.js
+var logApi_exports = {};
+__export(logApi_exports, {
+  getCombatLogEntries: () => getCombatLogEntries,
+  getCombatLogRows: () => getCombatLogRows
+});
+function getCombatLogEntries({
+  roomId = "",
+  encounterId = "",
+  actor_player_id = "",
+  actor_is_gm = false,
+  limit = 50
+} = {}, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    {
+      p_payload: {
+        room_id: roomId,
+        encounter_id: encounterId,
+        actor_player_id,
+        actor_is_gm,
+        limit
+      }
+    },
+    settings
+  );
+}
+function getCombatLogRows(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+
+// api/characterPlacementApi.js
+var characterPlacementApi_exports = {};
+__export(characterPlacementApi_exports, {
+  assignCharacterOwner: () => assignCharacterOwner,
+  clearCharacterOwner: () => clearCharacterOwner,
+  getCharacterQuickbar: () => getCharacterQuickbar,
+  getCharacterRuntimeBundle: () => getCharacterRuntimeBundle,
+  getCharacterSpawnCatalog: () => getCharacterSpawnCatalog,
+  getSceneTokenLinks: () => getSceneTokenLinks,
+  loadCharacterToToken: () => loadCharacterToToken2,
+  purgeActiveNpcs: () => purgeActiveNpcs,
+  saveCharacterQuickbar: () => saveCharacterQuickbar,
+  unbindTokenCharacter: () => unbindTokenCharacter
+});
+function getCharacterSpawnCatalog(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterSpawnCatalog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCharacterRuntimeBundle(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterRuntimeBundle,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getSceneTokenLinks(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function assignCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.assignCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function clearCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.clearCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function saveCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.saveCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function loadCharacterToToken2(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.loadCharacterToToken,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function unbindTokenCharacter(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.unbindTokenCharacter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function purgeActiveNpcs(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.purgeActiveNpcs,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+
+// api/creatorApi.js
+var creatorApi_exports = {};
+__export(creatorApi_exports, {
+  deleteAbility: () => deleteAbility,
+  deleteAmmoType: () => deleteAmmoType,
+  deleteCaliber: () => deleteCaliber,
+  deleteEffect: () => deleteEffect,
+  deleteEquipmentModel: () => deleteEquipmentModel,
+  deleteItemDef: () => deleteItemDef,
+  deleteMagazineDef: () => deleteMagazineDef,
+  deletePerk: () => deletePerk,
+  deleteSkill: () => deleteSkill,
+  deleteWeapon: () => deleteWeapon,
+  getAbility: () => getAbility,
+  getAmmoType: () => getAmmoType,
+  getCaliber: () => getCaliber,
+  getCreatorReferenceData: () => getCreatorReferenceData,
+  getEffect: () => getEffect,
+  getEquipmentModel: () => getEquipmentModel,
+  getItemDef: () => getItemDef,
+  getMagazineDef: () => getMagazineDef,
+  getPerk: () => getPerk,
+  getSkill: () => getSkill,
+  getWeapon: () => getWeapon,
+  listAbilities: () => listAbilities,
+  listAmmoTypes: () => listAmmoTypes,
+  listCalibers: () => listCalibers,
+  listEffects: () => listEffects,
+  listEquipmentModels: () => listEquipmentModels,
+  listItemDefs: () => listItemDefs,
+  listMagazineDefs: () => listMagazineDefs,
+  listPerks: () => listPerks,
+  listSkills: () => listSkills,
+  listWeapons: () => listWeapons,
+  upsertAbility: () => upsertAbility,
+  upsertAmmoType: () => upsertAmmoType,
+  upsertCaliber: () => upsertCaliber,
+  upsertEffect: () => upsertEffect,
+  upsertEquipmentModel: () => upsertEquipmentModel,
+  upsertItemDef: () => upsertItemDef,
+  upsertMagazineDef: () => upsertMagazineDef,
+  upsertPerk: () => upsertPerk,
+  upsertSkill: () => upsertSkill,
+  upsertWeapon: () => upsertWeapon
+});
+function getCreatorReferenceData(settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getCreatorReferenceData,
+    {},
+    settings
+  );
+}
+function listWeapons({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listWeapons,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getWeapon(weaponModelId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getWeapon,
+    { p_weapon_model_id: weaponModelId },
+    settings
+  );
+}
+function upsertWeapon(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertWeapon,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteWeapon(weaponModelId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteWeapon,
+    { p_weapon_model_id: weaponModelId },
+    settings
+  );
+}
+function listItemDefs({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listItemDefs,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getItemDef(itemDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getItemDef,
+    { p_item_def_id: itemDefId },
+    settings
+  );
+}
+function upsertItemDef(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertItemDef,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteItemDef(itemDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteItemDef,
+    { p_item_def_id: itemDefId },
+    settings
+  );
+}
+function listCalibers({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listCalibers,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getCaliber(caliberId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getCaliber,
+    { p_caliber_id: caliberId },
+    settings
+  );
+}
+function upsertCaliber(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertCaliber,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteCaliber(caliberId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteCaliber,
+    { p_caliber_id: caliberId },
+    settings
+  );
+}
+function listAmmoTypes({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listAmmoTypes,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getAmmoType(ammoTypeId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getAmmoType,
+    { p_ammo_type_id: ammoTypeId },
+    settings
+  );
+}
+function upsertAmmoType(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertAmmoType,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteAmmoType(ammoTypeId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteAmmoType,
+    { p_ammo_type_id: ammoTypeId },
+    settings
+  );
+}
+function listMagazineDefs({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listMagazineDefs,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getMagazineDef(magazineDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getMagazineDef,
+    { p_magazine_def_id: magazineDefId },
+    settings
+  );
+}
+function upsertMagazineDef(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertMagazineDef,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteMagazineDef(magazineDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteMagazineDef,
+    { p_magazine_def_id: magazineDefId },
+    settings
+  );
+}
+function listSkills({ search = null, categories = [] } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listSkills,
+    {
+      p_search: search || null,
+      p_categories: Array.isArray(categories) ? categories : []
+    },
+    settings
+  );
+}
+function getSkill(skillId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getSkill,
+    { p_skill_def_id: skillId },
+    settings
+  );
+}
+function upsertSkill(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertSkill,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteSkill(skillId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteSkill,
+    { p_skill_def_id: skillId },
+    settings
+  );
+}
+function listEffects({ search = null, categories = [] } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listEffects,
+    {
+      p_search: search || null,
+      p_categories: Array.isArray(categories) ? categories : []
+    },
+    settings
+  );
+}
+function getEffect(effectId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getEffect,
+    { p_effect_def_id: effectId },
+    settings
+  );
+}
+function upsertEffect(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertEffect,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteEffect(effectId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteEffect,
+    { p_effect_def_id: effectId },
+    settings
+  );
+}
+function listAbilities({ search = null } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listAbilities,
+    {
+      p_search: search || null
+    },
+    settings
+  );
+}
+function getAbility(abilityId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getAbility,
+    { p_ability_def_id: abilityId },
+    settings
+  );
+}
+function upsertAbility(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertAbility,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteAbility(abilityId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteAbility,
+    { p_ability_def_id: abilityId },
+    settings
+  );
+}
+function listPerks({
+  search = null,
+  linkedSkillId = null,
+  perkType = null,
+  resolutionMode = null
+} = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listPerks,
+    {
+      p_search: search || null,
+      p_linked_skill_id: linkedSkillId || null,
+      p_perk_type: perkType || null,
+      p_resolution_mode: resolutionMode || null
+    },
+    settings
+  );
+}
+function getPerk(perkDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getPerk,
+    { p_perk_def_id: perkDefId },
+    settings
+  );
+}
+function upsertPerk(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertPerk,
+    { p_payload: payload },
+    settings
+  );
+}
+function deletePerk(perkDefId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deletePerk,
+    { p_perk_def_id: perkDefId },
+    settings
+  );
+}
+function listEquipmentModels({ search = null, itemTypes = [] } = {}, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.listEquipmentModels,
+    {
+      p_search: search || null,
+      p_item_types: Array.isArray(itemTypes) ? itemTypes : []
+    },
+    settings
+  );
+}
+function getEquipmentModel(equipmentModelId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.getEquipmentModel,
+    { p_equipment_model_id: equipmentModelId },
+    settings
+  );
+}
+function upsertEquipmentModel(payload, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.upsertEquipmentModel,
+    { p_payload: payload },
+    settings
+  );
+}
+function deleteEquipmentModel(equipmentModelId, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.deleteEquipmentModel,
+    { p_equipment_model_id: equipmentModelId },
+    settings
+  );
+}
+
+// runtime/createRuntime.js
+function createOdysseyRuntime() {
+  return {
+    constants: {
+      ...metadataKeys_exports,
+      CHARACTER_RPC_NAMES,
+      CHECK_RPC_NAMES,
+      ABILITY_RPC_NAMES,
+      FEATURE_RPC_NAMES,
+      WEAPON_RPC_NAMES,
+      COMBAT_RPC_NAMES,
+      GM_RPC_NAMES,
+      EFFECT_RPC_NAMES,
+      PERK_RPC_NAMES,
+      EQUIPMENT_RPC_NAMES,
+      INVENTORY_RPC_NAMES,
+      CHARACTER_PLACEMENT_RPC_NAMES,
+      CREATOR_RPC_NAMES
+    },
+    bridges: {
+      obr: obrBridge_exports,
+      settings: settingsBridge_exports,
+      supabase: supabaseBridge_exports,
+      token: tokenBridge_exports
+    },
+    api: {
+      ability: abilityApi_exports,
+      character: characterApi_exports,
+      checks: checksApi_exports,
+      feature: featureApi_exports,
+      weapon: weaponApi_exports,
+      combat: combatApi_exports,
+      gm: gmApi_exports,
+      effects: effectsApi_exports,
+      perk: perkApi_exports,
+      equipment: equipmentApi_exports,
+      inventory: inventoryApi_exports,
+      log: logApi_exports,
+      placement: characterPlacementApi_exports,
+      creator: creatorApi_exports
+    }
+  };
+}
+
+// movement/gridMath.js
+var SQRT3 = Math.sqrt(3);
+function normalizeTacticalGridSettings(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const gridType = String(raw.grid_type ?? raw.gridType ?? "").trim().toLowerCase();
+  const distanceMode = String(raw.distance_mode ?? raw.distanceMode ?? "").trim().toLowerCase();
+  const gridDpi = Number(raw.grid_dpi ?? raw.gridDpi ?? 0) || 0;
+  const metersPerCell = Number(raw.meters_per_cell ?? raw.metersPerCell ?? 1) || 1;
+  const anchorX = Number(raw.anchor_scene_x ?? raw.anchorSceneX ?? 0) || 0;
+  const anchorY = Number(raw.anchor_scene_y ?? raw.anchorSceneY ?? 0) || 0;
+  if (!gridType || !distanceMode || gridDpi <= 0 || metersPerCell <= 0) {
+    return null;
+  }
+  return {
+    gridType,
+    distanceMode,
+    gridDpi,
+    metersPerCell,
+    anchor: { x: anchorX, y: anchorY },
+    updatedAt: String(raw.updated_at ?? raw.updatedAt ?? "").trim()
+  };
+}
+function cubeRound({ x, y, z }) {
+  let rx = Math.round(x);
+  let ry = Math.round(y);
+  let rz = Math.round(z);
+  const xDiff = Math.abs(rx - x);
+  const yDiff = Math.abs(ry - y);
+  const zDiff = Math.abs(rz - z);
+  if (xDiff > yDiff && xDiff > zDiff) {
+    rx = -ry - rz;
+  } else if (yDiff > zDiff) {
+    ry = -rx - rz;
+  } else {
+    rz = -rx - ry;
+  }
+  return { x: rx, y: ry, z: rz };
+}
+function axialRound(q, r) {
+  const cube = cubeRound({ x: q, y: -q - r, z: r });
+  return { q: cube.x, r: cube.z };
+}
+function sceneToCell(grid, position) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !position) return null;
+  const x = (Number(position.x) || 0) - settings.anchor.x;
+  const y = (Number(position.y) || 0) - settings.anchor.y;
+  if (settings.gridType === "square") {
+    return {
+      q: Math.round(x / settings.gridDpi),
+      r: Math.round(y / settings.gridDpi)
+    };
+  }
+  if (settings.gridType === "hex_vertical") {
+    const size = settings.gridDpi / SQRT3;
+    const q = (SQRT3 / 3 * x - 1 / 3 * y) / size;
+    const r = 2 / 3 * y / size;
+    return axialRound(q, r);
+  }
+  if (settings.gridType === "hex_horizontal") {
+    const size = settings.gridDpi / SQRT3;
+    const q = 2 / 3 * x / size;
+    const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
+    return axialRound(q, r);
+  }
+  return null;
+}
+function computeDistanceCells(grid, fromCell, toCell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !fromCell || !toCell) return 0;
+  const fromQ = Number(fromCell.q ?? fromCell.cell_q ?? 0) || 0;
+  const fromR = Number(fromCell.r ?? fromCell.cell_r ?? 0) || 0;
+  const toQ = Number(toCell.q ?? toCell.cell_q ?? 0) || 0;
+  const toR = Number(toCell.r ?? toCell.cell_r ?? 0) || 0;
+  const dx = Math.abs(toQ - fromQ);
+  const dy = Math.abs(toR - fromR);
+  if (settings.gridType === "square") {
+    return settings.distanceMode === "manhattan" ? dx + dy : Math.max(dx, dy);
+  }
+  return (dx + dy + Math.abs(toQ + toR - (fromQ + fromR))) / 2;
+}
+
+// movement/moveToolBridge.js
+var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
+var MOVE_TOOL_COMMANDS = Object.freeze({
+  ActivateSelected: "ACTIVATE_SELECTED",
+  Cancel: "CANCEL",
+  RequestStatus: "REQUEST_STATUS"
+});
+var MOVE_TOOL_EVENTS = Object.freeze({
+  Status: "STATUS",
+  Activated: "ACTIVATED",
+  Cancelled: "CANCELLED",
+  Applied: "APPLIED",
+  Error: "ERROR"
+});
+async function publishMoveToolEvent(type, payload = {}, destination = "LOCAL") {
+  await waitForObrReady();
+  await lib_default.broadcast.sendMessage(
+    MOVE_TOOL_CHANNEL,
+    { type, payload },
+    { destination }
+  );
+}
+async function subscribeMoveToolMessages(listener) {
+  await waitForObrReady();
+  let active = true;
+  const unsubscribe = lib_default.broadcast.onMessage(MOVE_TOOL_CHANNEL, (event) => {
+    if (!active) return;
+    const data = event?.data ?? {};
+    listener({
+      type: String(data?.type ?? "").trim(),
+      payload: data?.payload ?? {},
+      connectionId: event?.connectionId ?? ""
+    });
+  });
+  return () => {
+    active = false;
+    unsubscribe?.();
+  };
+}
+
+// movement/moveToolController.js
+var TOOL_ID = "odyssey-move";
+var MODE_ID = "move-character";
+function createToolIcon() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="12" fill="#162338"/>
+      <path d="M18 42c4-10 12-17 24-22" fill="none" stroke="#ff6b6b" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="20" cy="44" r="6" fill="#ffd166"/>
+      <circle cx="42" cy="24" r="6" fill="#4ecdc4"/>
+      <path d="M40 13l8 8-8 8" fill="none" stroke="#f8fafc" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+function ensureArray2(value) {
+  return Array.isArray(value) ? value : [];
+}
+function createInitialState() {
+  return {
+    player: null,
+    settings: null,
+    active: false,
+    pending: false,
+    encounterId: "",
+    tokenId: "",
+    characterId: "",
+    characterName: "",
+    stateVersion: 0,
+    movementVersion: 0,
+    moveCurrent: 0,
+    moveMax: 0,
+    grid: null,
+    originCell: null,
+    originScene: null,
+    preview: null,
+    previewCreated: false
+  };
+}
+function buildStatus(state, extras = {}) {
+  const preview = state.preview ?? null;
+  return {
+    active: state.active,
+    pending: state.pending,
+    encounterId: state.encounterId,
+    tokenId: state.tokenId,
+    characterId: state.characterId,
+    characterName: state.characterName,
+    moveCurrent: state.moveCurrent,
+    moveMax: state.moveMax,
+    stateVersion: state.stateVersion,
+    movementVersion: state.movementVersion,
+    tacticalGrid: state.grid,
+    preview: preview ? {
+      cell_q: preview.cell.q,
+      cell_r: preview.cell.r,
+      scene_x: preview.scene.x,
+      scene_y: preview.scene.y,
+      distanceCells: preview.distanceCells,
+      moveCostM: preview.moveCostM,
+      remainingMoveM: preview.remainingMoveM,
+      inRange: preview.inRange
+    } : null,
+    ...extras
+  };
+}
+function extractParticipant(runtime, characterId, tokenId) {
+  const participants = ensureArray2(runtime?.visible_participants);
+  return participants.find((participant) => {
+    const participantCharacterId = String(participant?.character_id ?? "").trim();
+    const participantTokenId = String(participant?.token_id ?? "").trim();
+    return participantCharacterId && participantCharacterId === characterId || participantTokenId && tokenId && participantTokenId === tokenId;
+  }) ?? null;
+}
+function resolvePreviewIds(playerId = "") {
+  const safe = String(playerId || "viewer").replace(/[^a-z0-9_-]/gi, "_");
+  return {
+    lineId: `odyssey-move-preview-line-${safe}`,
+    labelId: `odyssey-move-preview-label-${safe}`
+  };
+}
+function buildPreviewLabel(preview) {
+  if (!preview) return "";
+  if (!preview.inRange) {
+    return `${preview.moveCostM} m | \u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E MOVE`;
+  }
+  return `${preview.moveCostM} m | \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ${preview.remainingMoveM} m`;
+}
+function buildLineItem(ids, from, to) {
+  return buildLine().id(ids.lineId).name("Odyssey Move Preview").layer("POINTER").locked(true).disableHit(true).startPosition(from).endPosition(to).strokeColor("#ff6b6b").strokeOpacity(0.95).strokeWidth(6).strokeDash([10, 8]).build();
+}
+function buildLabelItem(ids, preview) {
+  return buildText().id(ids.labelId).name("Odyssey Move Preview Label").layer("TEXT").locked(true).disableHit(true).position({ x: preview.scene.x + 10, y: preview.scene.y - 16 }).plainText(buildPreviewLabel(preview)).fontSize(18).fontWeight(700).padding(8).textAlign("LEFT").textAlignVertical("MIDDLE").fillColor(preview.inRange ? "#b9ffd1" : "#ffd5d5").fillOpacity(1).strokeColor("#08111f").strokeOpacity(0.85).strokeWidth(5).build();
+}
+function setupTacticalMoveTool({ runtime }) {
+  const combatApi = runtime?.api?.combat;
+  if (!combatApi) {
+    addDiagnosticEntry("error", "Tactical move init failed", "Combat API is unavailable.");
+    return {
+      dispose() {
+      }
+    };
+  }
+  const state = createInitialState();
+  const ids = { lineId: "", labelId: "" };
+  let unsubscribeBroadcast = null;
+  let unsubscribeSceneItems = null;
+  let disposed = false;
+  async function notify2(message, variant = "INFO") {
+    try {
+      await lib_default.notification.show(message, variant);
+    } catch {
+    }
+  }
+  async function publishStatus(extras = {}) {
+    try {
+      await publishMoveToolEvent(MOVE_TOOL_EVENTS.Status, buildStatus(state, extras));
+    } catch {
+    }
+  }
+  async function clearPreview() {
+    if (!ids.lineId || !ids.labelId) return;
+    try {
+      await lib_default.scene.local.deleteItems([ids.lineId, ids.labelId]);
+    } catch {
+    }
+    state.preview = null;
+    state.previewCreated = false;
+  }
+  async function updatePreview(preview) {
+    state.preview = preview;
+    if (!ids.lineId || !ids.labelId) {
+      const nextIds = resolvePreviewIds(state.player?.id);
+      ids.lineId = nextIds.lineId;
+      ids.labelId = nextIds.labelId;
+    }
+    const line = buildLineItem(ids, state.originScene, preview.scene);
+    const label = buildLabelItem(ids, preview);
+    try {
+      if (!state.previewCreated) {
+        await lib_default.scene.local.addItems([line, label]);
+        state.previewCreated = true;
+      } else {
+        await lib_default.scene.local.updateItems([ids.lineId, ids.labelId], (items) => {
+          for (const item of items) {
+            if (item.id === ids.lineId && item.type === "LINE") {
+              item.startPosition = line.startPosition;
+              item.endPosition = line.endPosition;
+              item.style = line.style;
+            }
+            if (item.id === ids.labelId && item.type === "TEXT") {
+              item.position = label.position;
+              item.text = label.text;
+              item.metadata = label.metadata;
+            }
+          }
+        });
+      }
+    } catch (error) {
+      const normalized = normalizeError(error, "Unable to update move preview.");
+      addDiagnosticEntry("error", "Move preview failed", normalized.message);
+    }
+    await publishStatus();
+  }
+  async function loadRuntimeForSelection(characterId, tokenId) {
+    state.settings = await loadRoomSupabaseSettings();
+    if (!hasSupabaseSettings(state.settings)) {
+      throw new Error("Supabase room settings are not configured.");
+    }
+    state.player = await getPlayerInfo();
+    const roomContext = await getRoomSceneContext();
+    const runtimeResponse = await combatApi.getActiveRuntime(
+      {
+        campaign_id: roomContext.campaignId,
+        room_id: roomContext.roomId,
+        scene_id: roomContext.sceneId,
+        actor_player_id: state.player.id,
+        actor_is_gm: state.player.role === "GM",
+        include_hidden: state.player.role === "GM"
+      },
+      state.settings
+    );
+    if (runtimeResponse?.ok === false) {
+      throw new Error(runtimeResponse?.message || "Unable to read active encounter runtime.");
+    }
+    return { roomContext, runtimeResponse };
+  }
+  async function prepareFromSelectedToken(reason = "manual") {
+    const selectedTokens = await getSelectedOwlbearTokens();
+    if (selectedTokens.length !== 1) {
+      await clearPreview();
+      state.active = false;
+      await publishStatus({ error: "Select exactly one linked token before using Move." });
+      await notify2("Select exactly one linked token before using Move.", "WARNING");
+      return false;
+    }
+    const token = selectedTokens[0];
+    const link = getTokenCharacterLink(token);
+    const characterId = String(link.characterId ?? "").trim();
+    if (!characterId) {
+      await clearPreview();
+      state.active = false;
+      await publishStatus({ error: "The selected token is not linked to a character." });
+      await notify2("The selected token is not linked to a character.", "WARNING");
+      return false;
+    }
+    try {
+      const { runtimeResponse } = await loadRuntimeForSelection(characterId, String(token.id ?? "").trim());
+      const encounter = runtimeResponse?.encounter;
+      if (!encounter?.id) {
+        throw new Error("This character is not part of an active encounter.");
+      }
+      const participant = extractParticipant(runtimeResponse, characterId, String(token.id ?? "").trim());
+      if (!participant) {
+        throw new Error("No active encounter participant matches the selected token.");
+      }
+      if (!participant?.control?.allowed) {
+        throw new Error("You cannot control this character right now.");
+      }
+      if (!participant?.is_current_turn) {
+        throw new Error("It is not this character's turn.");
+      }
+      const tacticalGrid = normalizeTacticalGridSettings(runtimeResponse?.tactical_grid);
+      if (!tacticalGrid) {
+        throw new Error("The tactical grid has not been synced by the GM yet.");
+      }
+      const originPosition = participant?.position ?? null;
+      if (!originPosition) {
+        throw new Error("This token position has not been synced by the GM yet.");
+      }
+      state.active = true;
+      state.pending = false;
+      state.encounterId = String(encounter.id ?? "").trim();
+      state.tokenId = String(participant.token_id ?? token.id ?? "").trim();
+      state.characterId = characterId;
+      state.characterName = String(participant.display_name ?? token.name ?? characterId).trim();
+      state.stateVersion = Number(runtimeResponse?.state_version ?? encounter?.state_version ?? 0) || 0;
+      state.movementVersion = Number(participant?.movement_version ?? 0) || 0;
+      state.moveCurrent = Number(participant?.move_current ?? 0) || 0;
+      state.moveMax = Number(participant?.move_max ?? 0) || 0;
+      state.grid = tacticalGrid;
+      state.originCell = {
+        q: Number(originPosition.cell_q ?? 0) || 0,
+        r: Number(originPosition.cell_r ?? 0) || 0
+      };
+      state.originScene = {
+        x: Number(originPosition.scene_x ?? token.position?.x ?? 0) || 0,
+        y: Number(originPosition.scene_y ?? token.position?.y ?? 0) || 0
+      };
+      await clearPreview();
+      await publishStatus({ reason });
+      await publishMoveToolEvent(MOVE_TOOL_EVENTS.Activated, buildStatus(state, { reason }));
+      return true;
+    } catch (error) {
+      const message = toErrorMessage(error, "Unable to prepare movement for the selected token.");
+      state.active = false;
+      state.pending = false;
+      await clearPreview();
+      await publishStatus({ error: message, reason });
+      await publishMoveToolEvent(MOVE_TOOL_EVENTS.Error, { message, reason });
+      await notify2(message, "WARNING");
+      return false;
+    }
+  }
+  function buildPreviewFromPosition(snappedPosition) {
+    if (!state.active || !state.grid || !state.originCell || !state.originScene) return null;
+    const cell = sceneToCell(state.grid, snappedPosition);
+    if (!cell) return null;
+    const distanceCells = computeDistanceCells(state.grid, state.originCell, cell);
+    const moveCostM = distanceCells * state.grid.metersPerCell;
+    const remainingMoveM = state.moveCurrent - moveCostM;
+    return {
+      cell,
+      scene: { x: Number(snappedPosition.x) || 0, y: Number(snappedPosition.y) || 0 },
+      distanceCells,
+      moveCostM,
+      remainingMoveM,
+      inRange: remainingMoveM >= 0
+    };
+  }
+  async function applyMove(preview) {
+    if (!preview || !state.active || state.pending) return;
+    state.pending = true;
+    await publishStatus();
+    try {
+      const result = await combatApi.moveCharacter(
+        {
+          encounter_id: state.encounterId,
+          character_id: state.characterId,
+          token_id: state.tokenId,
+          expected_state_version: state.stateVersion,
+          expected_movement_version: state.movementVersion,
+          actor_player_id: state.player?.id ?? "",
+          actor_is_gm: state.player?.role === "GM",
+          destination: {
+            cell_q: preview.cell.q,
+            cell_r: preview.cell.r,
+            scene_x: preview.scene.x,
+            scene_y: preview.scene.y
+          }
+        },
+        state.settings
+      );
+      if (!result || result.ok === false) {
+        const message = String(result?.message ?? result?.error ?? "Unable to move character.");
+        if (result?.runtime) {
+          const participant = extractParticipant(result.runtime, state.characterId, state.tokenId);
+          if (participant?.position) {
+            state.stateVersion = Number(result.runtime?.state_version ?? state.stateVersion) || state.stateVersion;
+            state.movementVersion = Number(participant.movement_version ?? state.movementVersion) || state.movementVersion;
+            state.moveCurrent = Number(participant.move_current ?? state.moveCurrent) || state.moveCurrent;
+            state.moveMax = Number(participant.move_max ?? state.moveMax) || state.moveMax;
+            state.originCell = {
+              q: Number(participant.position.cell_q ?? state.originCell?.q ?? 0) || 0,
+              r: Number(participant.position.cell_r ?? state.originCell?.r ?? 0) || 0
+            };
+            state.originScene = {
+              x: Number(participant.position.scene_x ?? state.originScene?.x ?? 0) || 0,
+              y: Number(participant.position.scene_y ?? state.originScene?.y ?? 0) || 0
+            };
+          }
+        }
+        await clearPreview();
+        state.pending = false;
+        await publishStatus({ error: message });
+        await publishMoveToolEvent(MOVE_TOOL_EVENTS.Error, { message, code: result?.error ?? "" });
+        await notify2(message, result?.error === "STATE_VERSION_CONFLICT" ? "WARNING" : "ERROR");
+        return;
+      }
+      const nextPosition = result?.position ?? {};
+      await lib_default.scene.items.updateItems([state.tokenId], (items) => {
+        for (const item of items) {
+          item.position = {
+            x: Number(nextPosition.scene_x ?? preview.scene.x) || 0,
+            y: Number(nextPosition.scene_y ?? preview.scene.y) || 0
+          };
+        }
+      });
+      state.originCell = {
+        q: Number(nextPosition.cell_q ?? preview.cell.q) || 0,
+        r: Number(nextPosition.cell_r ?? preview.cell.r) || 0
+      };
+      state.originScene = {
+        x: Number(nextPosition.scene_x ?? preview.scene.x) || 0,
+        y: Number(nextPosition.scene_y ?? preview.scene.y) || 0
+      };
+      state.moveCurrent = Number(result.move_current ?? state.moveCurrent) || 0;
+      state.movementVersion = Number(result.movement_version ?? state.movementVersion) || 0;
+      state.stateVersion = Number(result.state_version ?? state.stateVersion) || 0;
+      state.pending = false;
+      await clearPreview();
+      await publishStatus({ applied: true });
+      await publishMoveToolEvent(MOVE_TOOL_EVENTS.Applied, {
+        ...buildStatus(state, { applied: true }),
+        runtime: result.runtime ?? null
+      });
+      await notify2(
+        result.move_cost_m > 0 ? `${state.characterName} moved ${result.move_cost_m} m.` : `${state.characterName} position confirmed.`,
+        "SUCCESS"
+      );
+    } catch (error) {
+      state.pending = false;
+      await clearPreview();
+      const normalized = normalizeError(error, "Unable to move character.");
+      addDiagnosticEntry("error", "Move RPC failed", normalized.message);
+      await publishStatus({ error: normalized.message });
+      await publishMoveToolEvent(MOVE_TOOL_EVENTS.Error, { message: normalized.message });
+      await notify2(normalized.message, "ERROR");
+    }
+  }
+  async function cancelMove(reason = "cancelled") {
+    state.active = false;
+    state.pending = false;
+    await clearPreview();
+    await publishStatus({ reason });
+    await publishMoveToolEvent(MOVE_TOOL_EVENTS.Cancelled, { reason });
+  }
+  async function handleToolMove(_context, event) {
+    if (!state.active || state.pending || !state.grid) return;
+    const snapped = await snapScenePosition(event.pointerPosition, 1);
+    const preview = buildPreviewFromPosition(snapped);
+    if (!preview) return;
+    await updatePreview(preview);
+  }
+  async function handleToolClick(_context, event) {
+    if (!state.active || state.pending || !state.grid) {
+      return;
+    }
+    const snapped = await snapScenePosition(event.pointerPosition, 1);
+    const preview = buildPreviewFromPosition(snapped);
+    if (!preview) return;
+    if (!preview.inRange) {
+      await updatePreview(preview);
+      await notify2("\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E MOVE", "WARNING");
+      return;
+    }
+    await applyMove(preview);
+  }
+  async function handleToolActivate() {
+    await prepareFromSelectedToken("tool-activate");
+  }
+  async function handleToolDeactivate() {
+    await cancelMove("tool-deactivate");
+  }
+  async function handleSceneItemsChanged(items) {
+    if (!state.active || !state.tokenId) return;
+    const exists = ensureArray2(items).some((item) => String(item?.id ?? "").trim() === state.tokenId);
+    if (!exists) {
+      await cancelMove("token-missing");
+    }
+  }
+  async function handleBroadcastMessage(message) {
+    switch (message.type) {
+      case MOVE_TOOL_COMMANDS.RequestStatus:
+        await publishStatus({ reason: "status-request" });
+        break;
+      case MOVE_TOOL_COMMANDS.Cancel:
+        await cancelMove("broadcast-cancel");
+        break;
+      case MOVE_TOOL_COMMANDS.ActivateSelected:
+        if (await prepareFromSelectedToken("broadcast-activate")) {
+          await lib_default.tool.activateTool(TOOL_ID);
+          await lib_default.tool.activateMode(TOOL_ID, MODE_ID);
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  async function registerTool() {
+    await waitForObrReady();
+    ids.lineId = resolvePreviewIds((await getPlayerInfo())?.id).lineId;
+    ids.labelId = resolvePreviewIds((await getPlayerInfo())?.id).labelId;
+    try {
+      await lib_default.tool.removeMode(MODE_ID);
+    } catch {
+    }
+    try {
+      await lib_default.tool.remove(TOOL_ID);
+    } catch {
+    }
+    await lib_default.tool.create({
+      id: TOOL_ID,
+      icons: [{ icon: createToolIcon(), label: "Move" }],
+      defaultMode: MODE_ID,
+      defaultMetadata: { extension: "odyssey" }
+    });
+    await lib_default.tool.createMode({
+      id: MODE_ID,
+      icons: [{ icon: createToolIcon(), label: "Move" }],
+      onToolMove: handleToolMove,
+      onToolClick: handleToolClick,
+      onActivate: handleToolActivate,
+      onDeactivate: handleToolDeactivate,
+      onKeyDown: async (_context, event) => {
+        if (event.key === "Escape") {
+          await cancelMove("escape");
+        }
+      }
+    });
+    addDiagnosticEntry("info", "Tactical move tool ready", `tool=${TOOL_ID} mode=${MODE_ID}`);
+  }
+  async function start() {
+    try {
+      await registerTool();
+      unsubscribeBroadcast = await subscribeMoveToolMessages(handleBroadcastMessage);
+      unsubscribeSceneItems = await subscribeSceneItems(handleSceneItemsChanged);
+      await publishStatus({ ready: true });
+    } catch (error) {
+      const normalized = normalizeError(error, "Unable to initialize tactical move tool.");
+      addDiagnosticEntry("error", "Tactical move init failed", normalized.message);
+    }
+  }
+  void start();
+  return {
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      unsubscribeBroadcast?.();
+      unsubscribeSceneItems?.();
+      await cancelMove("dispose");
+      try {
+        await lib_default.tool.removeMode(MODE_ID);
+      } catch {
+      }
+      try {
+        await lib_default.tool.remove(TOOL_ID);
+      } catch {
+      }
+    }
+  };
+}
+
 // background.js
 async function bootstrapBackgroundShell() {
+  const runtime = createOdysseyRuntime();
   setupCombatHudOverlay();
+  setupTacticalMoveTool({ runtime });
   await waitForObrReady();
   const [player, roomContext, settings] = await Promise.all([
     getPlayerInfo(),
@@ -3873,6 +6490,7 @@ async function bootstrapBackgroundShell() {
     loadRoomSupabaseSettings()
   ]);
   globalThis.OdysseyBackgroundBridge = {
+    runtime,
     player,
     roomContext,
     settings,

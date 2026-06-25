@@ -9,6 +9,22 @@ export function performAttack(payload, settings) {
   );
 }
 
+export function moveCharacter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.moveCharacter,
+    { p_payload: payload ?? {} },
+    settings,
+  );
+}
+
+export function syncPositionsFromOwlbear(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.syncPositionsFromOwlbear,
+    { p_payload: payload ?? {} },
+    settings,
+  );
+}
+
 export function startEncounter(payload, settings) {
   return callSupabaseRpc(
     COMBAT_RPC_NAMES.startEncounter,

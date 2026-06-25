@@ -11,6 +11,13 @@ import {
   resolveEffectiveSettings,
 } from "../resolveAttack/resolveAttackSettings.js";
 import { getRealtimeClient } from "../../bridge/realtimeClient.js";
+import { normalizeDistanceMode, normalizeObrGridType, sceneToCell, sameCell } from "../../movement/gridMath.js";
+import {
+  MOVE_TOOL_COMMANDS,
+  MOVE_TOOL_EVENTS,
+  sendMoveToolCommand,
+  subscribeMoveToolMessages,
+} from "../../movement/moveToolBridge.js";
 
 /* canonical attribute codes in display order (psionics and perception swapped vs alphabetical) */
 const ATTR_RU = {
@@ -127,10 +134,79 @@ export function mountCharacterScreen({ root, runtime }) {
     queuedRefresh: null,
     realtimeRefreshPending: null,
     realtimeRefreshTimer: null,
+    selectedToken: null,
+    moveToolStatus: null,
+    tacticalSnapshot: null,
+    uiSubscriptions: [],
   };
 
   const settings = () => state.settings;
   const isGM = () => (state.devRole === "GM" ? true : state.devRole === "PLAYER" ? false : state.role === "GM");
+
+  async function refreshSelectedTokenContext() {
+    const tokens = await withTimeout(bridges.obr?.getSelectedOwlbearTokens?.(), OBR_TIMEOUT, []);
+    const token = arr(tokens)[0] ?? null;
+    if (!token) {
+      state.selectedToken = null;
+      render();
+      return;
+    }
+    const link = bridges.token?.getTokenCharacterLink?.(token) ?? { characterId: "" };
+    state.selectedToken = {
+      id: String(token.id ?? "").trim(),
+      name: String(token.name ?? "").trim(),
+      position: token.position ?? null,
+      layer: String(token.layer ?? "").trim(),
+      link,
+    };
+    render();
+  }
+
+  async function refreshTacticalSnapshot(forceRender = false) {
+    if (!state.characterId || !bridges.obr?.getRoomSceneContext || !api.combat?.getActiveRuntime) {
+      state.tacticalSnapshot = null;
+      if (forceRender) render();
+      return;
+    }
+    try {
+      const [player, context] = await Promise.all([
+        withTimeout(bridges.obr.getPlayerInfo?.(), OBR_TIMEOUT, null),
+        withTimeout(bridges.obr.getRoomSceneContext?.(), OBR_TIMEOUT, null),
+      ]);
+      if (!context?.roomId || !context?.sceneId || !hasUsableSettings(settings())) {
+        state.tacticalSnapshot = null;
+        if (forceRender) render();
+        return;
+      }
+      const runtimeRes = await api.combat.getActiveRuntime(
+        {
+          campaign_id: context.campaignId,
+          room_id: context.roomId,
+          scene_id: context.sceneId,
+          actor_player_id: player?.id ?? "",
+          actor_is_gm: String(player?.role ?? "").toUpperCase() === "GM",
+          include_hidden: String(player?.role ?? "").toUpperCase() === "GM",
+        },
+        settings(),
+      ).catch(() => null);
+      const participants = arr(runtimeRes?.visible_participants);
+      const participant = participants.find((row) => String(row?.character_id ?? "").trim() === state.characterId) ?? null;
+      if (!runtimeRes?.encounter?.id || !participant) {
+        state.tacticalSnapshot = null;
+      } else {
+        state.tacticalSnapshot = {
+          encounterId: String(runtimeRes.encounter.id ?? "").trim(),
+          stateVersion: Number(runtimeRes.state_version ?? runtimeRes.encounter?.state_version ?? 0) || 0,
+          grid: normalizeTacticalGridSettings(runtimeRes.tactical_grid),
+          participant,
+          runtime: runtimeRes,
+        };
+      }
+    } catch {
+      state.tacticalSnapshot = null;
+    }
+    if (forceRender) render();
+  }
 
   /* ---- detect role (best-effort; OBR may be absent) ---- */
   (async () => {
@@ -145,6 +221,42 @@ export function mountCharacterScreen({ root, runtime }) {
       }
       render();
     }
+  })();
+
+  void (async () => {
+    const subs = [];
+    const safePush = (unsubscribe) => {
+      if (typeof unsubscribe === "function") subs.push(unsubscribe);
+    };
+    safePush(await bridges.obr?.subscribePlayerChanges?.(() => {
+      refreshSelectedTokenContext().catch(() => {});
+    }));
+    safePush(await bridges.obr?.subscribeSceneItems?.(() => {
+      refreshSelectedTokenContext().catch(() => {});
+    }));
+    safePush(await subscribeMoveToolMessages((event) => {
+      if (event.type === MOVE_TOOL_EVENTS.Status || event.type === MOVE_TOOL_EVENTS.Activated || event.type === MOVE_TOOL_EVENTS.Cancelled) {
+        state.moveToolStatus = event.payload ?? null;
+        render();
+      }
+      if (event.type === MOVE_TOOL_EVENTS.Applied) {
+        state.moveToolStatus = event.payload ?? null;
+        if (state.characterId && event.payload?.characterId === state.characterId) {
+          refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: false }).catch(() => {});
+        } else {
+          render();
+        }
+      }
+      if (event.type === MOVE_TOOL_EVENTS.Error) {
+        if (state.moveToolStatus) {
+          state.moveToolStatus = { ...state.moveToolStatus, error: event.payload?.message ?? "" };
+        }
+        render();
+      }
+    }));
+    state.uiSubscriptions = subs;
+    await refreshSelectedTokenContext().catch(() => {});
+    await sendMoveToolCommand(MOVE_TOOL_COMMANDS.RequestStatus).catch(() => {});
   })();
 
   /* ---- data adapters ---- */
@@ -213,6 +325,7 @@ export function mountCharacterScreen({ root, runtime }) {
       patch.armor_summary = combat.armor_summary ?? null;
       patch.combat_flags  = combat.combat_flags ?? {};
     }
+    if (s.combat_session !== undefined)      patch.combat_session = s.combat_session ?? null;
     if (s.skills !== undefined)               patch.skills        = arr(s.skills);
     if (s.abilities?.resource_pools !== undefined) patch.resource_pools = arr(s.abilities.resource_pools);
     if (bundle.state?.status_summary !== undefined) patch.status_summary = bundle.state.status_summary;
@@ -222,7 +335,7 @@ export function mountCharacterScreen({ root, runtime }) {
       ? { ...state.sheet, ...patch }
       : { attributes: [], body_parts: [], skills: [], resource_pools: [],
           is_alive: true, is_conscious: true, status_summary: "",
-          armor_summary: null, combat_flags: {}, ...patch };
+          armor_summary: null, combat_flags: {}, combat_session: null, ...patch };
 
     if (s.abilities) {
       state.abilities = arr(s.abilities.abilities);
@@ -282,7 +395,7 @@ export function mountCharacterScreen({ root, runtime }) {
     return resolved.settings;
   }
 
-  const ALL_SECTIONS = ["summary", "combat", "attributes", "skills", "perks", "equipment", "inventory", "abilities", "effects"];
+  const ALL_SECTIONS = ["summary", "combat", "combat_session", "attributes", "skills", "perks", "equipment", "inventory", "abilities", "effects"];
   const DEFAULT_REFRESH = { sheet: true, armory: true, equipment: true, inventory: true, abilities: false, perkAvailability: false };
 
   function mergeRefreshOptions(base = {}, extra = {}) {
@@ -327,6 +440,7 @@ export function mountCharacterScreen({ root, runtime }) {
       state.perkAvailability = gmMode && availablePerksResult?.ok ? arr(availablePerksResult.perks) : [];
       state.pinnedPartId = "";
       setupRealtimeSubscriptions(id);
+      await refreshTacticalSnapshot();
     } catch (e) {
       state.error = e.message;
     } finally {
@@ -341,7 +455,7 @@ export function mountCharacterScreen({ root, runtime }) {
     if (!id) return;
     const { sheet, armory, equipment, inventory, abilities, perkAvailability } = options;
     const sections = [
-      ...(sheet ? ["summary", "combat", "attributes", "skills"] : []),
+      ...(sheet ? ["summary", "combat", "combat_session", "attributes", "skills"] : []),
       ...(sheet ? ["perks"] : []),
       ...(equipment ? ["equipment"] : []),
       ...(inventory ? ["inventory"] : []),
@@ -359,6 +473,9 @@ export function mountCharacterScreen({ root, runtime }) {
     if (perksResult?.ok) state.perks = arr(perksResult.perks);
     if (perkAvailability) {
       state.perkAvailability = isGM() && availablePerksResult?.ok ? arr(availablePerksResult.perks) : [];
+    }
+    if (sheet) {
+      await refreshTacticalSnapshot();
     }
     render();
   }
@@ -653,6 +770,201 @@ export function mountCharacterScreen({ root, runtime }) {
     }
   }
 
+  async function buildOwlbearTacticalGridPayload() {
+    const grid = await withTimeout(bridges.obr?.getSceneGrid?.(), OBR_TIMEOUT, null);
+    if (!grid) {
+      throw new Error("Owlbear grid is not available.");
+    }
+    const gridType = normalizeObrGridType(grid.type);
+    const distanceMode = normalizeDistanceMode(grid.type, grid.measurement);
+    if (!gridType || !distanceMode || !(Number(grid.dpi) > 0)) {
+      throw new Error("Only Square, Hex Vertical, and Hex Horizontal grids are supported for tactical movement.");
+    }
+    const anchor = await withTimeout(
+      bridges.obr?.snapScenePosition?.({ x: 0, y: 0 }, 1),
+      OBR_TIMEOUT,
+      null,
+    );
+    if (!anchor) {
+      throw new Error("Unable to resolve tactical grid anchor from Owlbear.");
+    }
+    const metersPerCell = Math.max(1, Math.round(Number(grid?.scale?.parsed?.multiplier ?? 1) || 1));
+    return {
+      grid_type: gridType,
+      distance_mode: distanceMode,
+      meters_per_cell: metersPerCell,
+      anchor_scene_x: Number(anchor.x) || 0,
+      anchor_scene_y: Number(anchor.y) || 0,
+      grid_dpi: Number(grid.dpi) || 0,
+    };
+  }
+
+  function getLoadedCharacterParticipant() {
+    return state.tacticalSnapshot?.participant ?? null;
+  }
+
+  function getSelectedTokenForLoadedCharacter() {
+    if (!state.selectedToken) return null;
+    return String(state.selectedToken?.link?.characterId ?? "").trim() === state.characterId
+      ? state.selectedToken
+      : null;
+  }
+
+  function getTokenPositionMismatch() {
+    const participant = getLoadedCharacterParticipant();
+    const selectedToken = getSelectedTokenForLoadedCharacter();
+    const grid = state.tacticalSnapshot?.grid ?? null;
+    const participantPosition = participant?.position ?? null;
+    if (!participantPosition || !selectedToken?.position || !grid) return false;
+    const selectedCell = sceneToCell(grid, selectedToken.position);
+    if (!selectedCell) return false;
+    return !sameCell(selectedCell, {
+      q: participantPosition.cell_q,
+      r: participantPosition.cell_r,
+    });
+  }
+
+  async function syncTacticalGrid(selectedOnly = false) {
+    if (!isGM()) {
+      setNotice("err", "Only the GM can sync tactical positions.");
+      render();
+      return;
+    }
+    const snapshot = state.tacticalSnapshot;
+    if (!snapshot?.encounterId) {
+      setNotice("err", "No active encounter is loaded for this character.");
+      render();
+      return;
+    }
+    const selectedForCharacter = getSelectedTokenForLoadedCharacter();
+    if (selectedOnly && !selectedForCharacter) {
+      setNotice("err", "Select this character's token in Owlbear before syncing its position.");
+      render();
+      return;
+    }
+    state.busy = true;
+    render();
+    try {
+      await ensureSettings();
+      const [context, player] = await Promise.all([
+        withTimeout(bridges.obr?.getRoomSceneContext?.(), OBR_TIMEOUT, null),
+        withTimeout(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null),
+      ]);
+      const [sceneItems, gridPayload, runtimeRes] = await Promise.all([
+        withTimeout(bridges.obr?.getSceneItems?.(), OBR_TIMEOUT, []),
+        buildOwlbearTacticalGridPayload(),
+        api.combat.getActiveRuntime(
+          {
+            campaign_id: context?.campaignId ?? "",
+            room_id: context?.roomId ?? "",
+            scene_id: context?.sceneId ?? "",
+            actor_player_id: player?.id ?? "",
+            actor_is_gm: true,
+            include_hidden: true,
+          },
+          settings(),
+        ),
+      ]);
+      if (!context?.roomId || !context?.sceneId || !runtimeRes?.encounter?.id) {
+        throw new Error("Unable to resolve the active encounter context.");
+      }
+      const itemById = new Map(arr(sceneItems).map((item) => [String(item?.id ?? "").trim(), item]));
+      const participants = arr(runtimeRes.visible_participants).filter((participant) => {
+        if (!participant?.token_id || !participant?.character_id) return false;
+        if (selectedOnly) {
+          return String(participant.character_id ?? "").trim() === state.characterId;
+        }
+        return true;
+      });
+      const positions = [];
+      for (const participant of participants) {
+        const item = itemById.get(String(participant.token_id ?? "").trim());
+        if (!item) continue;
+        const snapped = await withTimeout(bridges.obr?.snapScenePosition?.(item.position, 1), OBR_TIMEOUT, null);
+        if (!snapped) continue;
+        const cell = sceneToCell(gridPayload, snapped);
+        if (!cell) continue;
+        positions.push({
+          character_id: participant.character_id,
+          token_id: participant.token_id,
+          cell_q: cell.q,
+          cell_r: cell.r,
+          scene_x: Number(snapped.x) || 0,
+          scene_y: Number(snapped.y) || 0,
+        });
+      }
+      if (!positions.length) {
+        throw new Error("No linked encounter tokens were available to sync.");
+      }
+      const result = await api.combat.syncPositionsFromOwlbear(
+        {
+          encounter_id: runtimeRes.encounter.id,
+          campaign_id: context.campaignId,
+          room_id: context.roomId,
+          scene_id: context.sceneId,
+          actor_player_id: player?.id ?? "",
+          actor_is_gm: true,
+          ...gridPayload,
+          positions,
+        },
+        settings(),
+      );
+      if (!result || result.ok === false) {
+        throw new Error(result?.message || result?.error || "Unable to sync tactical positions.");
+      }
+      setNotice("ok", selectedOnly ? "Token position synced." : `Tactical grid synced for ${positions.length} token(s).`);
+      await refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: false });
+      await refreshSelectedTokenContext();
+    } catch (error) {
+      setNotice("err", esc(toErrorMessage(error, "Unable to sync tactical positions.")));
+      render();
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+
+  function renderTacticalMoveCard() {
+    const participant = getLoadedCharacterParticipant();
+    if (!participant) return "";
+    const selectedToken = getSelectedTokenForLoadedCharacter();
+    const toolStatus = state.moveToolStatus && state.moveToolStatus.characterId === state.characterId
+      ? state.moveToolStatus
+      : null;
+    const mismatch = getTokenPositionMismatch();
+    const isCurrentTurn = !!participant.is_current_turn;
+    const moveCurrent = Number(participant.move_current ?? 0) || 0;
+    const moveMax = Number(participant.move_max ?? 0) || 0;
+    const gridReady = !!state.tacticalSnapshot?.grid;
+    const moveReady = !!selectedToken && gridReady && isCurrentTurn && !mismatch;
+    const preview = toolStatus?.preview ?? null;
+    const tokenLine = selectedToken
+      ? `${esc(selectedToken.name || "Selected token")} · ${esc(selectedToken.id.slice(0, 8))}`
+      : "Select this character's token in Owlbear to move it.";
+    return `
+      <div class="cp-section-title">Tactical move</div>
+      <div class="cp-card">
+        <div class="cp-rowitem">
+          <span>MOVE <span class="cp-mono">${moveCurrent}/${moveMax} m</span></span>
+          <span class="cp-row" style="gap:6px">
+            <span class="cp-pill ${isCurrentTurn ? "good" : ""}">${isCurrentTurn ? "Current turn" : "Waiting turn"}</span>
+            ${gridReady ? `<span class="cp-pill">grid synced</span>` : `<span class="cp-pill bad">grid not synced</span>`}
+          </span>
+        </div>
+        <div class="cp-muted" style="margin-top:6px">${tokenLine}</div>
+        ${preview ? `<div class="cp-muted" style="margin-top:6px">Preview: ${preview.moveCostM} m, remaining ${preview.remainingMoveM} m${preview.inRange ? "" : " - out of range"}</div>` : ""}
+        ${toolStatus?.error ? `<div class="cp-muted" style="margin-top:6px;color:#ff9b9b">${esc(toolStatus.error)}</div>` : ""}
+        ${mismatch ? `<div class="cp-muted" style="margin-top:6px;color:#ffd58a">Scene token position differs from Supabase. Sync it before moving.</div>` : ""}
+        <div class="button-row" style="margin-top:8px">
+          <button type="button" data-ref="startMove" ${moveReady && !state.busy ? "" : "disabled"}>Move</button>
+          <button type="button" class="secondary" data-ref="cancelMove" ${toolStatus?.active ? "" : "disabled"}>Cancel</button>
+          ${isGM() ? `<button type="button" class="secondary" data-ref="syncTacticalGrid" ${state.busy ? "disabled" : ""}>Sync tactical grid</button>` : ""}
+          ${isGM() ? `<button type="button" class="secondary" data-ref="syncTokenPosition" ${(selectedToken && !state.busy) ? "" : "disabled"}>Sync token position</button>` : ""}
+        </div>
+      </div>
+    `;
+  }
+
   /* ---- OVERVIEW: characteristics + doll ---- */
   function renderOverview() {
     const attrs = arr(state.sheet.attributes);
@@ -668,6 +980,7 @@ export function mountCharacterScreen({ root, runtime }) {
           <div class="cp-attrs">${base.map(attrCard).join("")}</div>
         </div>
       </div>
+      ${renderTacticalMoveCard()}
       ${customs.length ? `<div class="cp-section-title">Additional attributes</div><div class="cp-row">${customs.map((a) => `<span class="cp-chip">${esc(a.name || a.code)} <span class="cp-mono">${dash(a.value)}</span></span>`).join("")}</div>` : ""}
       ${renderAdditionalParts()}
       ${isGM() ? gmToolsBlock() : ""}`;
@@ -1421,6 +1734,18 @@ export function mountCharacterScreen({ root, runtime }) {
     $("retry")?.addEventListener("click", () => state.characterId && loadCharacter(state.characterId));
     $("charId")?.addEventListener("keydown", (e) => { if (e.key === "Enter") $("loadBtn").click(); });
     $("refreshCatalogsTop")?.addEventListener("click", () => refreshGmCatalogs().catch(() => {}));
+    $("startMove")?.addEventListener("click", async () => {
+      await sendMoveToolCommand(MOVE_TOOL_COMMANDS.ActivateSelected).catch(() => {});
+    });
+    $("cancelMove")?.addEventListener("click", async () => {
+      await sendMoveToolCommand(MOVE_TOOL_COMMANDS.Cancel).catch(() => {});
+    });
+    $("syncTacticalGrid")?.addEventListener("click", () => {
+      syncTacticalGrid(false).catch(() => {});
+    });
+    $("syncTokenPosition")?.addEventListener("click", () => {
+      syncTacticalGrid(true).catch(() => {});
+    });
     $("devRole")?.addEventListener("change", async (e) => {
       state.devRole = e.target.value;
       if (isGM()) {

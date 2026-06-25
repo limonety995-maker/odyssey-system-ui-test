@@ -53,6 +53,27 @@ export async function getSceneItems() {
   return ensureArray(await OBR.scene.items.getItems().catch(() => []));
 }
 
+export async function getSceneGrid() {
+  await waitForObrReady();
+  const [type, measurement, dpi, scale] = await Promise.all([
+    OBR.scene.grid.getType().catch(() => "SQUARE"),
+    OBR.scene.grid.getMeasurement().catch(() => "CHEBYSHEV"),
+    OBR.scene.grid.getDpi().catch(() => 0),
+    OBR.scene.grid.getScale().catch(() => null),
+  ]);
+  return { type, measurement, dpi, scale };
+}
+
+export async function snapScenePosition(position, snappingSensitivity = 1, useCorners = false, useCenter = false) {
+  await waitForObrReady();
+  return OBR.scene.grid.snapPosition(
+    position,
+    snappingSensitivity,
+    useCorners,
+    useCenter,
+  );
+}
+
 export async function getSelectedOwlbearTokens() {
   const [selectionIds, items] = await Promise.all([
     getSelectedTokenIds(),
@@ -105,6 +126,50 @@ export async function subscribeSceneItems(listener) {
   OBR.scene.items.onChange((items) => {
     if (!active) return;
     listener(ensureArray(items));
+  });
+  return () => {
+    active = false;
+  };
+}
+
+export async function activateTool(toolId) {
+  await waitForObrReady();
+  return OBR.tool.activateTool(toolId);
+}
+
+export async function activateToolMode(toolId, modeId) {
+  await waitForObrReady();
+  return OBR.tool.activateMode(toolId, modeId);
+}
+
+export async function getActiveTool() {
+  await waitForObrReady();
+  return OBR.tool.getActiveTool().catch(() => "");
+}
+
+export async function getActiveToolMode() {
+  await waitForObrReady();
+  return OBR.tool.getActiveToolMode().catch(() => "");
+}
+
+export async function subscribeToolChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  OBR.tool.onToolChange((toolId) => {
+    if (!active) return;
+    listener(String(toolId ?? "").trim());
+  });
+  return () => {
+    active = false;
+  };
+}
+
+export async function subscribeToolModeChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  OBR.tool.onToolModeChange((modeId) => {
+    if (!active) return;
+    listener(String(modeId ?? "").trim());
   });
   return () => {
     active = false;

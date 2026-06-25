@@ -441,7 +441,7 @@ function subscribeDiagnostics(listener) {
 }
 
 // utils/errors.js
-function toErrorMessage(error, fallback = "Unknown error.") {
+function toErrorMessage2(error, fallback = "Unknown error.") {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
   }
@@ -459,7 +459,7 @@ function toErrorMessage(error, fallback = "Unknown error.") {
 function normalizeError(error, fallback = "Unknown error.") {
   return {
     name: error instanceof Error ? error.name : "Error",
-    message: toErrorMessage(error, fallback)
+    message: toErrorMessage2(error, fallback)
   };
 }
 
@@ -529,15 +529,23 @@ function hasTokenCharacterLink(raw) {
 var obrBridge_exports = {};
 __export(obrBridge_exports, {
   OBR: () => lib_default,
+  activateTool: () => activateTool,
+  activateToolMode: () => activateToolMode,
+  getActiveTool: () => getActiveTool,
+  getActiveToolMode: () => getActiveToolMode,
   getPlayerInfo: () => getPlayerInfo,
   getRoomMetadata: () => getRoomMetadata,
   getRoomSceneContext: () => getRoomSceneContext,
+  getSceneGrid: () => getSceneGrid,
   getSceneItems: () => getSceneItems,
   getSelectedOwlbearTokens: () => getSelectedOwlbearTokens,
   getSelectedTokenIds: () => getSelectedTokenIds,
   setRoomMetadata: () => setRoomMetadata,
+  snapScenePosition: () => snapScenePosition,
   subscribePlayerChanges: () => subscribePlayerChanges,
   subscribeSceneItems: () => subscribeSceneItems,
+  subscribeToolChanges: () => subscribeToolChanges,
+  subscribeToolModeChanges: () => subscribeToolModeChanges,
   waitForObrReady: () => waitForObrReady
 });
 
@@ -3703,6 +3711,25 @@ async function getSceneItems() {
   await waitForObrReady();
   return ensureArray(await lib_default.scene.items.getItems().catch(() => []));
 }
+async function getSceneGrid() {
+  await waitForObrReady();
+  const [type, measurement, dpi, scale] = await Promise.all([
+    lib_default.scene.grid.getType().catch(() => "SQUARE"),
+    lib_default.scene.grid.getMeasurement().catch(() => "CHEBYSHEV"),
+    lib_default.scene.grid.getDpi().catch(() => 0),
+    lib_default.scene.grid.getScale().catch(() => null)
+  ]);
+  return { type, measurement, dpi, scale };
+}
+async function snapScenePosition(position, snappingSensitivity = 1, useCorners = false, useCenter = false) {
+  await waitForObrReady();
+  return lib_default.scene.grid.snapPosition(
+    position,
+    snappingSensitivity,
+    useCorners,
+    useCenter
+  );
+}
 async function getSelectedOwlbearTokens() {
   const [selectionIds, items] = await Promise.all([
     getSelectedTokenIds(),
@@ -3746,6 +3773,44 @@ async function subscribeSceneItems(listener) {
   lib_default.scene.items.onChange((items) => {
     if (!active) return;
     listener(ensureArray(items));
+  });
+  return () => {
+    active = false;
+  };
+}
+async function activateTool(toolId) {
+  await waitForObrReady();
+  return lib_default.tool.activateTool(toolId);
+}
+async function activateToolMode(toolId, modeId) {
+  await waitForObrReady();
+  return lib_default.tool.activateMode(toolId, modeId);
+}
+async function getActiveTool() {
+  await waitForObrReady();
+  return lib_default.tool.getActiveTool().catch(() => "");
+}
+async function getActiveToolMode() {
+  await waitForObrReady();
+  return lib_default.tool.getActiveToolMode().catch(() => "");
+}
+async function subscribeToolChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.tool.onToolChange((toolId) => {
+    if (!active) return;
+    listener(String(toolId ?? "").trim());
+  });
+  return () => {
+    active = false;
+  };
+}
+async function subscribeToolModeChanges(listener) {
+  await waitForObrReady();
+  let active = true;
+  lib_default.tool.onToolModeChange((modeId) => {
+    if (!active) return;
+    listener(String(modeId ?? "").trim());
   });
   return () => {
     active = false;
@@ -8486,7 +8551,7 @@ function mountCreatorMenu({
     } catch (error) {
       if (requestId !== state.requestNonce) return;
       state.loading = false;
-      state.error = toErrorMessage(error, "Unable to load creator data.");
+      state.error = toErrorMessage2(error, "Unable to load creator data.");
       onDiagnostic("error", "Creator load failed", state.error);
       render();
     }
@@ -8614,7 +8679,7 @@ function mountCreatorMenu({
       render();
     } catch (error) {
       state.loading = false;
-      state.error = toErrorMessage(error, "Unable to refresh creator list.");
+      state.error = toErrorMessage2(error, "Unable to refresh creator list.");
       onDiagnostic("error", "Creator refresh failed", state.error);
       render();
     }
@@ -8645,7 +8710,7 @@ function mountCreatorMenu({
     } catch (error) {
       if (requestId !== state.requestNonce) return;
       state.loading = false;
-      state.error = toErrorMessage(error, "Unable to open creator record.");
+      state.error = toErrorMessage2(error, "Unable to open creator record.");
       onDiagnostic("error", "Creator open failed", state.error);
       render();
     }
@@ -9009,7 +9074,7 @@ function mountCreatorMenu({
       render();
     } catch (error) {
       state.loading = false;
-      state.error = toErrorMessage(error, "Unable to save draft.");
+      state.error = toErrorMessage2(error, "Unable to save draft.");
       onDiagnostic("error", "Creator save failed", state.error);
       render();
     }
@@ -9098,7 +9163,7 @@ function mountCreatorMenu({
       render();
     } catch (error) {
       state.loading = false;
-      state.error = toErrorMessage(error, `Unable to delete ${label}.`);
+      state.error = toErrorMessage2(error, `Unable to delete ${label}.`);
       onDiagnostic("error", "Creator delete failed", state.error);
       render();
     }
@@ -9210,7 +9275,7 @@ async function parseSupabaseResponse(response, fallbackMessage) {
   const body = safeJsonParse(rawText, rawText || null);
   if (!response.ok) {
     throw new Error(
-      toErrorMessage(body, fallbackMessage || "Supabase request failed.")
+      toErrorMessage2(body, fallbackMessage || "Supabase request failed.")
     );
   }
   return body;
@@ -9240,7 +9305,7 @@ async function requestSupabase(path, options = {}) {
     addDiagnosticEntry(
       "error",
       "Supabase request failed",
-      `${method} ${path}: ${toErrorMessage(error)}`
+      `${method} ${path}: ${toErrorMessage2(error)}`
     );
     throw error;
   }
@@ -9612,7 +9677,7 @@ async function mountBridgeShell({
       render();
       creatorController?.syncAccess();
     } catch (error) {
-      addDiagnosticEntry("error", "Clear failed", toErrorMessage(error, "Unable to clear room Supabase settings."));
+      addDiagnosticEntry("error", "Clear failed", toErrorMessage2(error, "Unable to clear room Supabase settings."));
     }
   });
   buttons.testConnection.addEventListener("click", async () => {
@@ -9632,7 +9697,7 @@ async function mountBridgeShell({
     } catch (error) {
       state.connectionTest = {
         ok: false,
-        message: toErrorMessage(error, "Supabase connection test failed.")
+        message: toErrorMessage2(error, "Supabase connection test failed.")
       };
       addDiagnosticEntry(
         "error",
@@ -9646,7 +9711,7 @@ async function mountBridgeShell({
     void refreshSnapshot().then(() => {
       addDiagnosticEntry("info", "Shell status refreshed");
     }).catch((error) => {
-      addDiagnosticEntry("error", "Refresh failed", toErrorMessage(error, "Unable to refresh shell state."));
+      addDiagnosticEntry("error", "Refresh failed", toErrorMessage2(error, "Unable to refresh shell state."));
     });
   });
   buttons.clearDiagnostics.addEventListener("click", () => {
@@ -9708,6 +9773,8 @@ var WEAPON_RPC_NAMES = Object.freeze({
 });
 var COMBAT_RPC_NAMES = Object.freeze({
   performAttack: "perform_attack",
+  moveCharacter: "combat_move_character",
+  syncPositionsFromOwlbear: "combat_sync_positions_from_owlbear",
   startEncounter: "combat_start_encounter",
   addParticipant: "combat_add_participant",
   removeParticipant: "combat_remove_participant",
@@ -10051,17 +10118,33 @@ __export(combatApi_exports, {
   getCombatLog: () => getCombatLog,
   grantReactionAction: () => grantReactionAction,
   markCharacterDead: () => markCharacterDead,
+  moveCharacter: () => moveCharacter,
   performAttack: () => performAttack,
   removeParticipant: () => removeParticipant,
   reorderInitiative: () => reorderInitiative,
   skipTurn: () => skipTurn,
   spendMove: () => spendMove,
-  startEncounter: () => startEncounter
+  startEncounter: () => startEncounter,
+  syncPositionsFromOwlbear: () => syncPositionsFromOwlbear
 });
 function performAttack(payload, settings) {
   return callSupabaseRpc(
     COMBAT_RPC_NAMES.performAttack,
     { p_payload: payload },
+    settings
+  );
+}
+function moveCharacter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.moveCharacter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function syncPositionsFromOwlbear(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.syncPositionsFromOwlbear,
+    { p_payload: payload ?? {} },
     settings
   );
 }
@@ -33763,6 +33846,144 @@ function queryRefs(root2) {
 // screens/character/characterStyles.css
 var characterStyles_default = '/* Character Panel \u2014 scoped styles (prefix .cp-). Reuses shell design tokens. */\r\n.cp-screen { display: flex; flex-direction: column; gap: 14px; }\r\n.cp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }\r\n.cp-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }\r\n.cp-field > span { font-size: 11px; color: var(--muted); }\r\n.cp-mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }\r\n.cp-muted { color: var(--muted); font-size: 12px; }\r\n.cp-hidden { display: none !important; }\r\n.cp-section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 6px 0 2px; }\r\nselect, .cp-screen input { font: inherit; }\r\n.cp-screen select { width: 100%; border-radius: 10px; border: 1px solid rgba(61,92,129,.9); background: rgba(8,17,28,.9); color: var(--text); padding: 9px 11px; }\r\n\r\n/* banners */\r\n.cp-banner { border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.45; }\r\n.cp-banner.err { background: rgba(201,75,88,.16); border: 1px solid rgba(201,75,88,.4); color: #ffd9de; }\r\n.cp-banner.ok { background: rgba(62,166,255,.14); border: 1px solid rgba(62,166,255,.4); color: #d8eeff; }\r\n.cp-banner.warn { background: rgba(255,194,75,.14); border: 1px solid rgba(255,194,75,.45); color: #ffe6b3; }\r\n.cp-banner.info { background: var(--panel-soft); border: 1px solid var(--line); color: var(--muted); }\r\n\r\n/* header */\r\n.cp-head { display: flex; gap: 12px; align-items: center; }\n.cp-head-actions { display: flex; gap: 6px; align-items: center; }\n.cp-head-btn { cursor: pointer; }\n.cp-head-btn:hover { border-color: var(--accent); color: #d8eeff; }\n.cp-avatar { width: 46px; height: 46px; border-radius: 10px; background: var(--panel-soft); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--muted); font-weight: 700; flex: none; overflow: hidden; }\n.cp-avatar img { width: 100%; height: 100%; object-fit: cover; }\r\n.cp-name { font-size: 15px; font-weight: 700; }\r\n\r\n/* sub-nav */\r\n.cp-nav { display: flex; gap: 6px; flex-wrap: wrap; }\r\n.cp-tab { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--text); cursor: pointer; font-size: 12px; }\r\n.cp-tab.active { background: var(--accent-soft); border-color: var(--accent); color: #d8eeff; font-weight: 700; }\r\n.cp-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* overview layout: doll left, characteristics right (same level) */\r\n.cp-overview { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }\r\n.cp-doll-col { flex: none; }\r\n.cp-attrs-col { flex: 1; min-width: 150px; }\r\n\r\n/* clickable cards (skills, additional body parts) \u2014 clear button affordance */\r\n.cp-card[role="button"] { cursor: pointer; transition: border-color .12s, background .12s; }\r\n.cp-card[role="button"]:hover { border-color: var(--accent); background: rgba(62,166,255,.10); }\r\n.cp-card[role="button"]:active { background: rgba(62,166,255,.16); }\r\n.cp-card[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\r\n\r\n/* 3x3 characteristics \u2014 fluid squares that fill the available column */\r\n.cp-attrs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }\r\n.cp-attr { position: relative; aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(21,34,53,.88); border: 1px solid var(--line); border-radius: 6px; padding: 2px; text-align: center; cursor: pointer; transition: border-color .12s, background .12s; }\n.cp-attr:hover { border-color: var(--accent); }\n.cp-attr:active { background: rgba(62,166,255,.1); }\n.cp-attr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n.cp-attr[aria-disabled="true"] { opacity: .6; cursor: progress; }\n.cp-attr .cp-attr-val { font-size: 26px; font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; line-height: 1; margin: 0 0 1px; }\n.cp-attr .cp-attr-code { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }\n.cp-attr .cp-attr-mod { position: absolute; right: 3px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 700; line-height: 1; padding: 1px 4px; border-radius: 999px; border: 1px solid transparent; }\n.cp-attr .cp-attr-mod-pos { top: 3px; color: #d9ffe4; background: rgba(74, 180, 104, .18); border-color: rgba(74, 180, 104, .45); }\n.cp-attr .cp-attr-mod-neg { bottom: 15px; color: #ffd9de; background: rgba(201,75,88,.18); border-color: rgba(201,75,88,.45); }\n.cp-attr .cp-attr-edit { position: absolute; top: 1px; left: 1px; width: 13px; height: 13px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; padding: 0; }\n.cp-attr .cp-attr-edit:hover { color: #d8eeff; border-color: var(--accent); }\n.cp-attr .cp-attr-pending { position: absolute; bottom: 1px; left: 0; right: 0; font-size: 7px; color: var(--accent); }\n.cp-skill-edit { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: none; }\n.cp-skill-edit:hover { color: #d8eeff; border-color: var(--accent); }\n\r\n/* doll */\r\n.cp-doll-wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }\r\n.cp-doll { position: relative; flex: none; }\r\n.cp-doll .cp-part { position: absolute; cursor: pointer; border: 1px solid rgba(0,0,0,.4); }\r\n.cp-doll .cp-part:hover, .cp-doll .cp-part:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }\r\n.cp-doll .cp-part.pinned { outline: 2px solid #d8eeff; outline-offset: 2px; }\r\n.cp-doll .cp-base { position: absolute; border-radius: 50%; background: rgba(21,34,53,.9); border: 1px solid var(--line); }\r\n/* state colors */\r\n.cp-c-intact { background: #33425e; }\r\n.cp-c-warn { background: #b07e2a; }\r\n.cp-c-danger { background: #7a2a32; }\r\n\r\n/* tooltip */\r\n.cp-tip { position: absolute; z-index: 30; min-width: 180px; max-width: 240px; background: rgba(7,14,24,.98); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 11px; line-height: 1.5; pointer-events: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); }\r\n.cp-tip b { font-size: 12px; }\r\n.cp-tip .cp-kv { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); }\r\n.cp-tip .cp-kv span:last-child { color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; }\r\n.cp-statebadge { display: inline-block; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }\r\n.cp-sb-intact { background: rgba(62,166,255,.16); color: #cfe6ff; }\r\n.cp-sb-warn { background: rgba(255,194,75,.18); color: #ffe6b3; }\r\n.cp-sb-danger { background: rgba(201,75,88,.2); color: #ffd2d8; }\r\n\r\n/* inspector */\r\n.cp-inspector { flex: 1; min-width: 200px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }\r\n.cp-inspector .cp-ins-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }\r\n.cp-inspector .cp-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(39,65,95,.4); }\r\n.cp-inspector .cp-kv span:last-child { font-family: "JetBrains Mono", ui-monospace, monospace; }\r\n.cp-close { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; cursor: pointer; padding: 3px 8px; font-size: 12px; }\r\n\r\n/* cards / lists */\r\n.cp-card { background: rgba(21,34,53,.7); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }\r\n.cp-list { display: flex; flex-direction: column; gap: 8px; }\r\n.cp-rowitem { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 12px; }\r\n.cp-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-size: 10px; border: 1px solid var(--line); background: var(--panel-soft); color: var(--muted); }\r\n.cp-pill.good { border-color: rgba(62,166,255,.4); color: #cfe6ff; background: rgba(62,166,255,.12); }\n.cp-pill.bad { border-color: rgba(201,75,88,.4); color: #ffd2d8; background: rgba(201,75,88,.12); }\n.cp-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(8,17,28,.7); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 11px; }\n.cp-chip.bad { border-color: rgba(201,75,88,.5); color: #ffd9de; }\n.cp-skill-mod { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px; font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace; border: 1px solid transparent; }\n.cp-skill-mod-pos { color: #d9ffe4; background: rgba(74, 180, 104, .16); border-color: rgba(74, 180, 104, .4); }\n.cp-skill-mod-neg { color: #ffd9de; background: rgba(201,75,88,.16); border-color: rgba(201,75,88,.4); }\n\r\n/* pips for skills */\r\n.cp-pips { display: inline-flex; gap: 3px; }\r\n.cp-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }\r\n.cp-pip.on { background: var(--accent); }\r\n\r\n/* buttons reuse shell .button; small variant */\r\n.cp-btn-sm { padding: 6px 10px; font-size: 12px; }\r\n\r\n/* skeleton */\r\n.cp-skel { border-radius: 10px; background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 37%, rgba(255,255,255,.04) 63%); background-size: 400% 100%; animation: cp-shimmer 1.3s ease infinite; }\r\n@keyframes cp-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }\r\n.cp-skel-line { height: 12px; margin: 6px 0; }\r\n.cp-skel-card { height: 64px; margin: 6px 0; }\r\n@media (prefers-reduced-motion: reduce) { .cp-skel { animation: none; } }\r\n\r\n/* dialog/popover */\r\n.cp-overlay { position: fixed; inset: 0; background: rgba(4,8,14,.6); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }\r\n.cp-dialog { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }\r\n.cp-dialog h3 { margin: 0 0 10px; font-size: 14px; }\r\n\r\n.cp-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }\r\n.cp-additional { margin-top: 8px; }\r\n\r\n/* pool chip with GM +/- buttons */\r\n.cp-chip.cp-pool-gm { padding: 2px 4px; gap: 3px; }\r\n.cp-pool-adj { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 5px; cursor: pointer; width: 20px; height: 20px; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }\r\n.cp-pool-adj:hover:not(:disabled) { color: #d8eeff; border-color: var(--accent); }\r\n.cp-pool-adj:disabled { opacity: .4; cursor: default; }\r\n\r\n/* edit dialog stepper */\r\n.cp-dlg-stepper { display: flex; gap: 6px; align-items: center; justify-content: center; margin-bottom: 2px; }\r\n.cp-dlg-input { width: 64px; flex: none; text-align: center; border: 1px solid var(--line); background: rgba(8,17,28,.9); color: var(--text); border-radius: 8px; padding: 7px 6px; font-size: 15px; }\r\n.cp-dlg-step { width: 36px; height: 36px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 18px; padding: 0; border-radius: 8px; }\r\n';
 
+// movement/gridMath.js
+var SQRT3 = Math.sqrt(3);
+function normalizeObrGridType(value) {
+  switch (String(value ?? "").trim().toUpperCase()) {
+    case "SQUARE":
+      return "square";
+    case "HEX_VERTICAL":
+      return "hex_vertical";
+    case "HEX_HORIZONTAL":
+      return "hex_horizontal";
+    default:
+      return "";
+  }
+}
+function normalizeDistanceMode(gridType, measurement) {
+  const tacticalType = normalizeObrGridType(gridType);
+  if (tacticalType === "hex_vertical" || tacticalType === "hex_horizontal") {
+    return "hex";
+  }
+  switch (String(measurement ?? "").trim().toUpperCase()) {
+    case "CHEBYSHEV":
+      return "chebyshev";
+    case "MANHATTAN":
+      return "manhattan";
+    default:
+      return "";
+  }
+}
+function normalizeTacticalGridSettings2(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const gridType = String(raw.grid_type ?? raw.gridType ?? "").trim().toLowerCase();
+  const distanceMode = String(raw.distance_mode ?? raw.distanceMode ?? "").trim().toLowerCase();
+  const gridDpi = Number(raw.grid_dpi ?? raw.gridDpi ?? 0) || 0;
+  const metersPerCell = Number(raw.meters_per_cell ?? raw.metersPerCell ?? 1) || 1;
+  const anchorX = Number(raw.anchor_scene_x ?? raw.anchorSceneX ?? 0) || 0;
+  const anchorY = Number(raw.anchor_scene_y ?? raw.anchorSceneY ?? 0) || 0;
+  if (!gridType || !distanceMode || gridDpi <= 0 || metersPerCell <= 0) {
+    return null;
+  }
+  return {
+    gridType,
+    distanceMode,
+    gridDpi,
+    metersPerCell,
+    anchor: { x: anchorX, y: anchorY },
+    updatedAt: String(raw.updated_at ?? raw.updatedAt ?? "").trim()
+  };
+}
+function cubeRound({ x, y, z }) {
+  let rx = Math.round(x);
+  let ry = Math.round(y);
+  let rz = Math.round(z);
+  const xDiff = Math.abs(rx - x);
+  const yDiff = Math.abs(ry - y);
+  const zDiff = Math.abs(rz - z);
+  if (xDiff > yDiff && xDiff > zDiff) {
+    rx = -ry - rz;
+  } else if (yDiff > zDiff) {
+    ry = -rx - rz;
+  } else {
+    rz = -rx - ry;
+  }
+  return { x: rx, y: ry, z: rz };
+}
+function axialRound(q, r) {
+  const cube = cubeRound({ x: q, y: -q - r, z: r });
+  return { q: cube.x, r: cube.z };
+}
+function sceneToCell(grid, position) {
+  const settings = normalizeTacticalGridSettings2(grid);
+  if (!settings || !position) return null;
+  const x = (Number(position.x) || 0) - settings.anchor.x;
+  const y = (Number(position.y) || 0) - settings.anchor.y;
+  if (settings.gridType === "square") {
+    return {
+      q: Math.round(x / settings.gridDpi),
+      r: Math.round(y / settings.gridDpi)
+    };
+  }
+  if (settings.gridType === "hex_vertical") {
+    const size = settings.gridDpi / SQRT3;
+    const q = (SQRT3 / 3 * x - 1 / 3 * y) / size;
+    const r = 2 / 3 * y / size;
+    return axialRound(q, r);
+  }
+  if (settings.gridType === "hex_horizontal") {
+    const size = settings.gridDpi / SQRT3;
+    const q = 2 / 3 * x / size;
+    const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
+    return axialRound(q, r);
+  }
+  return null;
+}
+function sameCell(a, b) {
+  if (!a || !b) return false;
+  return (Number(a.q ?? a.cell_q ?? 0) || 0) === (Number(b.q ?? b.cell_q ?? 0) || 0) && (Number(a.r ?? a.cell_r ?? 0) || 0) === (Number(b.r ?? b.cell_r ?? 0) || 0);
+}
+
+// movement/moveToolBridge.js
+var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
+var MOVE_TOOL_COMMANDS = Object.freeze({
+  ActivateSelected: "ACTIVATE_SELECTED",
+  Cancel: "CANCEL",
+  RequestStatus: "REQUEST_STATUS"
+});
+var MOVE_TOOL_EVENTS = Object.freeze({
+  Status: "STATUS",
+  Activated: "ACTIVATED",
+  Cancelled: "CANCELLED",
+  Applied: "APPLIED",
+  Error: "ERROR"
+});
+async function sendMoveToolCommand(command, payload = {}, destination = "LOCAL") {
+  await waitForObrReady();
+  await lib_default.broadcast.sendMessage(
+    MOVE_TOOL_CHANNEL,
+    { type: command, payload },
+    { destination }
+  );
+}
+async function subscribeMoveToolMessages(listener) {
+  await waitForObrReady();
+  let active = true;
+  const unsubscribe = lib_default.broadcast.onMessage(MOVE_TOOL_CHANNEL, (event) => {
+    if (!active) return;
+    const data = event?.data ?? {};
+    listener({
+      type: String(data?.type ?? "").trim(),
+      payload: data?.payload ?? {},
+      connectionId: event?.connectionId ?? ""
+    });
+  });
+  return () => {
+    active = false;
+    unsubscribe?.();
+  };
+}
+
 // screens/character/characterScreen.js
 var ATTR_RU = {
   strength: "\u0421\u0438\u043B\u0430",
@@ -33872,10 +34093,77 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     refreshInFlight: null,
     queuedRefresh: null,
     realtimeRefreshPending: null,
-    realtimeRefreshTimer: null
+    realtimeRefreshTimer: null,
+    selectedToken: null,
+    moveToolStatus: null,
+    tacticalSnapshot: null,
+    uiSubscriptions: []
   };
   const settings = () => state.settings;
   const isGM = () => state.devRole === "GM" ? true : state.devRole === "PLAYER" ? false : state.role === "GM";
+  async function refreshSelectedTokenContext() {
+    const tokens = await withTimeout3(bridges.obr?.getSelectedOwlbearTokens?.(), OBR_TIMEOUT, []);
+    const token = arr2(tokens)[0] ?? null;
+    if (!token) {
+      state.selectedToken = null;
+      render();
+      return;
+    }
+    const link = bridges.token?.getTokenCharacterLink?.(token) ?? { characterId: "" };
+    state.selectedToken = {
+      id: String(token.id ?? "").trim(),
+      name: String(token.name ?? "").trim(),
+      position: token.position ?? null,
+      layer: String(token.layer ?? "").trim(),
+      link
+    };
+    render();
+  }
+  async function refreshTacticalSnapshot(forceRender = false) {
+    if (!state.characterId || !bridges.obr?.getRoomSceneContext || !api.combat?.getActiveRuntime) {
+      state.tacticalSnapshot = null;
+      if (forceRender) render();
+      return;
+    }
+    try {
+      const [player, context] = await Promise.all([
+        withTimeout3(bridges.obr.getPlayerInfo?.(), OBR_TIMEOUT, null),
+        withTimeout3(bridges.obr.getRoomSceneContext?.(), OBR_TIMEOUT, null)
+      ]);
+      if (!context?.roomId || !context?.sceneId || !hasUsableSettings(settings())) {
+        state.tacticalSnapshot = null;
+        if (forceRender) render();
+        return;
+      }
+      const runtimeRes = await api.combat.getActiveRuntime(
+        {
+          campaign_id: context.campaignId,
+          room_id: context.roomId,
+          scene_id: context.sceneId,
+          actor_player_id: player?.id ?? "",
+          actor_is_gm: String(player?.role ?? "").toUpperCase() === "GM",
+          include_hidden: String(player?.role ?? "").toUpperCase() === "GM"
+        },
+        settings()
+      ).catch(() => null);
+      const participants = arr2(runtimeRes?.visible_participants);
+      const participant = participants.find((row) => String(row?.character_id ?? "").trim() === state.characterId) ?? null;
+      if (!runtimeRes?.encounter?.id || !participant) {
+        state.tacticalSnapshot = null;
+      } else {
+        state.tacticalSnapshot = {
+          encounterId: String(runtimeRes.encounter.id ?? "").trim(),
+          stateVersion: Number(runtimeRes.state_version ?? runtimeRes.encounter?.state_version ?? 0) || 0,
+          grid: normalizeTacticalGridSettings(runtimeRes.tactical_grid),
+          participant,
+          runtime: runtimeRes
+        };
+      }
+    } catch {
+      state.tacticalSnapshot = null;
+    }
+    if (forceRender) render();
+  }
   (async () => {
     const player = await withTimeout3(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null);
     if (player?.role) {
@@ -33889,6 +34177,46 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       }
       render();
     }
+  })();
+  void (async () => {
+    const subs = [];
+    const safePush = (unsubscribe) => {
+      if (typeof unsubscribe === "function") subs.push(unsubscribe);
+    };
+    safePush(await bridges.obr?.subscribePlayerChanges?.(() => {
+      refreshSelectedTokenContext().catch(() => {
+      });
+    }));
+    safePush(await bridges.obr?.subscribeSceneItems?.(() => {
+      refreshSelectedTokenContext().catch(() => {
+      });
+    }));
+    safePush(await subscribeMoveToolMessages((event) => {
+      if (event.type === MOVE_TOOL_EVENTS.Status || event.type === MOVE_TOOL_EVENTS.Activated || event.type === MOVE_TOOL_EVENTS.Cancelled) {
+        state.moveToolStatus = event.payload ?? null;
+        render();
+      }
+      if (event.type === MOVE_TOOL_EVENTS.Applied) {
+        state.moveToolStatus = event.payload ?? null;
+        if (state.characterId && event.payload?.characterId === state.characterId) {
+          refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: false }).catch(() => {
+          });
+        } else {
+          render();
+        }
+      }
+      if (event.type === MOVE_TOOL_EVENTS.Error) {
+        if (state.moveToolStatus) {
+          state.moveToolStatus = { ...state.moveToolStatus, error: event.payload?.message ?? "" };
+        }
+        render();
+      }
+    }));
+    state.uiSubscriptions = subs;
+    await refreshSelectedTokenContext().catch(() => {
+    });
+    await sendMoveToolCommand(MOVE_TOOL_COMMANDS.RequestStatus).catch(() => {
+    });
   })();
   const loadBundle = (id, sections) => api.placement.getCharacterRuntimeBundle({ character_id: id, sections }, settings());
   async function fetchItemDefs() {
@@ -33945,6 +34273,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       patch.armor_summary = combat.armor_summary ?? null;
       patch.combat_flags = combat.combat_flags ?? {};
     }
+    if (s.combat_session !== void 0) patch.combat_session = s.combat_session ?? null;
     if (s.skills !== void 0) patch.skills = arr2(s.skills);
     if (s.abilities?.resource_pools !== void 0) patch.resource_pools = arr2(s.abilities.resource_pools);
     if (bundle.state?.status_summary !== void 0) patch.status_summary = bundle.state.status_summary;
@@ -33958,6 +34287,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       status_summary: "",
       armor_summary: null,
       combat_flags: {},
+      combat_session: null,
       ...patch
     };
     if (s.abilities) {
@@ -34010,7 +34340,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     state.settings = resolved.settings;
     return resolved.settings;
   }
-  const ALL_SECTIONS = ["summary", "combat", "attributes", "skills", "perks", "equipment", "inventory", "abilities", "effects"];
+  const ALL_SECTIONS = ["summary", "combat", "combat_session", "attributes", "skills", "perks", "equipment", "inventory", "abilities", "effects"];
   const DEFAULT_REFRESH = { sheet: true, armory: true, equipment: true, inventory: true, abilities: false, perkAvailability: false };
   function mergeRefreshOptions(base = {}, extra = {}) {
     return {
@@ -34058,6 +34388,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       state.perkAvailability = gmMode && availablePerksResult?.ok ? arr2(availablePerksResult.perks) : [];
       state.pinnedPartId = "";
       setupRealtimeSubscriptions(id);
+      await refreshTacticalSnapshot();
     } catch (e) {
       state.error = e.message;
     } finally {
@@ -34070,7 +34401,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     if (!id) return;
     const { sheet, armory, equipment, inventory, abilities, perkAvailability } = options;
     const sections = [
-      ...sheet ? ["summary", "combat", "attributes", "skills"] : [],
+      ...sheet ? ["summary", "combat", "combat_session", "attributes", "skills"] : [],
       ...sheet ? ["perks"] : [],
       ...equipment ? ["equipment"] : [],
       ...inventory ? ["inventory"] : [],
@@ -34086,6 +34417,9 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     if (perksResult?.ok) state.perks = arr2(perksResult.perks);
     if (perkAvailability) {
       state.perkAvailability = isGM() && availablePerksResult?.ok ? arr2(availablePerksResult.perks) : [];
+    }
+    if (sheet) {
+      await refreshTacticalSnapshot();
     }
     render();
   }
@@ -34375,6 +34709,189 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         return renderOverview();
     }
   }
+  async function buildOwlbearTacticalGridPayload() {
+    const grid = await withTimeout3(bridges.obr?.getSceneGrid?.(), OBR_TIMEOUT, null);
+    if (!grid) {
+      throw new Error("Owlbear grid is not available.");
+    }
+    const gridType = normalizeObrGridType(grid.type);
+    const distanceMode = normalizeDistanceMode(grid.type, grid.measurement);
+    if (!gridType || !distanceMode || !(Number(grid.dpi) > 0)) {
+      throw new Error("Only Square, Hex Vertical, and Hex Horizontal grids are supported for tactical movement.");
+    }
+    const anchor = await withTimeout3(
+      bridges.obr?.snapScenePosition?.({ x: 0, y: 0 }, 1),
+      OBR_TIMEOUT,
+      null
+    );
+    if (!anchor) {
+      throw new Error("Unable to resolve tactical grid anchor from Owlbear.");
+    }
+    const metersPerCell = Math.max(1, Math.round(Number(grid?.scale?.parsed?.multiplier ?? 1) || 1));
+    return {
+      grid_type: gridType,
+      distance_mode: distanceMode,
+      meters_per_cell: metersPerCell,
+      anchor_scene_x: Number(anchor.x) || 0,
+      anchor_scene_y: Number(anchor.y) || 0,
+      grid_dpi: Number(grid.dpi) || 0
+    };
+  }
+  function getLoadedCharacterParticipant() {
+    return state.tacticalSnapshot?.participant ?? null;
+  }
+  function getSelectedTokenForLoadedCharacter() {
+    if (!state.selectedToken) return null;
+    return String(state.selectedToken?.link?.characterId ?? "").trim() === state.characterId ? state.selectedToken : null;
+  }
+  function getTokenPositionMismatch() {
+    const participant = getLoadedCharacterParticipant();
+    const selectedToken = getSelectedTokenForLoadedCharacter();
+    const grid = state.tacticalSnapshot?.grid ?? null;
+    const participantPosition = participant?.position ?? null;
+    if (!participantPosition || !selectedToken?.position || !grid) return false;
+    const selectedCell = sceneToCell(grid, selectedToken.position);
+    if (!selectedCell) return false;
+    return !sameCell(selectedCell, {
+      q: participantPosition.cell_q,
+      r: participantPosition.cell_r
+    });
+  }
+  async function syncTacticalGrid(selectedOnly = false) {
+    if (!isGM()) {
+      setNotice("err", "Only the GM can sync tactical positions.");
+      render();
+      return;
+    }
+    const snapshot = state.tacticalSnapshot;
+    if (!snapshot?.encounterId) {
+      setNotice("err", "No active encounter is loaded for this character.");
+      render();
+      return;
+    }
+    const selectedForCharacter = getSelectedTokenForLoadedCharacter();
+    if (selectedOnly && !selectedForCharacter) {
+      setNotice("err", "Select this character's token in Owlbear before syncing its position.");
+      render();
+      return;
+    }
+    state.busy = true;
+    render();
+    try {
+      await ensureSettings();
+      const [context, player] = await Promise.all([
+        withTimeout3(bridges.obr?.getRoomSceneContext?.(), OBR_TIMEOUT, null),
+        withTimeout3(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null)
+      ]);
+      const [sceneItems, gridPayload, runtimeRes] = await Promise.all([
+        withTimeout3(bridges.obr?.getSceneItems?.(), OBR_TIMEOUT, []),
+        buildOwlbearTacticalGridPayload(),
+        api.combat.getActiveRuntime(
+          {
+            campaign_id: context?.campaignId ?? "",
+            room_id: context?.roomId ?? "",
+            scene_id: context?.sceneId ?? "",
+            actor_player_id: player?.id ?? "",
+            actor_is_gm: true,
+            include_hidden: true
+          },
+          settings()
+        )
+      ]);
+      if (!context?.roomId || !context?.sceneId || !runtimeRes?.encounter?.id) {
+        throw new Error("Unable to resolve the active encounter context.");
+      }
+      const itemById = new Map(arr2(sceneItems).map((item) => [String(item?.id ?? "").trim(), item]));
+      const participants = arr2(runtimeRes.visible_participants).filter((participant) => {
+        if (!participant?.token_id || !participant?.character_id) return false;
+        if (selectedOnly) {
+          return String(participant.character_id ?? "").trim() === state.characterId;
+        }
+        return true;
+      });
+      const positions = [];
+      for (const participant of participants) {
+        const item = itemById.get(String(participant.token_id ?? "").trim());
+        if (!item) continue;
+        const snapped = await withTimeout3(bridges.obr?.snapScenePosition?.(item.position, 1), OBR_TIMEOUT, null);
+        if (!snapped) continue;
+        const cell = sceneToCell(gridPayload, snapped);
+        if (!cell) continue;
+        positions.push({
+          character_id: participant.character_id,
+          token_id: participant.token_id,
+          cell_q: cell.q,
+          cell_r: cell.r,
+          scene_x: Number(snapped.x) || 0,
+          scene_y: Number(snapped.y) || 0
+        });
+      }
+      if (!positions.length) {
+        throw new Error("No linked encounter tokens were available to sync.");
+      }
+      const result = await api.combat.syncPositionsFromOwlbear(
+        {
+          encounter_id: runtimeRes.encounter.id,
+          campaign_id: context.campaignId,
+          room_id: context.roomId,
+          scene_id: context.sceneId,
+          actor_player_id: player?.id ?? "",
+          actor_is_gm: true,
+          ...gridPayload,
+          positions
+        },
+        settings()
+      );
+      if (!result || result.ok === false) {
+        throw new Error(result?.message || result?.error || "Unable to sync tactical positions.");
+      }
+      setNotice("ok", selectedOnly ? "Token position synced." : `Tactical grid synced for ${positions.length} token(s).`);
+      await refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: false });
+      await refreshSelectedTokenContext();
+    } catch (error) {
+      setNotice("err", esc2(toErrorMessage(error, "Unable to sync tactical positions.")));
+      render();
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+  function renderTacticalMoveCard() {
+    const participant = getLoadedCharacterParticipant();
+    if (!participant) return "";
+    const selectedToken = getSelectedTokenForLoadedCharacter();
+    const toolStatus = state.moveToolStatus && state.moveToolStatus.characterId === state.characterId ? state.moveToolStatus : null;
+    const mismatch = getTokenPositionMismatch();
+    const isCurrentTurn = !!participant.is_current_turn;
+    const moveCurrent = Number(participant.move_current ?? 0) || 0;
+    const moveMax = Number(participant.move_max ?? 0) || 0;
+    const gridReady = !!state.tacticalSnapshot?.grid;
+    const moveReady = !!selectedToken && gridReady && isCurrentTurn && !mismatch;
+    const preview = toolStatus?.preview ?? null;
+    const tokenLine = selectedToken ? `${esc2(selectedToken.name || "Selected token")} \xB7 ${esc2(selectedToken.id.slice(0, 8))}` : "Select this character's token in Owlbear to move it.";
+    return `
+      <div class="cp-section-title">Tactical move</div>
+      <div class="cp-card">
+        <div class="cp-rowitem">
+          <span>MOVE <span class="cp-mono">${moveCurrent}/${moveMax} m</span></span>
+          <span class="cp-row" style="gap:6px">
+            <span class="cp-pill ${isCurrentTurn ? "good" : ""}">${isCurrentTurn ? "Current turn" : "Waiting turn"}</span>
+            ${gridReady ? `<span class="cp-pill">grid synced</span>` : `<span class="cp-pill bad">grid not synced</span>`}
+          </span>
+        </div>
+        <div class="cp-muted" style="margin-top:6px">${tokenLine}</div>
+        ${preview ? `<div class="cp-muted" style="margin-top:6px">Preview: ${preview.moveCostM} m, remaining ${preview.remainingMoveM} m${preview.inRange ? "" : " - out of range"}</div>` : ""}
+        ${toolStatus?.error ? `<div class="cp-muted" style="margin-top:6px;color:#ff9b9b">${esc2(toolStatus.error)}</div>` : ""}
+        ${mismatch ? `<div class="cp-muted" style="margin-top:6px;color:#ffd58a">Scene token position differs from Supabase. Sync it before moving.</div>` : ""}
+        <div class="button-row" style="margin-top:8px">
+          <button type="button" data-ref="startMove" ${moveReady && !state.busy ? "" : "disabled"}>Move</button>
+          <button type="button" class="secondary" data-ref="cancelMove" ${toolStatus?.active ? "" : "disabled"}>Cancel</button>
+          ${isGM() ? `<button type="button" class="secondary" data-ref="syncTacticalGrid" ${state.busy ? "disabled" : ""}>Sync tactical grid</button>` : ""}
+          ${isGM() ? `<button type="button" class="secondary" data-ref="syncTokenPosition" ${selectedToken && !state.busy ? "" : "disabled"}>Sync token position</button>` : ""}
+        </div>
+      </div>
+    `;
+  }
   function renderOverview() {
     const attrs = arr2(state.sheet.attributes);
     const base = BASE_ATTR_CODES.map((code) => attrs.find((a) => a.code === code)).filter(Boolean);
@@ -34387,6 +34904,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
           <div class="cp-attrs">${base.map(attrCard).join("")}</div>
         </div>
       </div>
+      ${renderTacticalMoveCard()}
       ${customs.length ? `<div class="cp-section-title">Additional attributes</div><div class="cp-row">${customs.map((a) => `<span class="cp-chip">${esc2(a.name || a.code)} <span class="cp-mono">${dash2(a.value)}</span></span>`).join("")}</div>` : ""}
       ${renderAdditionalParts()}
       ${isGM() ? gmToolsBlock() : ""}`;
@@ -35026,6 +35544,22 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     });
     $("refreshCatalogsTop")?.addEventListener("click", () => refreshGmCatalogs().catch(() => {
     }));
+    $("startMove")?.addEventListener("click", async () => {
+      await sendMoveToolCommand(MOVE_TOOL_COMMANDS.ActivateSelected).catch(() => {
+      });
+    });
+    $("cancelMove")?.addEventListener("click", async () => {
+      await sendMoveToolCommand(MOVE_TOOL_COMMANDS.Cancel).catch(() => {
+      });
+    });
+    $("syncTacticalGrid")?.addEventListener("click", () => {
+      syncTacticalGrid(false).catch(() => {
+      });
+    });
+    $("syncTokenPosition")?.addEventListener("click", () => {
+      syncTacticalGrid(true).catch(() => {
+      });
+    });
     $("devRole")?.addEventListener("change", async (e) => {
       state.devRole = e.target.value;
       if (isGM()) {

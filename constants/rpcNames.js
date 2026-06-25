@@ -37,6 +37,8 @@ export const WEAPON_RPC_NAMES = Object.freeze({
 
 export const COMBAT_RPC_NAMES = Object.freeze({
   performAttack: "perform_attack",
+  moveCharacter: "combat_move_character",
+  syncPositionsFromOwlbear: "combat_sync_positions_from_owlbear",
   startEncounter: "combat_start_encounter",
   addParticipant: "combat_add_participant",
   removeParticipant: "combat_remove_participant",
