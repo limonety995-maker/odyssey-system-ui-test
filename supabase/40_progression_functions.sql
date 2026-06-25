@@ -306,7 +306,11 @@ as $$
             + availability.effect_level_modifier,
             0
           ),
-          availability.max_level
+          case
+            when availability.max_level >= 5 then 10
+            when availability.max_level = 3 then 5
+            else availability.max_level
+          end
         )
       end as effective_level,
       availability.highest_available_level,

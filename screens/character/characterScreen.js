@@ -43,7 +43,11 @@ const IMPLANT_TYPES = new Set(["implant", "prosthetic", "device"]);
 const esc = (v) => escapeHtml(v);
 const arr = (v) => (Array.isArray(v) ? v : []);
 const dash = (v) => (v === null || v === undefined || v === "" ? "-" : v);
-const normPart = (p) => { const c = String(p?.code || p?.part_key || "").toLowerCase(); return PART_ALIASES[c] || c; };
+const normalizeBodyPartCode = (value) => {
+  const code = String(value || "").trim().toLowerCase();
+  return PART_ALIASES[code] || code;
+};
+const normPart = (p) => normalizeBodyPartCode(p?.code || p?.part_key || "");
 const isShieldPart = (p) => normPart(p) === "shield";
 const isSpecialPart = (p) => normPart(p) === "special";
 
@@ -671,7 +675,7 @@ export function mountCharacterScreen({ root, runtime }) {
   /* ---- doll ---- */
   function partColorClass(p) {
     if (p.destroyed || p.disabled || (p.critical || 0) > 0) return "cp-c-danger";
-    if ((p.serious || 0) > 0 || (p.minor || 0) > 0 || p.armor_destroyed) return "cp-c-warn";
+    if ((p.serious || 0) > 0 || (p.minor || 0) > 0) return "cp-c-warn";
     return "cp-c-intact";
   }
   function bodyStatusText(p) {
@@ -706,13 +710,60 @@ export function mountCharacterScreen({ root, runtime }) {
         armor_destroyed: !!item.armor_destroyed,
       };
     }
+    const armorValue = Number(p?.armor_value ?? 0) || 0;
+    const armorCritical = Number(p?.armor_critical ?? 0) || 0;
+    const armorMaxCritical = Number(p?.armor_max_critical ?? 0) || 0;
     return {
       source: null,
-      armor_value: p?.armor_value ?? 0,
-      armor_critical: p?.armor_critical ?? 0,
-      armor_max_critical: p?.armor_max_critical ?? 0,
-      armor_destroyed: !!p?.armor_destroyed,
+      armor_value: armorValue,
+      armor_critical: armorCritical,
+      armor_max_critical: armorMaxCritical,
+      armor_destroyed: (armorValue > 0 || armorCritical > 0 || armorMaxCritical > 0) ? !!p?.armor_destroyed : false,
     };
+  }
+  function bodyPartCodes(part) {
+    return [part?.code, part?.part_key]
+      .map((value) => normalizeBodyPartCode(value))
+      .filter(Boolean);
+  }
+  function collectAllowedBodyPartCodes(item) {
+    const allowedCodes = new Set();
+    const pushCode = (value) => {
+      const normalized = normalizeBodyPartCode(value);
+      if (normalized) allowedCodes.add(normalized);
+    };
+    const pushCodes = (value) => {
+      if (Array.isArray(value)) {
+        value.forEach(pushCode);
+        return;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return;
+        if (trimmed.includes(",")) {
+          trimmed.split(",").forEach(pushCode);
+          return;
+        }
+        pushCode(trimmed);
+      }
+    };
+
+    pushCodes(item?.effective_flags?.allowed_body_part_codes);
+    pushCodes(item?.flags?.allowed_body_part_codes);
+    pushCodes(item?.model?.flags?.allowed_body_part_codes);
+
+    if (!allowedCodes.size) {
+      pushCode(item?.default_body_part_code);
+      pushCode(item?.model?.default_body_part_code);
+    }
+
+    return [...allowedCodes];
+  }
+  function compatibleBodyParts(item) {
+    const allowedCodes = collectAllowedBodyPartCodes(item);
+    const parts = arr(state.sheet?.body_parts).filter((part) => !!part?.id);
+    if (!allowedCodes.length) return parts;
+    return parts.filter((part) => bodyPartCodes(part).some((code) => allowedCodes.includes(code)));
   }
   function shouldShowAdditionalPart(p) {
     if (!p || PART_GEOMETRY[normPart(p)]) return false;
@@ -1654,32 +1705,16 @@ export function mountCharacterScreen({ root, runtime }) {
   // pre-selected; otherwise the user picks the target part explicitly so an
   // unequipped item can always be re-equipped.
   function equipmentSlotOptions(it) {
-    const def = String(it.model?.default_body_part_code || "").toLowerCase();
-    const allowed = arr(it.effective_flags?.allowed_body_part_codes || it.model?.flags?.allowed_body_part_codes || []).map((c) => String(c).toLowerCase());
+    const def = normalizeBodyPartCode(it?.default_body_part_code || it?.model?.default_body_part_code || "");
+    const allowed = collectAllowedBodyPartCodes(it);
     const lastId = state.lastSlot[it.id]; // previously-equipped part wins as default
-    let parts = arr(state.sheet?.body_parts);
-
-    // Filter to only allowed slots (if the model specifies constraints).
-    if (allowed.length > 0) {
-      parts = parts.filter((b) => {
-        const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
-        return codes.some((c) => allowed.includes(c));
-      });
-    } else if (def) {
-      parts = parts.filter((b) => {
-        const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
-        return codes.includes(def);
-      });
-    }
+    let parts = compatibleBodyParts(it);
 
     if (!parts.length) return `<option value="">-- no compatible body parts --</option>`;
 
     // Pre-select: last slot > default > first available
     const selected = parts.find((b) => b.id === lastId) ||
-                     parts.find((b) => {
-                       const codes = [b.code, b.part_key].map((x) => String(x || "").toLowerCase());
-                       return def && codes.includes(def);
-                     }) ||
+                     parts.find((b) => def && bodyPartCodes(b).includes(def)) ||
                      parts[0];
 
     return parts.map((b) => {
