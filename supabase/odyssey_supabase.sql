@@ -52065,7 +52065,7 @@ begin
   into v_existing
   from public.odyssey_get_active_encounter(v_campaign_id, v_room_id, v_scene_id);
 
-  if found then
+  if v_existing.id is not null then
     return jsonb_build_object(
       'ok', false,
       'error', 'ENCOUNTER_ALREADY_ACTIVE',

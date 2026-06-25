@@ -34086,6 +34086,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     pinnedPartId: "",
     rollingAttr: "",
     busy: false,
+    isStartingCombat: false,
     notice: "",
     realtimeSubscriptions: [],
     // Real-Time listeners for auto-refresh
@@ -34888,6 +34889,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       return;
     }
     state.busy = true;
+    state.isStartingCombat = true;
     setNotice("info", "Starting combat...");
     render();
     try {
@@ -34940,6 +34942,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       setNotice("err", esc2(toErrorMessage(error, "Unable to start combat.")));
       render();
     } finally {
+      state.isStartingCombat = false;
       state.busy = false;
       render();
     }
@@ -35002,7 +35005,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
           ${hasActiveEncounter ? `${encounter.participantCount} participant(s) on this scene${encounter.hasLoadedCharacterParticipant ? " \xB7 loaded character is in combat" : " \xB7 loaded character is not in combat"}` : "Start combat for the current Owlbear scene to enable tactical movement and turn flow."}
         </div>
         <div class="button-row" style="margin-top:8px">
-          ${isGM() ? `<button type="button" data-ref="startCombat" ${!hasActiveEncounter && !state.busy ? "" : "disabled"}>Start combat</button>` : ""}
+          ${isGM() ? `<button type="button" data-ref="startCombat" ${!hasActiveEncounter && !state.isStartingCombat && !state.busy ? "" : "disabled"}>${state.isStartingCombat ? "Starting combat..." : "Start combat"}</button>` : ""}
           ${isGM() ? `<button type="button" class="secondary" data-ref="endCombat" ${hasActiveEncounter && !state.busy ? "" : "disabled"}>End combat</button>` : ""}
         </div>
       </div>
