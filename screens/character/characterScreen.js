@@ -162,6 +162,23 @@ export function mountCharacterScreen({ root, runtime }) {
     render();
   }
 
+  async function fetchActiveCombatRuntimeForScene(context, player, includeHidden = false) {
+    if (!context?.roomId || !context?.sceneId || !api.combat?.getActiveRuntime || !hasUsableSettings(settings())) {
+      return null;
+    }
+    return api.combat.getActiveRuntime(
+      {
+        campaign_id: context.campaignId,
+        room_id: context.roomId,
+        scene_id: context.sceneId,
+        actor_player_id: player?.id ?? "",
+        actor_is_gm: String(player?.role ?? "").toUpperCase() === "GM",
+        include_hidden: includeHidden || String(player?.role ?? "").toUpperCase() === "GM",
+      },
+      settings(),
+    ).catch(() => null);
+  }
+
   async function refreshTacticalSnapshot(forceRender = false) {
     if (!state.characterId || !bridges.obr?.getRoomSceneContext || !api.combat?.getActiveRuntime) {
       state.tacticalSnapshot = null;
@@ -178,17 +195,11 @@ export function mountCharacterScreen({ root, runtime }) {
         if (forceRender) render();
         return;
       }
-      const runtimeRes = await api.combat.getActiveRuntime(
-        {
-          campaign_id: context.campaignId,
-          room_id: context.roomId,
-          scene_id: context.sceneId,
-          actor_player_id: player?.id ?? "",
-          actor_is_gm: String(player?.role ?? "").toUpperCase() === "GM",
-          include_hidden: String(player?.role ?? "").toUpperCase() === "GM",
-        },
-        settings(),
-      ).catch(() => null);
+      const runtimeRes = await fetchActiveCombatRuntimeForScene(
+        context,
+        player,
+        String(player?.role ?? "").toUpperCase() === "GM",
+      );
       const participants = arr(runtimeRes?.visible_participants);
       const participant = participants.find((row) => String(row?.character_id ?? "").trim() === state.characterId) ?? null;
       if (!runtimeRes?.encounter?.id) {
@@ -958,21 +969,41 @@ export function mountCharacterScreen({ root, runtime }) {
       if (!context?.campaignId || !context?.roomId || !context?.sceneId) {
         throw new Error("Unable to resolve Owlbear room or scene context.");
       }
-      const result = await api.combat.startEncounter(
-        {
-          campaign_id: context.campaignId,
-          room_id: context.roomId,
-          scene_id: context.sceneId,
-          actor_player_id: player?.id ?? "",
-          actor_is_gm: true,
-          name: "Combat",
-        },
-        settings(),
+      const payload = {
+        campaign_id: context.campaignId,
+        room_id: context.roomId,
+        scene_id: context.sceneId,
+        actor_player_id: player?.id ?? "",
+        actor_is_gm: true,
+        name: "Combat",
+      };
+      const timedResult = await withTimeout(
+        api.combat.startEncounter(payload, settings()),
+        8000,
+        { __timedOut: true },
       );
+      let result = timedResult;
+      if (timedResult?.__timedOut) {
+        const runtimeAfterTimeout = await withTimeout(
+          fetchActiveCombatRuntimeForScene(context, player, true),
+          3000,
+          null,
+        );
+        if (runtimeAfterTimeout?.encounter?.id) {
+          result = {
+            ok: true,
+            encounter: runtimeAfterTimeout.encounter,
+            runtime: runtimeAfterTimeout,
+            __resolvedByPoll: true,
+          };
+        } else {
+          throw new Error("Start combat request timed out. The encounter may still be starting on Supabase.");
+        }
+      }
       if (!result || result.ok === false) {
         throw new Error(result?.message || result?.error || "Unable to start combat.");
       }
-      setNotice("ok", "Combat started.");
+      setNotice("ok", result.__resolvedByPoll ? "Combat started. Runtime was confirmed by follow-up check." : "Combat started.");
       await refresh({ sheet: true, armory: false, equipment: false, inventory: false, abilities: false, perkAvailability: false });
       await refreshSelectedTokenContext();
     } catch (error) {
