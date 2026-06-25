@@ -1,0 +1,16 @@
+{
+  "name": "Odyssey System (Dev)",
+  "version": "1.7.17",
+  "manifest_version": 1,
+  "description": "LOCAL DEV build served from http://127.0.0.1:3000 by dev.mjs. Not for deployment — production uses manifest.json (GitHub Pages).",
+  "author": "Codex",
+  "icon": "http://127.0.0.1:3000/icon.svg",
+  "background_url": "http://127.0.0.1:3000/background.html",
+  "action": {
+    "title": "Odyssey System (Dev)",
+    "icon": "http://127.0.0.1:3000/icon.svg",
+    "popover": "http://127.0.0.1:3000/index.html",
+    "height": 860,
+    "width": 560
+  }
+}
