@@ -34878,18 +34878,17 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       return;
     }
     state.busy = true;
+    setNotice("info", "Starting combat...");
     render();
     try {
       await ensureSettings();
-      const [context, player, sceneItems] = await Promise.all([
+      const [context, player] = await Promise.all([
         withTimeout3(bridges.obr?.getRoomSceneContext?.(), OBR_TIMEOUT, null),
-        withTimeout3(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null),
-        withTimeout3(bridges.obr?.getSceneItems?.(), OBR_TIMEOUT, [])
+        withTimeout3(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null)
       ]);
       if (!context?.campaignId || !context?.roomId || !context?.sceneId) {
         throw new Error("Unable to resolve Owlbear room or scene context.");
       }
-      const hiddenTokenIds = arr2(sceneItems).filter((item) => String(item?.type ?? "").toUpperCase() === "IMAGE" && item?.visible === false).map((item) => String(item?.id ?? "").trim()).filter(Boolean);
       const result = await api.combat.startEncounter(
         {
           campaign_id: context.campaignId,
@@ -34897,8 +34896,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
           scene_id: context.sceneId,
           actor_player_id: player?.id ?? "",
           actor_is_gm: true,
-          name: "Combat",
-          hidden_token_ids: hiddenTokenIds
+          name: "Combat"
         },
         settings()
       );
@@ -35808,6 +35806,18 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function onSectionClick(e) {
     const t = e.target;
+    const startCombatButton = t.closest('[data-ref="startCombat"]');
+    if (startCombatButton) {
+      startCombatForScene().catch(() => {
+      });
+      return;
+    }
+    const endCombatButton = t.closest('[data-ref="endCombat"]');
+    if (endCombatButton) {
+      endCombatForScene().catch(() => {
+      });
+      return;
+    }
     const part = t.closest("[data-part]");
     if (part && !t.closest("[data-wact],[data-mact]")) {
       pinPart(part.dataset.part);

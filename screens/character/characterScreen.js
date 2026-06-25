@@ -947,21 +947,17 @@ export function mountCharacterScreen({ root, runtime }) {
       return;
     }
     state.busy = true;
+    setNotice("info", "Starting combat...");
     render();
     try {
       await ensureSettings();
-      const [context, player, sceneItems] = await Promise.all([
+      const [context, player] = await Promise.all([
         withTimeout(bridges.obr?.getRoomSceneContext?.(), OBR_TIMEOUT, null),
         withTimeout(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT, null),
-        withTimeout(bridges.obr?.getSceneItems?.(), OBR_TIMEOUT, []),
       ]);
       if (!context?.campaignId || !context?.roomId || !context?.sceneId) {
         throw new Error("Unable to resolve Owlbear room or scene context.");
       }
-      const hiddenTokenIds = arr(sceneItems)
-        .filter((item) => String(item?.type ?? "").toUpperCase() === "IMAGE" && item?.visible === false)
-        .map((item) => String(item?.id ?? "").trim())
-        .filter(Boolean);
       const result = await api.combat.startEncounter(
         {
           campaign_id: context.campaignId,
@@ -970,7 +966,6 @@ export function mountCharacterScreen({ root, runtime }) {
           actor_player_id: player?.id ?? "",
           actor_is_gm: true,
           name: "Combat",
-          hidden_token_ids: hiddenTokenIds,
         },
         settings(),
       );
@@ -1975,6 +1970,16 @@ export function mountCharacterScreen({ root, runtime }) {
 
   function onSectionClick(e) {
     const t = e.target;
+    const startCombatButton = t.closest('[data-ref="startCombat"]');
+    if (startCombatButton) {
+      startCombatForScene().catch(() => {});
+      return;
+    }
+    const endCombatButton = t.closest('[data-ref="endCombat"]');
+    if (endCombatButton) {
+      endCombatForScene().catch(() => {});
+      return;
+    }
     const part = t.closest("[data-part]"); if (part && !t.closest("[data-wact],[data-mact]")) { pinPart(part.dataset.part); return; }
     const attrRoll = t.closest("[data-attr-roll]"); if (attrRoll && !t.closest("[data-attr-edit]")) { onRoll(attrRoll.dataset.attrRoll); return; }
     const attrEdit = t.closest("[data-attr-edit]"); if (attrEdit) { e.stopPropagation(); onAttrEdit(attrEdit.dataset.attrEdit); return; }
