@@ -22,17 +22,11 @@ import {
   subscribeMoveToolMessages,
 } from "./moveToolBridge.js";
 
+const MOVE_TOOL_ICON_URL =
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.15";
+
 function createToolIcon() {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-      <rect width="64" height="64" rx="12" fill="#162338"/>
-      <path d="M18 42c4-10 12-17 24-22" fill="none" stroke="#ff6b6b" stroke-width="5" stroke-linecap="round"/>
-      <circle cx="20" cy="44" r="6" fill="#ffd166"/>
-      <circle cx="42" cy="24" r="6" fill="#4ecdc4"/>
-      <path d="M40 13l8 8-8 8" fill="none" stroke="#f8fafc" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  `.trim();
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return MOVE_TOOL_ICON_URL;
 }
 
 function ensureArray(value) {
@@ -611,11 +605,25 @@ export function setupTacticalMoveTool({ runtime }) {
   async function start() {
     try {
       await registerTool();
-      unsubscribeBroadcast = await subscribeMoveToolMessages(handleBroadcastMessage);
-      unsubscribeSceneItems = await subscribeSceneItems(handleSceneItemsChanged);
-      await publishStatus({ ready: true });
+      unsubscribeBroadcast = await subscribeMoveToolMessages(
+        handleBroadcastMessage,
+      );
+      unsubscribeSceneItems = await subscribeSceneItems(
+        handleSceneItemsChanged,
+      );
+      await publishStatus({
+        ready: true,
+        toolRegistered: true,
+      });
     } catch (error) {
-      const normalized = normalizeError(error, "Unable to initialize tactical move tool.");
+      const normalized = normalizeError(
+        error,
+        "Unable to initialize tactical move tool.",
+      );
+      console.error(
+        "[Odyssey] Tactical move tool registration failed:",
+        normalized,
+      );
       addDiagnosticEntry("error", "Tactical move init failed", normalized.message);
       await publishMoveToolEvent(
         MOVE_TOOL_EVENTS.Error,
@@ -624,6 +632,10 @@ export function setupTacticalMoveTool({ runtime }) {
           message: normalized.message,
         },
         "LOCAL",
+      );
+      await notify(
+        `Tactical Move registration failed: ${normalized.message}`,
+        "ERROR",
       );
     }
   }
