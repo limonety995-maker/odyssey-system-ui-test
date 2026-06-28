@@ -111,6 +111,41 @@
 .ohud-cc-action .ohud-action { height: 100%; gap: 5px; }
 .ohud-cc-action .ohud-action-btn { height: 100%; }
 
+/* ===================== Phase 3A - scene-selection binding ===================== */
+/* Ready identity card (Player module) - shows REAL bound character only. */
+.ohud-bind {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 10px 12px; justify-content: center;
+}
+.ohud-bind-badge {
+  align-self: flex-start;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  padding: 2px 7px; border-radius: 6px;
+  border: 1px solid var(--odyssey-hud-border-strong); color: var(--odyssey-hud-muted);
+}
+.ohud-bind-badge--gm { color: #fff; background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); }
+.ohud-bind-badge--owned { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }
+.ohud-bind-name {
+  font-size: 16px; font-weight: 800; color: var(--odyssey-hud-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-bind-status { font-size: 10px; color: var(--odyssey-hud-muted); }
+.ohud-bind-owner { font-size: 9px; color: var(--odyssey-hud-muted); opacity: 0.8; }
+
+/* Neutral, clearly-labeled fallback for ready-only modules until their runtime
+ * mapping lands (never fabricated gameplay data). */
+.ohud-bind-fallback {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 3px;
+  align-items: center; justify-content: center; text-align: center; padding: 8px;
+}
+.ohud-bind-fallback-label { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); }
+.ohud-bind-fallback-hint { font-size: 8.5px; color: var(--odyssey-hud-muted); opacity: 0.7; }
+
+/* Dev-only (?debug=1) error detail under a Player prompt. */
+.ohud-bind-dev { font-size: 8px; color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }
+
 /* ===================== Arrange-HUD editor ===================== */
 .ohud-editor-root {
   position: fixed; inset: 0; z-index: 100;
