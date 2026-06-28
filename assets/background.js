@@ -4082,6 +4082,9 @@ var BC_HUD_UI_STATE = "com.odyssey.combat-hud/ui-state";
 var BC_HUD_SELECTION = "com.odyssey.combat-hud/selection";
 var BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
 var BC_HUD_COMMAND = "com.odyssey.combat-hud/command";
+var BC_HUD_TARGETING = "com.odyssey.combat-hud/targeting";
+var BC_HUD_TARGETING_REQUEST = "com.odyssey.combat-hud/targeting-request";
+var BC_HUD_TARGETING_COMMAND = "com.odyssey.combat-hud/targeting-command";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -4993,19 +4996,18 @@ function weaponSvgRef(w) {
   return "rifle";
 }
 function readReserveMagazines(armory, w, loadedMag) {
-  if (Array.isArray(w.reserve_magazines) && w.reserve_magazines.length) {
-    return w.reserve_magazines.map(readMagazine).filter(Boolean);
-  }
-  const profileMags = Array.isArray(w.compatible_magazines) && w.compatible_magazines.length ? w.compatible_magazines : Array.isArray(w.active_profile?.compatible_magazines) ? w.active_profile.compatible_magazines : [];
-  if (profileMags.length) {
-    const loadedId2 = loadedMag?.id ?? null;
-    return profileMags.filter((m) => m && (str(m.id) ?? null) !== loadedId2).map(readMagazine).filter(Boolean);
-  }
   const mags = Array.isArray(armory?.magazines) ? armory.magazines : [];
-  if (!mags.length) return [];
   const weaponCaliber = str(w.model?.caliber) ?? str(w.caliber);
   const loadedId = loadedMag?.id ?? null;
-  return mags.filter((m) => m && (str(m.id) ?? null) !== loadedId).filter((m) => !weaponCaliber || !rawMagCaliberCode(m) || rawMagCaliberCode(m) === weaponCaliber).map(readMagazine).filter(Boolean);
+  if (mags.length) {
+    return mags.filter((m) => m && (str(m.id) ?? null) !== loadedId).filter((m) => !weaponCaliber || !rawMagCaliberCode(m) || rawMagCaliberCode(m) === weaponCaliber).map(readMagazine).filter(Boolean);
+  }
+  if (Array.isArray(w.reserve_magazines) && w.reserve_magazines.length) {
+    return w.reserve_magazines.filter((m) => m && (str(m.id) ?? null) !== loadedId).map(readMagazine).filter(Boolean);
+  }
+  const profileMags = Array.isArray(w.compatible_magazines) && w.compatible_magazines.length ? w.compatible_magazines : Array.isArray(w.active_profile?.compatible_magazines) ? w.active_profile.compatible_magazines : [];
+  if (!profileMags.length) return [];
+  return profileMags.filter((m) => m && (str(m.id) ?? null) !== loadedId).map(readMagazine).filter(Boolean);
 }
 function mapWeapon(armory, selectedWeaponId = null) {
   const w = pickActiveWeapon(armory, selectedWeaponId);
@@ -5442,6 +5444,26 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     selectedTokenId: s.selectedItemId ?? null,
     characterId: s.characterId ?? null
   }) : null;
+  if (debug) {
+    const weapon = hudSnapshot?.weapon?.primary ?? null;
+    const inserted = weapon?.loadedMagazine ?? null;
+    debug.live = {
+      activeCharacterId: s.characterId ?? null,
+      selectedWeaponId: ephemeral.selectedWeaponId ?? weapon?.id ?? null,
+      weaponSelectorOpen: !!ephemeral.weaponSelectorOpen,
+      selectedWeaponResolved: !!weapon,
+      insertedMagazine: {
+        present: !!inserted,
+        rounds: inserted ? Number(inserted.current ?? 0) : null,
+        capacity: inserted ? Number(inserted.max ?? 0) : null
+      },
+      compatibleReserveMagazineCount: Array.isArray(weapon?.reserveMagazines) ? weapon.reserveMagazines.length : 0,
+      targetingMode: ephemeral.targeting?.mode ?? "none",
+      sourceTokenId: s.selectedItemId ?? null,
+      selectedObrTokenId: s.selectedItemId ?? null,
+      resolvedTargetTokenId: Array.isArray(ephemeral.targeting?.selectedTargetIds) ? ephemeral.targeting.selectedTargetIds[0] ?? null : null
+    };
+  }
   return {
     status: s.status,
     selectedItemId: s.selectedItemId ?? null,
@@ -5453,6 +5475,8 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     hudSnapshot: ready ? hudSnapshot : null,
     ui: {
       selectedWeaponId: ephemeral.selectedWeaponId ?? null,
+      selectedReloadMagazineId: ephemeral.selectedReloadMagazineId ?? null,
+      weaponSelectorOpen: !!ephemeral.weaponSelectorOpen,
       preparedAction: ephemeral.preparedAction ?? null,
       targeting: ephemeral.targeting ?? null,
       commandStatus: ephemeral.commandStatus ?? null
@@ -5566,6 +5590,7 @@ function setupSceneSelection(hooks = {}) {
   if (typeof lib_default === "undefined" || lib_default.isAvailable === false) return () => {
   };
   const onSelectionState = typeof hooks.onSelectionState === "function" ? hooks.onSelectionState : null;
+  const shouldDeferSelection = typeof hooks.shouldDeferSelection === "function" ? hooks.shouldDeferSelection : () => false;
   let disposed = false;
   let lastPayload = null;
   let lastState = null;
@@ -5575,6 +5600,7 @@ function setupSceneSelection(hooks = {}) {
     characterId: null,
     selectedWeaponId: null,
     selectedReloadMagazineId: null,
+    weaponSelectorOpen: false,
     preparedAction: null,
     targeting: { mode: "none", selectedTargetIds: [], selectedBodyPartId: "torso" },
     commandStatus: null
@@ -5618,6 +5644,7 @@ function setupSceneSelection(hooks = {}) {
       ephemeral.characterId = characterId ?? null;
       ephemeral.selectedWeaponId = null;
       ephemeral.selectedReloadMagazineId = null;
+      ephemeral.weaponSelectorOpen = false;
       ephemeral.preparedAction = null;
       ephemeral.targeting = { mode: "none", selectedTargetIds: [], selectedBodyPartId: "torso" };
       ephemeral.commandStatus = null;
@@ -5625,6 +5652,7 @@ function setupSceneSelection(hooks = {}) {
     function buildEphemeralForPayload() {
       return {
         selectedWeaponId: ephemeral.selectedWeaponId,
+        weaponSelectorOpen: ephemeral.weaponSelectorOpen,
         preparedAction: ephemeral.preparedAction,
         targeting: ephemeral.targeting,
         commandStatus: ephemeral.commandStatus
@@ -5639,6 +5667,18 @@ function setupSceneSelection(hooks = {}) {
       if (currentSelectionIds.length === 1) await resolveAndPublish(currentSelectionIds);
       else if (lastState) publishState(lastState);
     }
+    function applyTargetingPayload(payload) {
+      const target = payload?.target && typeof payload.target === "object" ? payload.target : null;
+      ephemeral.targeting = {
+        mode: payload?.mode === "picking" ? "picking" : "none",
+        selectedTargetIds: target?.tokenId ? [String(target.tokenId)] : [],
+        selectedTargetName: target?.displayName ?? null,
+        selectedBodyPartId: target?.selectedZoneId ?? "torso",
+        distance: Number.isFinite(Number(target?.distance?.value)) ? Number(target.distance.value) : null,
+        error: payload?.error ?? null
+      };
+      if (lastState) publishState(lastState);
+    }
     async function handleCommand(command) {
       if (!command || typeof command !== "object") return;
       if (!lastPayload || lastPayload.status !== "ready") return;
@@ -5647,6 +5687,17 @@ function setupSceneSelection(hooks = {}) {
       if (type === "select-weapon") {
         ephemeral.selectedWeaponId = String(command.weaponId ?? "").trim() || null;
         ephemeral.selectedReloadMagazineId = null;
+        ephemeral.weaponSelectorOpen = false;
+        if (lastState) publishState(lastState);
+        return;
+      }
+      if (type === "toggle-weapon-selector") {
+        ephemeral.weaponSelectorOpen = !ephemeral.weaponSelectorOpen;
+        if (lastState) publishState(lastState);
+        return;
+      }
+      if (type === "close-weapon-selector") {
+        ephemeral.weaponSelectorOpen = false;
         if (lastState) publishState(lastState);
         return;
       }
@@ -5661,14 +5712,7 @@ function setupSceneSelection(hooks = {}) {
         if (lastState) publishState(lastState);
         return;
       }
-      if (type === "pick-target") {
-        ephemeral.targeting = { ...ephemeral.targeting, mode: "picking" };
-        if (lastState) publishState(lastState);
-        return;
-      }
-      if (type === "cancel-target") {
-        ephemeral.targeting = { ...ephemeral.targeting, mode: "none" };
-        if (lastState) publishState(lastState);
+      if (type === "pick-target" || type === "cancel-target" || type === "clear-target" || type === "select-target-zone") {
         return;
       }
       if (type === "reload") {
@@ -5692,6 +5736,7 @@ function setupSceneSelection(hooks = {}) {
       }
     }
     async function resolveAndPublish(selectionIds) {
+      if (shouldDeferSelection()) return;
       currentSelectionIds = Array.isArray(selectionIds) ? selectionIds.slice() : [];
       const { stale, state } = await adapter.resolveLatest(selectionIds);
       if (disposed || stale) return;
@@ -5709,28 +5754,13 @@ function setupSceneSelection(hooks = {}) {
     await resolveAndPublish(player.selection);
     cleanups2.push(await subscribePlayerChanges((p) => {
       viewer = normalizeViewer({ playerId: p.id, role: p.role });
-      if (ephemeral.targeting.mode === "picking") {
-        const targetId = Array.isArray(p.selection) ? p.selection.find((id) => id && id !== lastPayload?.selectedItemId) : null;
-        if (targetId) {
-          ephemeral.targeting = {
-            ...ephemeral.targeting,
-            mode: "none",
-            selectedTargetIds: [String(targetId)],
-            selectedTargetName: "Target"
-          };
-          try {
-            lib_default.player.select([lastPayload.selectedItemId], true);
-          } catch (_e) {
-          }
-          if (lastState) publishState(lastState);
-          return;
-        }
-      }
+      if (shouldDeferSelection()) return;
       void resolveAndPublish(p.selection);
     }));
     cleanups2.push(await subscribeSceneItems(() => {
       if (sceneTimer) clearTimeout(sceneTimer);
       sceneTimer = setTimeout(() => {
+        if (shouldDeferSelection()) return;
         lib_default.player.getSelection().then((sel) => {
           if (Array.isArray(sel) && sel.length === 1) return resolveAndPublish(sel);
         }).catch(() => {
@@ -5744,6 +5774,7 @@ function setupSceneSelection(hooks = {}) {
       void handleCommand(event?.data).catch(() => {
       });
     }));
+    cleanup.applyTargetingPayload = applyTargetingPayload;
   }
   lib_default.onReady(() => {
     if (disposed) return;
@@ -5751,7 +5782,7 @@ function setupSceneSelection(hooks = {}) {
       console.error("[combatHud/scene] selection setup failed", error);
     });
   });
-  return () => {
+  function cleanup() {
     disposed = true;
     if (sceneTimer) {
       clearTimeout(sceneTimer);
@@ -5763,6 +5794,566 @@ function setupSceneSelection(hooks = {}) {
       } catch (_e) {
       }
     }
+  }
+  cleanup.applyTargetingPayload = () => {
+  };
+  return cleanup;
+}
+
+// hud/targeting/targetProfiles.js
+var DEFAULT_PROFILE_ID = "humanoid";
+var HUMANOID_PROFILE = Object.freeze({
+  id: "humanoid",
+  zones: Object.freeze([
+    Object.freeze({ id: "HEAD", label: "Head" }),
+    Object.freeze({ id: "TORSO", label: "Torso" }),
+    Object.freeze({ id: "LEFT_ARM", label: "Left arm" }),
+    Object.freeze({ id: "RIGHT_ARM", label: "Right arm" }),
+    Object.freeze({ id: "LEFT_LEG", label: "Left leg" }),
+    Object.freeze({ id: "RIGHT_LEG", label: "Right leg" })
+  ]),
+  defaultZoneId: "TORSO"
+});
+var PROFILES = Object.freeze({
+  humanoid: HUMANOID_PROFILE
+});
+function getTargetProfile(profileId) {
+  return PROFILES[String(profileId ?? "")] ?? HUMANOID_PROFILE;
+}
+function getDefaultZoneId(profileId) {
+  return getTargetProfile(profileId).defaultZoneId;
+}
+function isValidZoneId(profileId, zoneId) {
+  return getTargetProfile(profileId).zones.some((z) => z.id === zoneId);
+}
+var ZONE_TO_SVG_PART = Object.freeze({
+  HEAD: "head",
+  TORSO: "torso",
+  LEFT_ARM: "l_arm",
+  RIGHT_ARM: "r_arm",
+  LEFT_LEG: "l_leg",
+  RIGHT_LEG: "r_leg"
+});
+
+// hud/targeting/targetSelectionState.js
+var TARGETING_MODE = Object.freeze({
+  idle: "idle",
+  picking: "picking"
+});
+var TARGETING_ERROR = Object.freeze({
+  noSource: "NO_READY_SOURCE",
+  selfTarget: "CANNOT_TARGET_SELF",
+  notLinked: "TOKEN_NOT_LINKED",
+  noToken: "NO_TOKEN",
+  fetchFailed: "TARGET_LINK_FETCH_FAILED"
+});
+function str2(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+function normalizeSource(raw) {
+  return {
+    tokenId: str2(raw?.tokenId),
+    characterId: str2(raw?.characterId),
+    characterName: str2(raw?.characterName)
+  };
+}
+function isSourceReady(source) {
+  return Boolean(source && source.tokenId && source.characterId);
+}
+function noError() {
+  return { code: null, message: null };
+}
+function createInitialTargetState() {
+  return {
+    mode: TARGETING_MODE.idle,
+    source: { tokenId: null, characterId: null, characterName: null },
+    target: null,
+    error: noError()
+  };
+}
+function startPicking(state) {
+  const s = state ?? createInitialTargetState();
+  if (!isSourceReady(s.source)) {
+    return { ...s, mode: TARGETING_MODE.idle, error: { code: TARGETING_ERROR.noSource, message: null } };
+  }
+  if (s.mode === TARGETING_MODE.picking) return s;
+  return { ...s, mode: TARGETING_MODE.picking, error: noError() };
+}
+function cancelPicking(state) {
+  const s = state ?? createInitialTargetState();
+  if (s.mode !== TARGETING_MODE.picking) return s;
+  return { ...s, mode: TARGETING_MODE.idle };
+}
+function applyResolvedTarget(state, candidate) {
+  const s = state ?? createInitialTargetState();
+  if (!candidate || !str2(candidate.tokenId)) return s;
+  const profileId = str2(candidate.profileId) ?? DEFAULT_PROFILE_ID;
+  return {
+    ...s,
+    mode: TARGETING_MODE.idle,
+    target: {
+      tokenId: String(candidate.tokenId),
+      characterId: str2(candidate.characterId),
+      displayName: str2(candidate.displayName) ?? "Target",
+      profileId,
+      selectedZoneId: getDefaultZoneId(profileId),
+      distance: normalizeDistance(candidate.distance)
+    },
+    error: noError()
+  };
+}
+function clearTarget(state) {
+  const s = state ?? createInitialTargetState();
+  return { ...s, mode: TARGETING_MODE.idle, target: null, error: noError() };
+}
+function selectZone(state, zoneId) {
+  const s = state ?? createInitialTargetState();
+  if (!s.target) return s;
+  const id = str2(zoneId);
+  if (!id || !isValidZoneId(s.target.profileId, id)) return s;
+  if (s.target.selectedZoneId === id) return s;
+  return { ...s, target: { ...s.target, selectedZoneId: id } };
+}
+function applySource(state, rawSource) {
+  const s = state ?? createInitialTargetState();
+  const source = normalizeSource(rawSource);
+  const prevCharId = s.source?.characterId ?? null;
+  const nextCharId = source.characterId ?? null;
+  const characterChanged = nextCharId !== prevCharId;
+  const ready = isSourceReady(source);
+  if (!characterChanged && ready) {
+    return { ...s, source };
+  }
+  return {
+    ...s,
+    mode: TARGETING_MODE.idle,
+    source,
+    target: null,
+    error: noError()
+  };
+}
+function normalizeDistance(distance) {
+  if (!distance || typeof distance !== "object") return null;
+  const value = Number(distance.value);
+  const unit = str2(distance.unit);
+  if (!Number.isFinite(value) || !unit) return null;
+  return { value, unit };
+}
+function validateCandidate({ tokenId, sourceTokenId } = {}) {
+  const id = str2(tokenId);
+  if (!id) return { ok: false, code: TARGETING_ERROR.noToken };
+  if (id === str2(sourceTokenId)) return { ok: false, code: TARGETING_ERROR.selfTarget };
+  return { ok: true };
+}
+function extractTokenLink(linkResult, tokenId) {
+  if (!linkResult || linkResult.ok === false) return null;
+  const links = Array.isArray(linkResult.links) ? linkResult.links : [];
+  const match = links.find(
+    (l) => String(l?.token_id ?? "") === String(tokenId) && l?.is_active !== false
+  );
+  if (!match || !match.character) return null;
+  return {
+    characterId: str2(match.character.id),
+    characterName: str2(match.character.display_name) ?? str2(match.character.name)
+  };
+}
+function buildTargetingBroadcast(state) {
+  const s = state ?? createInitialTargetState();
+  return {
+    mode: s.mode === TARGETING_MODE.picking ? TARGETING_MODE.picking : TARGETING_MODE.idle,
+    source: {
+      tokenId: s.source?.tokenId ?? null,
+      characterId: s.source?.characterId ?? null,
+      characterName: s.source?.characterName ?? null
+    },
+    target: s.target ? {
+      tokenId: s.target.tokenId,
+      characterId: s.target.characterId ?? null,
+      displayName: s.target.displayName,
+      profileId: s.target.profileId,
+      selectedZoneId: s.target.selectedZoneId,
+      distance: s.target.distance ?? null
+    } : null,
+    error: { code: s.error?.code ?? null, message: s.error?.message ?? null }
+  };
+}
+function createTargetGenerationGate() {
+  let current2 = 0;
+  return {
+    next() {
+      current2 += 1;
+      return current2;
+    },
+    isCurrent(token) {
+      return token === current2;
+    },
+    get current() {
+      return current2;
+    }
+  };
+}
+
+// movement/gridMath.js
+var SQRT3 = Math.sqrt(3);
+function normalizeObrGridType(value) {
+  switch (String(value ?? "").trim().toUpperCase()) {
+    case "SQUARE":
+      return "square";
+    case "HEX_VERTICAL":
+      return "hex_vertical";
+    case "HEX_HORIZONTAL":
+      return "hex_horizontal";
+    default:
+      return "";
+  }
+}
+function normalizeDistanceMode(gridType, measurement) {
+  const tacticalType = normalizeObrGridType(gridType);
+  if (tacticalType === "hex_vertical" || tacticalType === "hex_horizontal") {
+    return "hex";
+  }
+  switch (String(measurement ?? "").trim().toUpperCase()) {
+    case "CHEBYSHEV":
+      return "chebyshev";
+    case "MANHATTAN":
+      return "manhattan";
+    default:
+      return "";
+  }
+}
+function normalizeTacticalGridSettings(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const gridType = String(raw.grid_type ?? raw.gridType ?? "").trim().toLowerCase();
+  const distanceMode = String(raw.distance_mode ?? raw.distanceMode ?? "").trim().toLowerCase();
+  const gridDpi = Number(raw.grid_dpi ?? raw.gridDpi ?? 0) || 0;
+  const metersPerCell = Number(raw.meters_per_cell ?? raw.metersPerCell ?? 1) || 1;
+  const anchorX = Number(raw.anchor_scene_x ?? raw.anchorSceneX ?? 0) || 0;
+  const anchorY = Number(raw.anchor_scene_y ?? raw.anchorSceneY ?? 0) || 0;
+  if (!gridType || !distanceMode || gridDpi <= 0 || metersPerCell <= 0) {
+    return null;
+  }
+  return {
+    gridType,
+    distanceMode,
+    gridDpi,
+    metersPerCell,
+    anchor: { x: anchorX, y: anchorY },
+    updatedAt: String(raw.updated_at ?? raw.updatedAt ?? "").trim()
+  };
+}
+function cubeRound({ x, y, z }) {
+  let rx = Math.round(x);
+  let ry = Math.round(y);
+  let rz = Math.round(z);
+  const xDiff = Math.abs(rx - x);
+  const yDiff = Math.abs(ry - y);
+  const zDiff = Math.abs(rz - z);
+  if (xDiff > yDiff && xDiff > zDiff) {
+    rx = -ry - rz;
+  } else if (yDiff > zDiff) {
+    ry = -rx - rz;
+  } else {
+    rz = -rx - ry;
+  }
+  return { x: rx, y: ry, z: rz };
+}
+function axialRound(q, r) {
+  const cube = cubeRound({ x: q, y: -q - r, z: r });
+  return { q: cube.x, r: cube.z };
+}
+function sceneToCell(grid, position) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !position) return null;
+  const x = (Number(position.x) || 0) - settings.anchor.x;
+  const y = (Number(position.y) || 0) - settings.anchor.y;
+  if (settings.gridType === "square") {
+    return {
+      q: Math.round(x / settings.gridDpi),
+      r: Math.round(y / settings.gridDpi)
+    };
+  }
+  if (settings.gridType === "hex_vertical") {
+    const size = settings.gridDpi / SQRT3;
+    const q = (SQRT3 / 3 * x - 1 / 3 * y) / size;
+    const r = 2 / 3 * y / size;
+    return axialRound(q, r);
+  }
+  if (settings.gridType === "hex_horizontal") {
+    const size = settings.gridDpi / SQRT3;
+    const q = 2 / 3 * x / size;
+    const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
+    return axialRound(q, r);
+  }
+  return null;
+}
+function computeDistanceCells(grid, fromCell, toCell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !fromCell || !toCell) return 0;
+  const fromQ = Number(fromCell.q ?? fromCell.cell_q ?? 0) || 0;
+  const fromR = Number(fromCell.r ?? fromCell.cell_r ?? 0) || 0;
+  const toQ = Number(toCell.q ?? toCell.cell_q ?? 0) || 0;
+  const toR = Number(toCell.r ?? toCell.cell_r ?? 0) || 0;
+  const dx = Math.abs(toQ - fromQ);
+  const dy = Math.abs(toR - fromR);
+  if (settings.gridType === "square") {
+    return settings.distanceMode === "manhattan" ? dx + dy : Math.max(dx, dy);
+  }
+  return (dx + dy + Math.abs(toQ + toR - (fromQ + fromR))) / 2;
+}
+
+// hud/targeting/targetDistance.js
+function parseGridScale(scale) {
+  if (scale && typeof scale === "object" && scale.parsed) {
+    const multiplier = Number(scale.parsed.multiplier);
+    const unit = String(scale.parsed.unit ?? "").trim();
+    if (Number.isFinite(multiplier) && multiplier > 0 && unit) {
+      return { multiplier, unit };
+    }
+  }
+  const raw = String((scale && typeof scale === "object" ? scale.raw : scale) ?? "").trim();
+  const match = raw.match(/^([\d.]+)\s*([^\d\s].*)$/);
+  if (match) {
+    const multiplier = Number(match[1]);
+    const unit = String(match[2]).trim();
+    if (Number.isFinite(multiplier) && multiplier > 0 && unit) {
+      return { multiplier, unit };
+    }
+  }
+  return null;
+}
+function computeTargetDistance(grid, fromPos, toPos) {
+  if (!grid || !fromPos || !toPos) return null;
+  const gridType = normalizeObrGridType(grid.type);
+  const distanceMode = normalizeDistanceMode(grid.type, grid.measurement);
+  const dpi = Number(grid.dpi);
+  if (!gridType || !distanceMode || !(dpi > 0)) return null;
+  const scale = parseGridScale(grid.scale);
+  if (!scale) return null;
+  const settings = {
+    grid_type: gridType,
+    distance_mode: distanceMode,
+    grid_dpi: dpi,
+    meters_per_cell: scale.multiplier,
+    anchor_scene_x: 0,
+    anchor_scene_y: 0
+  };
+  const fromCell = sceneToCell(settings, fromPos);
+  const toCell = sceneToCell(settings, toPos);
+  if (!fromCell || !toCell) return null;
+  const cells = computeDistanceCells(settings, fromCell, toCell);
+  const value = Math.round(cells * scale.multiplier * 100) / 100;
+  return { value, unit: scale.unit };
+}
+
+// hud/targeting/targetSelectionAdapter.js
+function createTargetSelectionAdapter(deps = {}) {
+  const fetchSceneTokenLink = deps.fetchSceneTokenLink;
+  const getTokenSummary = typeof deps.getTokenSummary === "function" ? deps.getTokenSummary : null;
+  const getGrid = typeof deps.getGrid === "function" ? deps.getGrid : null;
+  const getSourceContext = typeof deps.getSourceContext === "function" ? deps.getSourceContext : () => ({});
+  const gate = createTargetGenerationGate();
+  async function resolve(tokenId) {
+    const source = getSourceContext() ?? {};
+    const base = validateCandidate({ tokenId, sourceTokenId: source.tokenId });
+    if (!base.ok) return base;
+    let linkResult;
+    try {
+      linkResult = await fetchSceneTokenLink(tokenId);
+    } catch (error) {
+      return { ok: false, code: TARGETING_ERROR.fetchFailed, message: error?.message ?? null };
+    }
+    const link = extractTokenLink(linkResult, tokenId);
+    if (!link) return { ok: false, code: TARGETING_ERROR.notLinked };
+    let summary = null;
+    if (getTokenSummary) {
+      try {
+        summary = await getTokenSummary(tokenId);
+      } catch (_e) {
+        summary = null;
+      }
+    }
+    const displayName = link.characterName || summary?.displayName || "Target";
+    let distance = null;
+    try {
+      if (getGrid && summary?.position && source.tokenId) {
+        const [grid, srcSummary] = await Promise.all([
+          Promise.resolve(getGrid()),
+          getTokenSummary ? getTokenSummary(source.tokenId) : Promise.resolve(null)
+        ]);
+        if (grid && srcSummary?.position) {
+          distance = computeTargetDistance(grid, srcSummary.position, summary.position);
+        }
+      }
+    } catch (_e) {
+      distance = null;
+    }
+    return {
+      ok: true,
+      candidate: {
+        tokenId: String(tokenId),
+        characterId: link.characterId ?? null,
+        displayName,
+        profileId: DEFAULT_PROFILE_ID,
+        distance
+      }
+    };
+  }
+  async function resolveLatest(tokenId) {
+    const token = gate.next();
+    const result = await resolve(tokenId);
+    return { stale: !gate.isCurrent(token), result };
+  }
+  return { resolve, resolveLatest };
+}
+
+// hud/targeting/targetSelectionController.js
+function setupTargetSelection(options = {}) {
+  if (typeof lib_default === "undefined" || lib_default.isAvailable === false) {
+    return { cleanup: () => {
+    }, isPicking: () => false, handleActiveSelection: () => {
+    } };
+  }
+  const onTargetingState = typeof options.onTargetingState === "function" ? options.onTargetingState : null;
+  let disposed = false;
+  let state = createInitialTargetState();
+  let adapter = null;
+  let restoreInProgress = false;
+  const cleanups2 = [];
+  function broadcast() {
+    const payload = buildTargetingBroadcast(state);
+    try {
+      lib_default.broadcast.sendMessage(BC_HUD_TARGETING, payload, { destination: "LOCAL" });
+    } catch (_e) {
+    }
+    if (onTargetingState) {
+      try {
+        onTargetingState(payload);
+      } catch (_e) {
+      }
+    }
+  }
+  function commit(next) {
+    if (next === state) return;
+    state = next;
+    broadcast();
+  }
+  async function restoreSourceSelection() {
+    const sourceTokenId = state.source?.tokenId;
+    if (!sourceTokenId) return;
+    restoreInProgress = true;
+    try {
+      await lib_default.player.select([sourceTokenId], true);
+    } catch (_e) {
+    }
+    restoreInProgress = false;
+  }
+  function onPick() {
+    commit(startPicking(state));
+  }
+  async function onCancel() {
+    if (state.mode !== TARGETING_MODE.picking) return;
+    commit(cancelPicking(state));
+    await restoreSourceSelection();
+  }
+  function onClear() {
+    commit(clearTarget(state));
+  }
+  function onSelectZone(zoneId) {
+    commit(selectZone(state, zoneId));
+  }
+  async function resolveCandidate(tokenId) {
+    if (!adapter) return;
+    const { stale, result } = await adapter.resolveLatest(tokenId);
+    if (disposed || stale) return;
+    if (state.mode !== TARGETING_MODE.picking) return;
+    if (!result.ok) {
+      commit(cancelPicking({ ...state, error: { code: result.code, message: result.message ?? null } }));
+      await restoreSourceSelection();
+      return;
+    }
+    commit(applyResolvedTarget(state, result.candidate));
+    await restoreSourceSelection();
+  }
+  function handleActiveSelection(payload) {
+    if (disposed) return;
+    const ready = payload && payload.status === "ready" && payload.access?.canView === true;
+    const source = ready ? {
+      tokenId: payload.selectedItemId ?? null,
+      characterId: payload.characterId ?? null,
+      characterName: payload.view?.name ?? null
+    } : { tokenId: null, characterId: null, characterName: null };
+    commit(applySource(state, source));
+  }
+  async function init() {
+    const [context, settings] = await Promise.all([
+      getRoomSceneContext(),
+      loadRoomSupabaseSettings()
+    ]);
+    if (disposed) return;
+    adapter = createTargetSelectionAdapter({
+      fetchSceneTokenLink: (tokenId) => getSceneTokenLinks(
+        { room_id: context.roomId, scene_id: context.sceneId, campaign_id: context.campaignId, token_id: tokenId },
+        settings
+      ),
+      getTokenSummary: async (tokenId) => {
+        const items = await getSceneItems();
+        const item = items.find((i) => String(i?.id ?? "") === String(tokenId));
+        if (!item) return null;
+        return { displayName: String(item.name ?? ""), position: item.position ?? null };
+      },
+      getGrid: () => getSceneGrid(),
+      getSourceContext: () => state.source ?? {}
+    });
+    cleanups2.push(await subscribePlayerChanges((p) => {
+      if (disposed || restoreInProgress) return;
+      if (state.mode !== TARGETING_MODE.picking) return;
+      const ids = Array.isArray(p.selection) ? p.selection.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
+      if (ids.length !== 1) return;
+      const tokenId = ids[0];
+      if (tokenId === state.source?.tokenId) return;
+      void resolveCandidate(tokenId);
+    }));
+    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_TARGETING_COMMAND, (event) => {
+      const cmd = event?.data ?? {};
+      switch (cmd.type) {
+        case "pick":
+          onPick();
+          break;
+        case "cancel":
+          void onCancel();
+          break;
+        case "clear":
+          onClear();
+          break;
+        case "selectZone":
+          onSelectZone(cmd.zoneId);
+          break;
+        default:
+          break;
+      }
+    }));
+    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_TARGETING_REQUEST, () => broadcast()));
+    broadcast();
+  }
+  lib_default.onReady(() => {
+    if (disposed) return;
+    void init().catch((error) => {
+      console.error("[combatHud/targeting] setup failed", error);
+    });
+  });
+  return {
+    cleanup() {
+      disposed = true;
+      for (const fn of cleanups2.splice(0)) {
+        try {
+          fn();
+        } catch (_e) {
+        }
+      }
+    },
+    isPicking: () => state.mode === TARGETING_MODE.picking,
+    handleActiveSelection
   };
 }
 
@@ -5934,6 +6525,7 @@ function normalizeLayoutState(state) {
 var VIEWPORT_POLL_MS = 600;
 var PILL_W = 150;
 var PILL_H = 44;
+var GUN_SELECTOR_EXTRA_H = 112;
 var OPEN_ORDER = [...HUD_MODULE_IDS].sort(
   (a, b) => DEFAULT_HUD_LAYOUT_V2[a].zIndex - DEFAULT_HUD_LAYOUT_V2[b].zIndex
 );
@@ -5946,6 +6538,8 @@ var mode = "modules";
 var pollTimer = null;
 var lastSelectionStatus = SELECTION_STATUS.loading;
 var sceneCleanup = null;
+var targetSelection = null;
+var gunSelectorOpen = false;
 var cleanups = [];
 var SECONDARY_SET = new Set(SECONDARY_MODULE_IDS);
 function moduleShouldBeOpen(id) {
@@ -6007,7 +6601,10 @@ function paramsForRect(rect) {
   };
 }
 function moduleRect(moduleId) {
-  return resolveModuleRect(moduleId, lastLayout.modules[moduleId], lastVW, lastVH);
+  const rect = resolveModuleRect(moduleId, lastLayout.modules[moduleId], lastVW, lastVH);
+  if (moduleId !== "gun" || !gunSelectorOpen) return rect;
+  const extra = Math.min(GUN_SELECTOR_EXTRA_H, Math.max(0, rect.top));
+  return { ...rect, top: rect.top - extra, height: rect.height + extra };
 }
 async function openModule(moduleId) {
   const rect = moduleRect(moduleId);
@@ -6016,6 +6613,23 @@ async function openModule(moduleId) {
     url: pageUrl(moduleId),
     ...paramsForRect(rect)
   });
+}
+async function setGunSelectorOpen(open) {
+  const next = Boolean(open);
+  if (next === gunSelectorOpen) return;
+  gunSelectorOpen = next;
+  if (mode === "modules" && moduleShouldBeOpen("gun")) {
+    try {
+      await openModule("gun");
+    } catch (_e) {
+    }
+  }
+}
+function sendTargetingCommand(command) {
+  try {
+    lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, command, { destination: "LOCAL" });
+  } catch (_e) {
+  }
 }
 async function openVisibleModules() {
   for (const id of OPEN_ORDER) {
@@ -6092,10 +6706,12 @@ async function closePill() {
 }
 async function applyMode() {
   if (mode === "collapsed") {
+    gunSelectorOpen = false;
     await closeEditorPopover();
     await closeAllModules();
     await openPill();
   } else if (mode === "editor") {
+    gunSelectorOpen = false;
     await closePill();
     await closeAllModules();
     await openEditor();
@@ -6135,8 +6751,22 @@ function setupCombatHudOverlay() {
       mode = isCollapsed() ? "collapsed" : "modules";
       await applyMode();
       startViewportPoll();
+      targetSelection = setupTargetSelection({
+        onTargetingState: (payload) => {
+          try {
+            sceneCleanup?.applyTargetingPayload?.(payload);
+          } catch (_e) {
+          }
+        }
+      });
       sceneCleanup = setupSceneSelection({
+        shouldDeferSelection: () => targetSelection?.isPicking?.() === true,
         onSelectionState: async (payload) => {
+          try {
+            targetSelection?.handleActiveSelection?.(payload);
+          } catch (_e) {
+          }
+          if (gunSelectorOpen && payload?.ui?.weaponSelectorOpen !== true) await setGunSelectorOpen(false);
           const prev = lastSelectionStatus;
           lastSelectionStatus = payload?.status ?? SELECTION_STATUS.loading;
           await reconcileSecondaryModules(prev, lastSelectionStatus);
@@ -6148,8 +6778,18 @@ function setupCombatHudOverlay() {
         lastUiState = { ...lastUiState, ...next };
         if (collapseChanged) {
           mode = isCollapsed() ? "collapsed" : "modules";
+          if (isCollapsed()) gunSelectorOpen = false;
           await applyMode();
         }
+      }));
+      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_COMMAND, async (event) => {
+        const type = String(event?.data?.type ?? "");
+        if (type === "toggle-weapon-selector") await setGunSelectorOpen(!gunSelectorOpen);
+        else if (type === "close-weapon-selector" || type === "select-weapon" || type === "reload") await setGunSelectorOpen(false);
+        if (type === "pick-target") sendTargetingCommand({ type: "pick" });
+        else if (type === "cancel-target") sendTargetingCommand({ type: "cancel" });
+        else if (type === "clear-target") sendTargetingCommand({ type: "clear" });
+        else if (type === "select-target-zone") sendTargetingCommand({ type: "selectZone", zoneId: event?.data?.zoneId });
       }));
       cleanups.push(lib_default.broadcast.onMessage(BC_HUD_EDITOR, async (event) => {
         const open = Boolean(event?.data && event.data.open);
@@ -7232,88 +7872,6 @@ function createOdysseyRuntime() {
   };
 }
 
-// movement/gridMath.js
-var SQRT3 = Math.sqrt(3);
-function normalizeTacticalGridSettings(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const gridType = String(raw.grid_type ?? raw.gridType ?? "").trim().toLowerCase();
-  const distanceMode = String(raw.distance_mode ?? raw.distanceMode ?? "").trim().toLowerCase();
-  const gridDpi = Number(raw.grid_dpi ?? raw.gridDpi ?? 0) || 0;
-  const metersPerCell = Number(raw.meters_per_cell ?? raw.metersPerCell ?? 1) || 1;
-  const anchorX = Number(raw.anchor_scene_x ?? raw.anchorSceneX ?? 0) || 0;
-  const anchorY = Number(raw.anchor_scene_y ?? raw.anchorSceneY ?? 0) || 0;
-  if (!gridType || !distanceMode || gridDpi <= 0 || metersPerCell <= 0) {
-    return null;
-  }
-  return {
-    gridType,
-    distanceMode,
-    gridDpi,
-    metersPerCell,
-    anchor: { x: anchorX, y: anchorY },
-    updatedAt: String(raw.updated_at ?? raw.updatedAt ?? "").trim()
-  };
-}
-function cubeRound({ x, y, z }) {
-  let rx = Math.round(x);
-  let ry = Math.round(y);
-  let rz = Math.round(z);
-  const xDiff = Math.abs(rx - x);
-  const yDiff = Math.abs(ry - y);
-  const zDiff = Math.abs(rz - z);
-  if (xDiff > yDiff && xDiff > zDiff) {
-    rx = -ry - rz;
-  } else if (yDiff > zDiff) {
-    ry = -rx - rz;
-  } else {
-    rz = -rx - ry;
-  }
-  return { x: rx, y: ry, z: rz };
-}
-function axialRound(q, r) {
-  const cube = cubeRound({ x: q, y: -q - r, z: r });
-  return { q: cube.x, r: cube.z };
-}
-function sceneToCell(grid, position) {
-  const settings = normalizeTacticalGridSettings(grid);
-  if (!settings || !position) return null;
-  const x = (Number(position.x) || 0) - settings.anchor.x;
-  const y = (Number(position.y) || 0) - settings.anchor.y;
-  if (settings.gridType === "square") {
-    return {
-      q: Math.round(x / settings.gridDpi),
-      r: Math.round(y / settings.gridDpi)
-    };
-  }
-  if (settings.gridType === "hex_vertical") {
-    const size = settings.gridDpi / SQRT3;
-    const q = (SQRT3 / 3 * x - 1 / 3 * y) / size;
-    const r = 2 / 3 * y / size;
-    return axialRound(q, r);
-  }
-  if (settings.gridType === "hex_horizontal") {
-    const size = settings.gridDpi / SQRT3;
-    const q = 2 / 3 * x / size;
-    const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
-    return axialRound(q, r);
-  }
-  return null;
-}
-function computeDistanceCells(grid, fromCell, toCell) {
-  const settings = normalizeTacticalGridSettings(grid);
-  if (!settings || !fromCell || !toCell) return 0;
-  const fromQ = Number(fromCell.q ?? fromCell.cell_q ?? 0) || 0;
-  const fromR = Number(fromCell.r ?? fromCell.cell_r ?? 0) || 0;
-  const toQ = Number(toCell.q ?? toCell.cell_q ?? 0) || 0;
-  const toR = Number(toCell.r ?? toCell.cell_r ?? 0) || 0;
-  const dx = Math.abs(toQ - fromQ);
-  const dy = Math.abs(toR - fromR);
-  if (settings.gridType === "square") {
-    return settings.distanceMode === "manhattan" ? dx + dy : Math.max(dx, dy);
-  }
-  return (dx + dy + Math.abs(toQ + toR - (fromQ + fromR))) / 2;
-}
-
 // movement/moveToolBridge.js
 var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
 var TACTICAL_MOVE_TOOL_ID = "com.odyssey-system/tactical-move";
@@ -7357,7 +7915,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.24";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.22";
 function createToolIcon() {
   return MOVE_TOOL_ICON_URL;
 }

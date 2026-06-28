@@ -352,26 +352,28 @@ function weaponSvgRef(w) {
  *  magazines from armory.magazines (caliber match, excluding the loaded one) —
  *  mirrors the menu's compatibleMagazinesForWeapon(). */
 function readReserveMagazines(armory, w, loadedMag) {
-  if (Array.isArray(w.reserve_magazines) && w.reserve_magazines.length) {
-    return w.reserve_magazines.map(readMagazine).filter(Boolean);
+  const mags = Array.isArray(armory?.magazines) ? armory.magazines : [];
+  const weaponCaliber = str(w.model?.caliber) ?? str(w.caliber);
+  const loadedId = loadedMag?.id ?? null;
+  if (mags.length) {
+    return mags
+      .filter((m) => m && (str(m.id) ?? null) !== loadedId)
+      .filter((m) => !weaponCaliber || !rawMagCaliberCode(m) || rawMagCaliberCode(m) === weaponCaliber)
+      .map(readMagazine)
+      .filter(Boolean);
   }
-  const profileMags = Array.isArray(w.compatible_magazines) && w.compatible_magazines.length
-    ? w.compatible_magazines
-    : (Array.isArray(w.active_profile?.compatible_magazines) ? w.active_profile.compatible_magazines : []);
-  if (profileMags.length) {
-    const loadedId = loadedMag?.id ?? null;
-    return profileMags
+  if (Array.isArray(w.reserve_magazines) && w.reserve_magazines.length) {
+    return w.reserve_magazines
       .filter((m) => m && (str(m.id) ?? null) !== loadedId)
       .map(readMagazine)
       .filter(Boolean);
   }
-  const mags = Array.isArray(armory?.magazines) ? armory.magazines : [];
-  if (!mags.length) return [];
-  const weaponCaliber = str(w.model?.caliber) ?? str(w.caliber);
-  const loadedId = loadedMag?.id ?? null;
-  return mags
+  const profileMags = Array.isArray(w.compatible_magazines) && w.compatible_magazines.length
+    ? w.compatible_magazines
+    : (Array.isArray(w.active_profile?.compatible_magazines) ? w.active_profile.compatible_magazines : []);
+  if (!profileMags.length) return [];
+  return profileMags
     .filter((m) => m && (str(m.id) ?? null) !== loadedId)
-    .filter((m) => !weaponCaliber || !rawMagCaliberCode(m) || rawMagCaliberCode(m) === weaponCaliber)
     .map(readMagazine)
     .filter(Boolean);
 }

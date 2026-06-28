@@ -152,6 +152,7 @@ export function mountCombatHudModule(options) {
     let bodyMode = "error";
     try { bodyMode = state ? resolveBodyMode(state) : "error"; } catch (_e) { bodyMode = "error"; }
     el.setAttribute("data-body", liveSelection ? liveSelection.status : bodyMode);
+    el.setAttribute("data-weapon-selector", liveSelection?.ui?.weaponSelectorOpen ? "open" : "closed");
     el.innerHTML = `${bodyHtml(state)}${controlsHtml()}${debugBadge(state)}<div class="ohud-toast" hidden></div>`;
   }
 
@@ -191,6 +192,9 @@ export function mountCombatHudModule(options) {
       case "select-weapon":
         integration.onCommand && integration.onCommand({ type: "select-weapon", weaponId: t.getAttribute("data-weapon-id") });
         break;
+      case "toggle-weapon-list":
+        integration.onCommand && integration.onCommand({ type: "toggle-weapon-selector" });
+        break;
       case "reload":
         integration.onCommand && integration.onCommand({
           type: "reload",
@@ -208,6 +212,12 @@ export function mountCombatHudModule(options) {
     }
   }
   el.addEventListener("click", onClick);
+  function onKeyDown(e) {
+    if (e.key === "Escape" && moduleId === "gun") {
+      integration.onCommand && integration.onCommand({ type: "close-weapon-selector" });
+    }
+  }
+  el.addEventListener("keydown", onKeyDown);
 
   const unsubscribe = store.subscribe(render);
   render();
@@ -219,6 +229,7 @@ export function mountCombatHudModule(options) {
       unsubscribe();
       tooltip.destroy();
       el.removeEventListener("click", onClick);
+      el.removeEventListener("keydown", onKeyDown);
       if (toastTimer) clearTimeout(toastTimer);
       store.dispose();
       el.remove();

@@ -204,6 +204,28 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         characterId: s.characterId ?? null,
       })
     : null;
+  if (debug) {
+    const weapon = hudSnapshot?.weapon?.primary ?? null;
+    const inserted = weapon?.loadedMagazine ?? null;
+    debug.live = {
+      activeCharacterId: s.characterId ?? null,
+      selectedWeaponId: ephemeral.selectedWeaponId ?? weapon?.id ?? null,
+      weaponSelectorOpen: !!ephemeral.weaponSelectorOpen,
+      selectedWeaponResolved: !!weapon,
+      insertedMagazine: {
+        present: !!inserted,
+        rounds: inserted ? Number(inserted.current ?? 0) : null,
+        capacity: inserted ? Number(inserted.max ?? 0) : null,
+      },
+      compatibleReserveMagazineCount: Array.isArray(weapon?.reserveMagazines) ? weapon.reserveMagazines.length : 0,
+      targetingMode: ephemeral.targeting?.mode ?? "none",
+      sourceTokenId: s.selectedItemId ?? null,
+      selectedObrTokenId: s.selectedItemId ?? null,
+      resolvedTargetTokenId: Array.isArray(ephemeral.targeting?.selectedTargetIds)
+        ? (ephemeral.targeting.selectedTargetIds[0] ?? null)
+        : null,
+    };
+  }
 
   return {
     status: s.status,
@@ -216,6 +238,8 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
     hudSnapshot: ready ? hudSnapshot : null,
     ui: {
       selectedWeaponId: ephemeral.selectedWeaponId ?? null,
+      selectedReloadMagazineId: ephemeral.selectedReloadMagazineId ?? null,
+      weaponSelectorOpen: !!ephemeral.weaponSelectorOpen,
       preparedAction: ephemeral.preparedAction ?? null,
       targeting: ephemeral.targeting ?? null,
       commandStatus: ephemeral.commandStatus ?? null,

@@ -18,12 +18,15 @@
 import OBR from "@owlbear-rodeo/sdk";
 import {
   OVERLAY_HTML,
+  BC_HUD_COMMAND,
   BC_HUD_UI_STATE,
+  BC_HUD_TARGETING_COMMAND,
   DEFAULT_HUD_UI_STATE,
   normalizeHudUiState,
   serializeHudUiState,
 } from "./overlayConstants.js";
 import { setupSceneSelection } from "../scene/sceneSelectionController.js";
+import { setupTargetSelection } from "../targeting/targetSelectionController.js";
 import {
   SELECTION_STATUS,
   PRIMARY_MODULE_ID,
@@ -48,6 +51,7 @@ import {
 const VIEWPORT_POLL_MS = 600;
 const PILL_W = 150;
 const PILL_H = 44;
+const GUN_SELECTOR_EXTRA_H = 112;
 /** Module open order: ascending z-index → higher-z opens last → renders on top. */
 const OPEN_ORDER = [...HUD_MODULE_IDS].sort(
   (a, b) => DEFAULT_HUD_LAYOUT_V2[a].zIndex - DEFAULT_HUD_LAYOUT_V2[b].zIndex,
@@ -64,6 +68,8 @@ let pollTimer = null;
  *  the four ready-only modules open/close as this crosses the `ready` boundary. */
 let lastSelectionStatus = SELECTION_STATUS.loading;
 let sceneCleanup = null;
+let targetSelection = null;
+let gunSelectorOpen = false;
 /** @type {Array<() => void>} */
 const cleanups = [];
 
@@ -133,7 +139,10 @@ function paramsForRect(rect) {
 }
 
 function moduleRect(moduleId) {
-  return resolveModuleRect(moduleId, lastLayout.modules[moduleId], lastVW, lastVH);
+  const rect = resolveModuleRect(moduleId, lastLayout.modules[moduleId], lastVW, lastVH);
+  if (moduleId !== "gun" || !gunSelectorOpen) return rect;
+  const extra = Math.min(GUN_SELECTOR_EXTRA_H, Math.max(0, rect.top));
+  return { ...rect, top: rect.top - extra, height: rect.height + extra };
 }
 
 async function openModule(moduleId) {
@@ -143,6 +152,19 @@ async function openModule(moduleId) {
     url: pageUrl(moduleId),
     ...paramsForRect(rect),
   });
+}
+
+async function setGunSelectorOpen(open) {
+  const next = Boolean(open);
+  if (next === gunSelectorOpen) return;
+  gunSelectorOpen = next;
+  if (mode === "modules" && moduleShouldBeOpen("gun")) {
+    try { await openModule("gun"); } catch (_e) { /* best effort */ }
+  }
+}
+
+function sendTargetingCommand(command) {
+  try { OBR.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, command, { destination: "LOCAL" }); } catch (_e) { /* ignore */ }
 }
 
 /** Open every module that should currently be visible (Player always; the four
@@ -220,10 +242,12 @@ async function closePill() {
 /** Reflect the current `mode` by (re)opening exactly the right popovers. */
 async function applyMode() {
   if (mode === "collapsed") {
+    gunSelectorOpen = false;
     await closeEditorPopover();
     await closeAllModules();
     await openPill();
   } else if (mode === "editor") {
+    gunSelectorOpen = false;
     await closePill();
     await closeAllModules();
     await openEditor();
@@ -264,8 +288,17 @@ export function setupCombatHudOverlay() {
       // trimmed selection payload to the iframes (and replays it on request);
       // here we only reconcile which popovers are open when the selection
       // crosses the `ready` boundary (Player is always open).
+      targetSelection = setupTargetSelection({
+        onTargetingState: (payload) => {
+          try { sceneCleanup?.applyTargetingPayload?.(payload); } catch (_e) { /* bridge best-effort */ }
+        },
+      });
+
       sceneCleanup = setupSceneSelection({
+        shouldDeferSelection: () => targetSelection?.isPicking?.() === true,
         onSelectionState: async (payload) => {
+          try { targetSelection?.handleActiveSelection?.(payload); } catch (_e) { /* targeting owns its errors */ }
+          if (gunSelectorOpen && payload?.ui?.weaponSelectorOpen !== true) await setGunSelectorOpen(false);
           const prev = lastSelectionStatus;
           lastSelectionStatus = payload?.status ?? SELECTION_STATUS.loading;
           await reconcileSecondaryModules(prev, lastSelectionStatus);
@@ -279,8 +312,24 @@ export function setupCombatHudOverlay() {
         lastUiState = { ...lastUiState, ...next };
         if (collapseChanged) {
           mode = isCollapsed() ? "collapsed" : "modules";
+          if (isCollapsed()) gunSelectorOpen = false;
           await applyMode();
         }
+      }));
+
+      // Transient module commands that affect popover lifecycle/geometry. The
+      // actual gameplay state stays in scene/target controllers; this controller
+      // only resizes the Gun iframe while the selector is open and bridges the
+      // existing HUD command channel to the Phase 3B targeting command channel.
+      cleanups.push(OBR.broadcast.onMessage(BC_HUD_COMMAND, async (event) => {
+        const type = String(event?.data?.type ?? "");
+        if (type === "toggle-weapon-selector") await setGunSelectorOpen(!gunSelectorOpen);
+        else if (type === "close-weapon-selector" || type === "select-weapon" || type === "reload") await setGunSelectorOpen(false);
+
+        if (type === "pick-target") sendTargetingCommand({ type: "pick" });
+        else if (type === "cancel-target") sendTargetingCommand({ type: "cancel" });
+        else if (type === "clear-target") sendTargetingCommand({ type: "clear" });
+        else if (type === "select-target-zone") sendTargetingCommand({ type: "selectZone", zoneId: event?.data?.zoneId });
       }));
 
       // Arrange-HUD editor open/close.
@@ -314,10 +363,12 @@ export function setupCombatHudOverlay() {
 export async function teardownCombatHudOverlay() {
   for (const fn of cleanups.splice(0)) { try { fn(); } catch (_e) { /* ignore */ } }
   if (typeof sceneCleanup === "function") { try { sceneCleanup(); } catch (_e) { /* ignore */ } sceneCleanup = null; }
+  if (targetSelection?.cleanup) { try { targetSelection.cleanup(); } catch (_e) { /* ignore */ } targetSelection = null; }
   started = false;
   lastUiState = { ...DEFAULT_HUD_UI_STATE };
   lastLayout = defaultLayoutState();
   lastSelectionStatus = SELECTION_STATUS.loading;
+  gunSelectorOpen = false;
   mode = "modules";
   await closeEditorPopover();
   await closePill();

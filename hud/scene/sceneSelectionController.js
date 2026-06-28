@@ -31,13 +31,17 @@ const SCENE_RERESOLVE_DEBOUNCE_MS = 600;
 const HUD_RUNTIME_SECTIONS = Object.freeze(["summary", "combat", "armory", "abilities", "effects"]);
 
 /**
- * @param {{ onSelectionState?: (payload:object) => (void|Promise<void>) }} [hooks]
+ * @param {{
+ *   onSelectionState?: (payload:object) => (void|Promise<void>),
+ *   shouldDeferSelection?: () => boolean,
+ * }} [hooks]
  * @returns {() => void} cleanup
  */
 export function setupSceneSelection(hooks = {}) {
   if (typeof OBR === "undefined" || OBR.isAvailable === false) return () => {};
 
   const onSelectionState = typeof hooks.onSelectionState === "function" ? hooks.onSelectionState : null;
+  const shouldDeferSelection = typeof hooks.shouldDeferSelection === "function" ? hooks.shouldDeferSelection : () => false;
   let disposed = false;
   let lastPayload = null;
   let lastState = null;
@@ -47,6 +51,7 @@ export function setupSceneSelection(hooks = {}) {
     characterId: null,
     selectedWeaponId: null,
     selectedReloadMagazineId: null,
+    weaponSelectorOpen: false,
     preparedAction: null,
     targeting: { mode: "none", selectedTargetIds: [], selectedBodyPartId: "torso" },
     commandStatus: null,
@@ -95,6 +100,7 @@ export function setupSceneSelection(hooks = {}) {
       ephemeral.characterId = characterId ?? null;
       ephemeral.selectedWeaponId = null;
       ephemeral.selectedReloadMagazineId = null;
+      ephemeral.weaponSelectorOpen = false;
       ephemeral.preparedAction = null;
       ephemeral.targeting = { mode: "none", selectedTargetIds: [], selectedBodyPartId: "torso" };
       ephemeral.commandStatus = null;
@@ -103,6 +109,7 @@ export function setupSceneSelection(hooks = {}) {
     function buildEphemeralForPayload() {
       return {
         selectedWeaponId: ephemeral.selectedWeaponId,
+        weaponSelectorOpen: ephemeral.weaponSelectorOpen,
         preparedAction: ephemeral.preparedAction,
         targeting: ephemeral.targeting,
         commandStatus: ephemeral.commandStatus,
@@ -120,6 +127,19 @@ export function setupSceneSelection(hooks = {}) {
       else if (lastState) publishState(lastState);
     }
 
+    function applyTargetingPayload(payload) {
+      const target = payload?.target && typeof payload.target === "object" ? payload.target : null;
+      ephemeral.targeting = {
+        mode: payload?.mode === "picking" ? "picking" : "none",
+        selectedTargetIds: target?.tokenId ? [String(target.tokenId)] : [],
+        selectedTargetName: target?.displayName ?? null,
+        selectedBodyPartId: target?.selectedZoneId ?? "torso",
+        distance: Number.isFinite(Number(target?.distance?.value)) ? Number(target.distance.value) : null,
+        error: payload?.error ?? null,
+      };
+      if (lastState) publishState(lastState);
+    }
+
     async function handleCommand(command) {
       if (!command || typeof command !== "object") return;
       if (!lastPayload || lastPayload.status !== "ready") return;
@@ -128,6 +148,17 @@ export function setupSceneSelection(hooks = {}) {
       if (type === "select-weapon") {
         ephemeral.selectedWeaponId = String(command.weaponId ?? "").trim() || null;
         ephemeral.selectedReloadMagazineId = null;
+        ephemeral.weaponSelectorOpen = false;
+        if (lastState) publishState(lastState);
+        return;
+      }
+      if (type === "toggle-weapon-selector") {
+        ephemeral.weaponSelectorOpen = !ephemeral.weaponSelectorOpen;
+        if (lastState) publishState(lastState);
+        return;
+      }
+      if (type === "close-weapon-selector") {
+        ephemeral.weaponSelectorOpen = false;
         if (lastState) publishState(lastState);
         return;
       }
@@ -142,14 +173,7 @@ export function setupSceneSelection(hooks = {}) {
         if (lastState) publishState(lastState);
         return;
       }
-      if (type === "pick-target") {
-        ephemeral.targeting = { ...ephemeral.targeting, mode: "picking" };
-        if (lastState) publishState(lastState);
-        return;
-      }
-      if (type === "cancel-target") {
-        ephemeral.targeting = { ...ephemeral.targeting, mode: "none" };
-        if (lastState) publishState(lastState);
+      if (type === "pick-target" || type === "cancel-target" || type === "clear-target" || type === "select-target-zone") {
         return;
       }
       if (type === "reload") {
@@ -174,6 +198,7 @@ export function setupSceneSelection(hooks = {}) {
     }
 
     async function resolveAndPublish(selectionIds) {
+      if (shouldDeferSelection()) return;
       currentSelectionIds = Array.isArray(selectionIds) ? selectionIds.slice() : [];
       const { stale, state } = await adapter.resolveLatest(selectionIds);
       if (disposed || stale) return; // only the freshest selection updates the HUD
@@ -192,22 +217,7 @@ export function setupSceneSelection(hooks = {}) {
     // Selection / role changes (OBR.player.onChange carries selection + role).
     cleanups.push(await subscribePlayerChanges((p) => {
       viewer = normalizeViewer({ playerId: p.id, role: p.role });
-      if (ephemeral.targeting.mode === "picking") {
-        const targetId = Array.isArray(p.selection)
-          ? p.selection.find((id) => id && id !== lastPayload?.selectedItemId)
-          : null;
-        if (targetId) {
-          ephemeral.targeting = {
-            ...ephemeral.targeting,
-            mode: "none",
-            selectedTargetIds: [String(targetId)],
-            selectedTargetName: "Target",
-          };
-          try { OBR.player.select([lastPayload.selectedItemId], true); } catch (_e) { /* best effort */ }
-          if (lastState) publishState(lastState);
-          return;
-        }
-      }
+      if (shouldDeferSelection()) return;
       void resolveAndPublish(p.selection);
     }));
 
@@ -216,6 +226,7 @@ export function setupSceneSelection(hooks = {}) {
     cleanups.push(await subscribeSceneItems(() => {
       if (sceneTimer) clearTimeout(sceneTimer);
       sceneTimer = setTimeout(() => {
+        if (shouldDeferSelection()) return;
         OBR.player.getSelection()
           .then((sel) => { if (Array.isArray(sel) && sel.length === 1) return resolveAndPublish(sel); })
           .catch(() => {});
@@ -230,6 +241,8 @@ export function setupSceneSelection(hooks = {}) {
     cleanups.push(OBR.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
       void handleCommand(event?.data).catch(() => {});
     }));
+
+    cleanup.applyTargetingPayload = applyTargetingPayload;
   }
 
   OBR.onReady(() => {
@@ -240,9 +253,12 @@ export function setupSceneSelection(hooks = {}) {
     });
   });
 
-  return () => {
+  function cleanup() {
     disposed = true;
     if (sceneTimer) { clearTimeout(sceneTimer); sceneTimer = null; }
     for (const fn of cleanups.splice(0)) { try { fn(); } catch (_e) { /* ignore */ } }
-  };
+  }
+
+  cleanup.applyTargetingPayload = () => {};
+  return cleanup;
 }

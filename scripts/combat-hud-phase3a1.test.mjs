@@ -24,6 +24,13 @@ import {
 
 import { renderSelectionModule } from "../hud/scene/selectionView.js";
 import { splitSkillRows } from "../hud/overlay/hudLayout.js";
+import {
+  applyResolvedTarget,
+  applySource,
+  buildTargetingBroadcast,
+  createInitialTargetState,
+  startPicking,
+} from "../hud/targeting/targetSelectionState.js";
 
 let passed = 0;
 let failed = 0;
@@ -508,7 +515,7 @@ test("19. Pick target is visible for ready source without target", () => {
   assert.ok(html.includes('data-action="pick-target"'));
 });
 
-test("20. selectedWeaponId picks a non-first weapon and weapon selector lists both", () => {
+test("20. selectedWeaponId picks a non-first weapon and weapon selector is closed by default", () => {
   const first = canonicalWeapon({ id: "w-first", name: "First Rifle" });
   const second = canonicalWeapon({ id: "w-second", name: "Sidearm", cls: "Pistol" });
   const bundle = bundleWithWeapons([first, second], [
@@ -520,8 +527,24 @@ test("20. selectedWeaponId picks a non-first weapon and weapon selector lists bo
   const state = deriveSelectionState({ viewer: PLAYER, selectionIds: ["tok-1"], link: { characterId: "char-1" }, bundle });
   const payload = buildBroadcastPayload(state, { selectedWeaponId: "w-second" });
   const html = renderSelectionModule("gun", payload);
-  assert.ok(html.includes("First Rifle"));
-  assert.ok(html.includes("Sidearm"));
+  assert.ok(!html.includes("First Rifle"), "closed selector hides non-current weapon rows");
+  assert.ok(html.includes("Sidearm"), "selected weapon becomes current Gun weapon");
+  assert.ok(!html.includes("ohud-weapon-list"), "weapon list closed by default");
+  assert.ok(html.includes('data-action="toggle-weapon-list"'), "caret toggles selector");
+});
+
+test("20b. weapon selector opens only from transient ui state", () => {
+  const first = canonicalWeapon({ id: "w-first", name: "First Rifle" });
+  const second = canonicalWeapon({ id: "w-second", name: "Sidearm", cls: "Pistol" });
+  const bundle = bundleWithWeapons([first, second], [
+    { id: "mag-2", current_rounds: 8, ammo_type_name: "FMJ", magazine_def: { capacity: 12, caliber: "5.56", caliber_name: "5.56" } },
+  ]);
+  const state = deriveSelectionState({ viewer: PLAYER, selectionIds: ["tok-1"], link: { characterId: "char-1" }, bundle });
+  const payload = buildBroadcastPayload(state, { selectedWeaponId: "w-second", weaponSelectorOpen: true });
+  const html = renderSelectionModule("gun", payload);
+  assert.ok(html.includes("First Rifle"), "open selector lists available weapons");
+  assert.ok(html.includes("Sidearm"), "open selector keeps selected weapon visible");
+  assert.ok(html.includes("ohud-weapon-list"), "weapon list rendered only while open");
   assert.ok(html.includes('data-action="select-weapon"'));
 });
 
@@ -546,6 +569,58 @@ test("22. directed skill without target shows Select target and prepared state",
   const actionHtml = renderSelectionModule("combatControl", payload);
   assert.ok(skillsHtml.includes("is-selected"), "prepared skill has selected state");
   assert.ok(actionHtml.includes("Select target"));
+});
+
+test("23. selected reserve magazine flows into canonical reload command data", () => {
+  const bundle = bundleWithWeapon();
+  bundle.armory.magazines.push({ id: "mag-3", current_rounds: 12, ammo_type_name: "AP", magazine_def: { capacity: 30, caliber: "5.56", caliber_name: "5.56" } });
+  const state = deriveSelectionState({ viewer: PLAYER, selectionIds: ["tok-1"], link: { characterId: "char-1" }, bundle });
+  const payload = buildBroadcastPayload(state, { selectedReloadMagazineId: "mag-3" });
+  const html = renderSelectionModule("gun", payload);
+  assert.ok(html.includes('data-action="reload"'), "reload action is present");
+  assert.ok(html.includes('data-magazine-id="mag-3"'), "reload uses selected compatible magazine");
+});
+
+test("24. incompatible reserve magazines are not offered for selected weapon", () => {
+  const bundle = bundleWithWeapon();
+  bundle.armory.magazines.push({ id: "mag-other", current_rounds: 30, ammo_type_name: "Other", magazine_def: { capacity: 30, caliber: "9mm", caliber_name: "9mm" } });
+  const snap = mapBundleToHudSnapshot(bundle);
+  assert.equal(snap.weapon.primary.reserveMagazines.some((m) => m.id === "mag-other"), false);
+  const html = renderSelectionModule("gun", payloadFromBundle(bundle));
+  assert.ok(!html.includes("mag-other"), "Gun UI never offers incompatible magazine");
+});
+
+test("25. target picking state resolves target without changing source", () => {
+  const source = { tokenId: "tok-source", characterId: "char-source", characterName: "Source" };
+  const initial = applySource(createInitialTargetState(), source);
+  const picking = startPicking(initial);
+  assert.equal(picking.mode, "picking", "controller enters picking before token selection");
+  const resolved = applyResolvedTarget(picking, {
+    tokenId: "tok-target",
+    characterId: "char-target",
+    displayName: "Target NPC",
+    profileId: "humanoid",
+    distance: { value: 6, unit: "m" },
+  });
+  assert.equal(resolved.mode, "idle");
+  assert.equal(resolved.source.tokenId, "tok-source", "source token remains unchanged");
+  assert.equal(resolved.target.tokenId, "tok-target", "selected token becomes target");
+  const wire = buildTargetingBroadcast(resolved);
+  assert.equal(wire.source.tokenId, "tok-source");
+  assert.equal(wire.target.tokenId, "tok-target");
+});
+
+test("26. resolved target payload satisfies prepared targeted action", () => {
+  const bundle = liveSectionsBundle();
+  bundle.sections.abilities.abilities[0].targeting_mode = "token";
+  const state = deriveSelectionState({ viewer: PLAYER, selectionIds: ["tok-1"], link: { characterId: "char-1" }, bundle });
+  const payload = buildBroadcastPayload(state, {
+    preparedAction: { kind: "skill", id: "ability-1" },
+    targeting: { mode: "none", selectedTargetIds: ["tok-target"], selectedTargetName: "Target NPC", selectedBodyPartId: "torso" },
+  });
+  const html = renderSelectionModule("combatControl", payload);
+  assert.ok(html.includes("Target NPC"), "resolved target is displayed");
+  assert.ok(!html.includes("Select target"), "targeted action is no longer blocked");
 });
 
 // Summary

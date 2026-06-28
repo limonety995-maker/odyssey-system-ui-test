@@ -46,6 +46,15 @@ export const BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-reques
  *  The iframe never calls Supabase directly. */
 export const BC_HUD_COMMAND = "com.odyssey.combat-hud/command";
 
+/** LOCAL broadcast: Phase 3B target selection controller -> scene/UI bridge. */
+export const BC_HUD_TARGETING = "com.odyssey.combat-hud/targeting";
+
+/** LOCAL broadcast: module iframe -> target controller, asking for latest state. */
+export const BC_HUD_TARGETING_REQUEST = "com.odyssey.combat-hud/targeting-request";
+
+/** LOCAL broadcast: controller command channel for target picking lifecycle. */
+export const BC_HUD_TARGETING_COMMAND = "com.odyssey.combat-hud/targeting-command";
+
 /* ----------------- HUD geometry (Phase 2.1) ----------------- */
 //
 // The HUD is a left-anchored bottom panel: a tall PlayerBlock, a responsive
