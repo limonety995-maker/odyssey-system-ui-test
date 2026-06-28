@@ -4752,6 +4752,8 @@ function parsePlacement(rawJson) {
 
 // hud/overlay/overlayConstants.js
 var BC_HUD_UI_STATE = "com.odyssey.combat-hud/ui-state";
+var BC_HUD_SELECTION = "com.odyssey.combat-hud/selection";
+var BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -5574,6 +5576,181 @@ function renderLoadingState() {
   </div>`;
 }
 
+// hud/runtime/runtimeBundleMapper.js
+var ZONE_LABELS = Object.freeze({
+  head: "Head",
+  torso: "Torso",
+  l_arm: "Left Arm",
+  r_arm: "Right Arm",
+  l_leg: "Left Leg",
+  r_leg: "Right Leg"
+});
+var VALID_SKILL_TYPES = new Set(Object.values(SKILL_TYPES));
+var VALID_SKILL_SOURCES = new Set(Object.values(SKILL_SOURCES));
+var VALID_COLORS = new Set(Object.values(COLOR_SEMANTICS));
+var VALID_TARGETING = new Set(Object.values(TARGETING_MODES));
+var VALID_COSTS = new Set(Object.values(ACTION_COSTS));
+
+// hud/scene/selectionState.js
+var SELECTION_STATUS = Object.freeze({
+  ready: "ready",
+  loading: "loading",
+  noSelection: "no-selection",
+  multipleSelection: "multiple-selection",
+  unlinkedToken: "unlinked-token",
+  notOwned: "not-owned",
+  unavailable: "unavailable",
+  error: "error"
+});
+var ACCESS_REASON = Object.freeze({
+  noToken: "NO_TOKEN_SELECTED",
+  multipleTokens: "MULTIPLE_TOKENS_SELECTED",
+  noLink: "TOKEN_HAS_NO_CHARACTER",
+  notOwner: "CHARACTER_NOT_CONTROLLED_BY_VIEWER",
+  ownershipUnverifiable: "OWNERSHIP_UNVERIFIABLE",
+  backendUnconfigured: "BACKEND_UNCONFIGURED",
+  runtimeUnavailable: "RUNTIME_UNAVAILABLE"
+});
+var PRIMARY_MODULE_ID = "player";
+var SECONDARY_MODULE_IDS = Object.freeze(["gun", "skills", "combatControl", "log"]);
+function normalizeSelectionPayload(raw) {
+  if (!raw || typeof raw !== "object" || !raw.status) return null;
+  return {
+    status: String(raw.status),
+    selectedItemId: raw.selectedItemId ?? null,
+    characterId: raw.characterId ?? null,
+    viewer: { playerId: raw.viewer?.playerId ?? null, role: raw.viewer?.role ?? "UNKNOWN" },
+    access: { canView: !!raw.access?.canView, reason: raw.access?.reason ?? null },
+    view: raw.view ?? null,
+    // Phase 3A.1: normalized HUD snapshot (block renderers use this).
+    hudSnapshot: raw.hudSnapshot ?? null,
+    error: { code: raw.error?.code ?? null, message: raw.error?.message ?? null }
+  };
+}
+
+// hud/scene/selectionView.js
+var LIVE_RENDERERS = {
+  player: renderPlayerBlock,
+  gun: renderGunBlock,
+  skills: renderSkillBlock,
+  combatControl: renderCombatControlBlock,
+  log: renderBattleLogPanel
+};
+var PLAYER_PROMPTS = Object.freeze({
+  [SELECTION_STATUS.noSelection]: { t: "SELECT YOUR CHARACTER", h: "Choose a controlled token on the map" },
+  [SELECTION_STATUS.multipleSelection]: { t: "SELECT ONE CHARACTER", h: "Multiple tokens selected" },
+  [SELECTION_STATUS.unlinkedToken]: { t: "NO CHARACTER LINK", h: "This token is not linked to an Odyssey character" },
+  [SELECTION_STATUS.notOwned]: { t: "CHARACTER NOT AVAILABLE", h: "Select one of your controlled characters" },
+  [SELECTION_STATUS.unavailable]: { t: "CHARACTER DATA UNAVAILABLE", h: "Try selecting the token again" },
+  [SELECTION_STATUS.error]: { t: "CHARACTER DATA UNAVAILABLE", h: "Try selecting the token again" }
+});
+function promptCard(title, hint, devDetail) {
+  return `<div class="ohud-state-wrap"><div class="ohud-empty">
+    <span class="ohud-empty-mark" aria-hidden="true">${ICON_MARK}</span>
+    <div class="ohud-empty-title">${esc(title)}</div>
+    <div class="ohud-empty-hint">${esc(hint)}</div>${devDetail || ""}
+  </div></div>`;
+}
+function loadingCard() {
+  return `<div class="ohud-state-wrap"><div class="ohud-empty ohud-empty--loading">
+    <div class="ohud-empty-title">LOADING\u2026</div>
+  </div></div>`;
+}
+function readyPlayerCard(view) {
+  const v = view || {};
+  const badge = v.gmView ? `<span class="ohud-bind-badge ohud-bind-badge--gm">GM VIEW</span>` : `<span class="ohud-bind-badge ohud-bind-badge--owned">CONTROLLED</span>`;
+  const fallbackStatus = `${v.isAlive === false ? "Down" : "Alive"} \xB7 ${v.isConscious === false ? "Unconscious" : "Conscious"}`;
+  const statusLine = v.statusSummary ? esc(v.statusSummary) : esc(fallbackStatus);
+  const owner = v.ownerName ? `<div class="ohud-bind-owner">Owner: ${esc(v.ownerName)}</div>` : "";
+  return `<div class="ohud-bind">
+    ${badge}
+    <div class="ohud-bind-name" title="${esc(v.name || "")}">${esc(v.name || "Unnamed character")}</div>
+    <div class="ohud-bind-status">${statusLine}</div>
+    ${owner}
+  </div>`;
+}
+function readyFallbackCard(moduleId) {
+  const LABEL = { gun: "Gun", skills: "Skills", combatControl: "Combat Control", log: "Log" };
+  const label = LABEL[moduleId] || moduleId;
+  return `<section class="ohud-panel" data-block="${esc(moduleId)}">
+    <div class="ohud-bind-fallback">
+      <div class="ohud-bind-fallback-label">${esc(label)}</div>
+      <div class="ohud-bind-fallback-hint">Data loading\u2026</div>
+    </div>
+  </section>`;
+}
+function mutedCard(moduleId) {
+  return `<section class="ohud-panel ohud-panel--muted" data-block="${esc(moduleId)}"><div class="ohud-muted-fill">\u2014</div></section>`;
+}
+function buildSyntheticState(payload) {
+  const snap = payload.hudSnapshot;
+  const role = String(payload.viewer?.role ?? "UNKNOWN").toLowerCase();
+  return {
+    status: "ready",
+    source: "supabase",
+    viewer: {
+      playerId: payload.viewer?.playerId ?? null,
+      playerName: null,
+      role: role === "gm" ? "gm" : "player"
+    },
+    selectedTokenId: payload.selectedItemId ?? null,
+    selectedCharacterId: payload.characterId ?? null,
+    access: { canViewSelectedCharacter: true, reason: null },
+    snapshot: snap ?? {
+      entity: null,
+      weapon: { primary: null, secondary: null },
+      skills: { library: [], quickSlots: [] },
+      combatSession: createInactiveCombatSession(),
+      modifiers: { passive: [], active: [], narrative: [] },
+      battleLog: { entries: [] }
+    },
+    ui: {
+      isHudCollapsed: false,
+      selectedTechniqueId: null,
+      selectedAbilityId: null,
+      selectedReloadMagazineId: null,
+      selectedModifierIds: [],
+      targeting: {
+        mode: "none",
+        selectedTargetIds: [],
+        selectedBodyPartId: "torso",
+        selectedPoint: null,
+        radius: null
+      },
+      isBattleLogExpanded: false
+    },
+    error: null
+  };
+}
+function renderSelectionModule(moduleId, payload, opts = {}) {
+  const status2 = payload?.status;
+  const isReady = status2 === SELECTION_STATUS.ready && payload?.access?.canView;
+  if (moduleId === PRIMARY_MODULE_ID) {
+    if (isReady) {
+      if (payload.hudSnapshot) {
+        const syntheticState = buildSyntheticState(payload);
+        return renderPlayerBlock(syntheticState);
+      }
+      if (payload.view) return readyPlayerCard(payload.view);
+    }
+    if (status2 === SELECTION_STATUS.loading || !status2) return loadingCard();
+    const p = PLAYER_PROMPTS[status2] || PLAYER_PROMPTS[SELECTION_STATUS.noSelection];
+    const devDetail = opts.dev && payload?.error?.message ? `<div class="ohud-bind-dev">${esc(payload.error.code || "")}: ${esc(payload.error.message)}</div>` : "";
+    return promptCard(p.t, p.h, devDetail);
+  }
+  if (isReady) {
+    if (payload.hudSnapshot) {
+      const fn = LIVE_RENDERERS[moduleId];
+      if (fn) {
+        const syntheticState = buildSyntheticState(payload);
+        return fn(syntheticState);
+      }
+    }
+    return readyFallbackCard(moduleId);
+  }
+  return mutedCard(moduleId);
+}
+
 // hud/components/Tooltip.js
 var MARGIN = 8;
 function createTooltip(host) {
@@ -5666,6 +5843,7 @@ function mountCombatHudModule(options) {
   if (restored.selectedTokenId) adapter.selectToken(restored.selectedTokenId);
   const store = createCombatHudStore({ adapter });
   store.initialize();
+  let liveSelection = null;
   const el = document.createElement("div");
   el.className = cls("odyssey-hud", "ohud-module");
   el.setAttribute("data-module", moduleId);
@@ -5686,6 +5864,7 @@ function mountCombatHudModule(options) {
   }
   function bodyHtml(state) {
     try {
+      if (liveSelection) return renderSelectionModule(moduleId, liveSelection, { dev: DEV });
       if (!state) throw new Error("no snapshot");
       const mode = resolveBodyMode(state);
       if (mode === "ready") {
@@ -5727,8 +5906,12 @@ function mountCombatHudModule(options) {
     } catch (_e) {
       bodyMode = "error";
     }
-    el.setAttribute("data-body", bodyMode);
+    el.setAttribute("data-body", liveSelection ? liveSelection.status : bodyMode);
     el.innerHTML = `${bodyHtml(state)}${controlsHtml()}${debugBadge(state)}<div class="ohud-toast" hidden></div>`;
+  }
+  function applySelection(payload) {
+    liveSelection = payload ? normalizeSelectionPayload(payload) : null;
+    render();
   }
   function showToast(text) {
     const toast = el.querySelector(".ohud-toast");
@@ -5762,6 +5945,7 @@ function mountCombatHudModule(options) {
   render();
   return {
     store,
+    applySelection,
     unmount() {
       unsubscribe();
       tooltip.destroy();
@@ -6259,7 +6443,7 @@ function start() {
     return;
   }
   if (HUD_MODULE_IDS.includes(moduleParam)) {
-    mountCombatHudModule({
+    const mod = mountCombatHudModule({
       root,
       moduleId: moduleParam,
       uiState,
@@ -6272,6 +6456,18 @@ function start() {
         }
       }
     });
+    if (available) {
+      try {
+        lib_default.broadcast.onMessage(BC_HUD_SELECTION, (event) => {
+          try {
+            mod.applySelection(event?.data ?? null);
+          } catch (_e) {
+          }
+        });
+        send(BC_HUD_SELECTION_REQUEST, {});
+      } catch (_e) {
+      }
+    }
     if (moduleParam === "player" && available) {
       send(BC_HUD_LAYOUT, readStoredLayout(window.localStorage));
     }

@@ -23,6 +23,13 @@ import {
   normalizeHudUiState,
   serializeHudUiState,
 } from "./overlayConstants.js";
+import { setupSceneSelection } from "../scene/sceneSelectionController.js";
+import {
+  SELECTION_STATUS,
+  PRIMARY_MODULE_ID,
+  SECONDARY_MODULE_IDS,
+  isReadyStatus,
+} from "../scene/selectionState.js";
 import {
   HUD_MODULE_IDS,
   HUD_MODULE_POPOVER_IDS,
@@ -53,8 +60,22 @@ let lastUiState = { ...DEFAULT_HUD_UI_STATE };
 let lastLayout = defaultLayoutState();
 let mode = "modules"; // "modules" | "editor" | "collapsed"
 let pollTimer = null;
+/** Phase 3A: latest scene-selection status. The Player module is always open;
+ *  the four ready-only modules open/close as this crosses the `ready` boundary. */
+let lastSelectionStatus = SELECTION_STATUS.loading;
+let sceneCleanup = null;
 /** @type {Array<() => void>} */
 const cleanups = [];
+
+const SECONDARY_SET = new Set(SECONDARY_MODULE_IDS);
+
+/** Whether a module popover should currently be open (modules mode only). */
+function moduleShouldBeOpen(id) {
+  if (mode !== "modules") return false;
+  if (id === PRIMARY_MODULE_ID) return true; // Player is always present
+  if (SECONDARY_SET.has(id)) return isReadyStatus(lastSelectionStatus);
+  return true;
+}
 
 function isCollapsed() { return Boolean(lastUiState.isHudCollapsed); }
 
@@ -120,9 +141,30 @@ async function openModule(moduleId) {
   });
 }
 
-async function openAllModules() {
+/** Open every module that should currently be visible (Player always; the four
+ *  ready-only modules only when the selection is `ready`). */
+async function openVisibleModules() {
   for (const id of OPEN_ORDER) {
+    if (!moduleShouldBeOpen(id)) continue;
     try { await openModule(id); } catch (_e) { /* skip one bad module, keep the rest */ }
+  }
+}
+
+/** Open/close the four ready-only modules when the selection crosses the `ready`
+ *  boundary. Player is never touched here, and a ready→ready change (different
+ *  owned character) does NOT reopen anything — iframes just re-render on the
+ *  broadcast. This is the only popover lifecycle tied to selection. */
+async function reconcileSecondaryModules(prevStatus, nextStatus) {
+  if (mode !== "modules") return;
+  const wasReady = isReadyStatus(prevStatus);
+  const nowReady = isReadyStatus(nextStatus);
+  if (nowReady === wasReady) return;
+  for (const id of OPEN_ORDER) {
+    if (!SECONDARY_SET.has(id)) continue;
+    try {
+      if (nowReady) await openModule(id);
+      else await OBR.popover.close(HUD_MODULE_POPOVER_IDS[id]);
+    } catch (_e) { /* skip one, keep the rest */ }
   }
 }
 
@@ -144,7 +186,9 @@ async function closeLegacyPopovers() {
  *  module reloads its iframe, so we must NOT touch unchanged ones — re-opening
  *  the Player module re-triggers its BC_HUD_LAYOUT broadcast, which would loop. */
 async function openChangedModules(prev, next) {
-  const changed = OPEN_ORDER.filter((id) => !placementsEqual(prev.modules[id], next.modules[id]));
+  const changed = OPEN_ORDER.filter(
+    (id) => moduleShouldBeOpen(id) && !placementsEqual(prev.modules[id], next.modules[id]),
+  );
   for (const id of changed) {
     try { await openModule(id); } catch (_e) { /* skip one, keep the rest */ }
   }
@@ -182,7 +226,7 @@ async function applyMode() {
   } else {
     await closePill();
     await closeEditorPopover();
-    await openAllModules();
+    await openVisibleModules();
   }
 }
 
@@ -211,6 +255,18 @@ export function setupCombatHudOverlay() {
       mode = isCollapsed() ? "collapsed" : "modules";
       await applyMode();
       startViewportPoll();
+
+      // Phase 3A: scene-selection layer. The scene controller broadcasts the
+      // trimmed selection payload to the iframes (and replays it on request);
+      // here we only reconcile which popovers are open when the selection
+      // crosses the `ready` boundary (Player is always open).
+      sceneCleanup = setupSceneSelection({
+        onSelectionState: async (payload) => {
+          const prev = lastSelectionStatus;
+          lastSelectionStatus = payload?.status ?? SELECTION_STATUS.loading;
+          await reconcileSecondaryModules(prev, lastSelectionStatus);
+        },
+      });
 
       // Collapse / reopen coordination (Player module → controller).
       cleanups.push(OBR.broadcast.onMessage(BC_HUD_UI_STATE, async (event) => {
@@ -253,9 +309,11 @@ export function setupCombatHudOverlay() {
 
 export async function teardownCombatHudOverlay() {
   for (const fn of cleanups.splice(0)) { try { fn(); } catch (_e) { /* ignore */ } }
+  if (typeof sceneCleanup === "function") { try { sceneCleanup(); } catch (_e) { /* ignore */ } sceneCleanup = null; }
   started = false;
   lastUiState = { ...DEFAULT_HUD_UI_STATE };
   lastLayout = defaultLayoutState();
+  lastSelectionStatus = SELECTION_STATUS.loading;
   mode = "modules";
   await closeEditorPopover();
   await closePill();

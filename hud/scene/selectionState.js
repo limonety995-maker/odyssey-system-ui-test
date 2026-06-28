@@ -1,0 +1,243 @@
+// Combat HUD — Phase 3A / 3A.1 scene-selection state model (PURE).
+//
+// No OBR, no DOM, no Supabase, no fetch. Just the normalized selection-state
+// shape + the single reducer that turns raw inputs (viewer · selection ids ·
+// token link · runtime bundle · failure) into one canonical state, plus the
+// stale-request gate and the broadcast trimming helper.
+//
+// This file is the unit-tested heart of Phase 3A/3A.1 and loads under plain Node.
+
+import { mapBundleToHudSnapshot } from "../runtime/runtimeBundleMapper.js";
+
+/** Canonical selection statuses (string values are part of the wire contract). */
+export const SELECTION_STATUS = Object.freeze({
+  ready: "ready",
+  loading: "loading",
+  noSelection: "no-selection",
+  multipleSelection: "multiple-selection",
+  unlinkedToken: "unlinked-token",
+  notOwned: "not-owned",
+  unavailable: "unavailable",
+  error: "error",
+});
+
+/** Machine-readable access reasons (never localise from these — UI maps them). */
+export const ACCESS_REASON = Object.freeze({
+  noToken: "NO_TOKEN_SELECTED",
+  multipleTokens: "MULTIPLE_TOKENS_SELECTED",
+  noLink: "TOKEN_HAS_NO_CHARACTER",
+  notOwner: "CHARACTER_NOT_CONTROLLED_BY_VIEWER",
+  ownershipUnverifiable: "OWNERSHIP_UNVERIFIABLE",
+  backendUnconfigured: "BACKEND_UNCONFIGURED",
+  runtimeUnavailable: "RUNTIME_UNAVAILABLE",
+});
+
+/** The Player module is always present; the rest appear only when ready. */
+export const PRIMARY_MODULE_ID = "player";
+export const SECONDARY_MODULE_IDS = Object.freeze(["gun", "skills", "combatControl", "log"]);
+
+export function isReadyStatus(status) {
+  return status === SELECTION_STATUS.ready;
+}
+
+/** Normalize an OBR selection array → clean, de-duplicated id strings. */
+export function normalizeSelectionIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const v of raw) {
+    const s = String(v ?? "").trim();
+    if (s && !seen.has(s)) { seen.add(s); out.push(s); }
+  }
+  return out;
+}
+
+/** Normalize a viewer identity. role → PLAYER | GM | UNKNOWN. */
+export function normalizeViewer(raw) {
+  const playerId = String(raw?.playerId ?? raw?.id ?? "").trim() || null;
+  let role = String(raw?.role ?? "").trim().toUpperCase();
+  if (role !== "PLAYER" && role !== "GM") role = "UNKNOWN";
+  return { playerId, role };
+}
+
+function emptyState(status, viewer, reason, extra) {
+  return {
+    status,
+    selectedItemId: null,
+    characterId: null,
+    viewer: normalizeViewer(viewer),
+    access: { canView: false, reason: reason ?? null },
+    runtimeBundle: null,
+    view: null,
+    error: { code: null, message: null },
+    ...extra,
+  };
+}
+
+/** Initial state before any resolve has completed. */
+export function createInitialSelectionState(viewer) {
+  return emptyState(SELECTION_STATUS.loading, viewer, null);
+}
+
+/**
+ * Build the conservative, render-only view from a runtime bundle. We surface
+ * ONLY unambiguous identity/status fields — never fabricated gameplay values.
+ */
+function buildView(bundle, viewer) {
+  const character = bundle?.character ?? {};
+  const state = bundle?.state ?? {};
+  const ownerId = String(character.owner_player_id ?? "").trim() || null;
+  return {
+    name: String(character.display_name ?? character.character_key ?? "").trim() || null,
+    characterKey: character.character_key ?? null,
+    ownerName: String(character.owner_player_name ?? "").trim() || null,
+    ownerPlayerId: ownerId,
+    gmView: viewer.role === "GM",
+    isAlive: state.is_alive !== false,
+    isConscious: state.is_conscious !== false,
+    statusSummary: String(state.status_summary ?? "").trim() || null,
+  };
+}
+
+/**
+ * The single reducer. Inputs are already-fetched values (or a failure marker);
+ * no I/O happens here.
+ *
+ * @param {{
+ *   viewer: object,
+ *   selectionIds: string[],
+ *   link?: { characterId: string|null, characterName?: string|null } | null,
+ *   bundle?: object | null,
+ *   failure?: { status: "error"|"unavailable", code: string, message: string } | null,
+ * }} input
+ */
+export function deriveSelectionState(input) {
+  const viewer = normalizeViewer(input?.viewer);
+  const ids = normalizeSelectionIds(input?.selectionIds);
+  const single = ids.length === 1 ? ids[0] : null;
+
+  // Hard failure (fetch threw / backend unconfigured / bundle not ok).
+  if (input?.failure) {
+    const f = input.failure;
+    return emptyState(f.status === "unavailable" ? SELECTION_STATUS.unavailable : SELECTION_STATUS.error, viewer, f.code, {
+      selectedItemId: single,
+      characterId: input?.link?.characterId ?? null,
+      error: { code: f.code ?? null, message: f.message ?? null },
+    });
+  }
+
+  if (ids.length === 0) return emptyState(SELECTION_STATUS.noSelection, viewer, ACCESS_REASON.noToken);
+  if (ids.length > 1) return emptyState(SELECTION_STATUS.multipleSelection, viewer, ACCESS_REASON.multipleTokens);
+
+  const link = input?.link ?? null;
+  if (!link || !link.characterId) {
+    return emptyState(SELECTION_STATUS.unlinkedToken, viewer, ACCESS_REASON.noLink, { selectedItemId: single });
+  }
+
+  const bundle = input?.bundle ?? null;
+  if (!bundle || bundle.ok === false) {
+    return emptyState(SELECTION_STATUS.unavailable, viewer, ACCESS_REASON.runtimeUnavailable, {
+      selectedItemId: single,
+      characterId: link.characterId,
+      error: { code: bundle?.error ?? ACCESS_REASON.runtimeUnavailable, message: bundle?.message ?? null },
+    });
+  }
+
+  const ownerId = String(bundle.character?.owner_player_id ?? "").trim() || null;
+
+  // GM may view any linked character (UI/UX only; not a server authorization).
+  if (viewer.role === "GM") {
+    return readyState(viewer, single, link.characterId, bundle);
+  }
+
+  // Players: the ONLY identifier is owner_player_id. No name-based fallback.
+  if (!ownerId) {
+    return emptyState(SELECTION_STATUS.unavailable, viewer, ACCESS_REASON.ownershipUnverifiable, {
+      selectedItemId: single,
+      characterId: link.characterId,
+      error: { code: ACCESS_REASON.ownershipUnverifiable, message: "Runtime bundle did not provide owner_player_id." },
+    });
+  }
+  if (ownerId !== viewer.playerId) {
+    // Not owned → neutral, no character data revealed.
+    return emptyState(SELECTION_STATUS.notOwned, viewer, ACCESS_REASON.notOwner, {
+      selectedItemId: single,
+      characterId: link.characterId,
+    });
+  }
+  return readyState(viewer, single, link.characterId, bundle);
+}
+
+function readyState(viewer, selectedItemId, characterId, bundle) {
+  return {
+    status: SELECTION_STATUS.ready,
+    selectedItemId,
+    characterId,
+    viewer,
+    access: { canView: true, reason: null },
+    runtimeBundle: bundle,
+    view: buildView(bundle, viewer),
+    error: { code: null, message: null },
+  };
+}
+
+/**
+ * Trim a resolved state for LOCAL broadcast to module iframes:
+ *  - never ship the full runtime bundle across the wire;
+ *  - never include character data unless ready & viewer canView
+ *    (so not-owned/unlinked leak nothing);
+ *  - Phase 3A.1: attach a normalized HUD snapshot (gun/skills/modifiers/log)
+ *    so module iframes render real data without additional RPC calls.
+ */
+export function buildBroadcastPayload(state) {
+  const s = state ?? createInitialSelectionState(null);
+  const ready = s.status === SELECTION_STATUS.ready && s.access?.canView === true;
+
+  let hudSnapshot = null;
+  if (ready && s.runtimeBundle) {
+    try { hudSnapshot = mapBundleToHudSnapshot(s.runtimeBundle); } catch (_e) { /* mapper errors → null → neutral fallback */ }
+  }
+
+  return {
+    status: s.status,
+    selectedItemId: s.selectedItemId ?? null,
+    characterId: ready ? (s.characterId ?? null) : null,
+    viewer: { playerId: s.viewer?.playerId ?? null, role: s.viewer?.role ?? "UNKNOWN" },
+    access: { canView: !!s.access?.canView, reason: s.access?.reason ?? null },
+    view: ready ? (s.view ?? null) : null,
+    // Normalized HUD view models — block renderers use this; full bundle is NOT included.
+    hudSnapshot: ready ? hudSnapshot : null,
+    error: { code: s.error?.code ?? null, message: s.error?.message ?? null },
+  };
+}
+
+/** Defensive normalize for a payload received over the broadcast wire. */
+export function normalizeSelectionPayload(raw) {
+  if (!raw || typeof raw !== "object" || !raw.status) return null;
+  return {
+    status: String(raw.status),
+    selectedItemId: raw.selectedItemId ?? null,
+    characterId: raw.characterId ?? null,
+    viewer: { playerId: raw.viewer?.playerId ?? null, role: raw.viewer?.role ?? "UNKNOWN" },
+    access: { canView: !!raw.access?.canView, reason: raw.access?.reason ?? null },
+    view: raw.view ?? null,
+    // Phase 3A.1: normalized HUD snapshot (block renderers use this).
+    hudSnapshot: raw.hudSnapshot ?? null,
+    error: { code: raw.error?.code ?? null, message: raw.error?.message ?? null },
+  };
+}
+
+/**
+ * Stale-request protection. Every resolve takes a monotonically increasing
+ * token; only the latest token may commit its result. If selection A starts,
+ * then B starts, B bumps the gate — so a late A resolve is no longer current
+ * and must be discarded.
+ */
+export function createGenerationGate() {
+  let current = 0;
+  return {
+    next() { current += 1; return current; },
+    isCurrent(token) { return token === current; },
+    get current() { return current; },
+  };
+}

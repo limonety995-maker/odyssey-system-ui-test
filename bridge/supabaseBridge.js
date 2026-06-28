@@ -1,6 +1,7 @@
 import { addDiagnosticEntry } from "../utils/diagnostics.js";
 import { toErrorMessage } from "../utils/errors.js";
 import { safeJsonParse } from "../utils/json.js";
+import { CHARACTER_PLACEMENT_RPC_NAMES } from "../constants/rpcNames.js";
 import { normalizeSupabaseSettings } from "./settingsBridge.js";
 
 function getSupabaseSettingsOrThrow(settings) {
@@ -26,13 +27,37 @@ function buildHeaders(apiKey, method, extraHeaders = {}, prefer = "return=repres
   return headers;
 }
 
+function isSupabaseDebugEnabled() {
+  try {
+    if (globalThis.localStorage?.getItem("odyssey.debug") === "1") return true;
+  } catch (_error) {
+    // ignore storage access failures
+  }
+  try {
+    return /[?&](odysseyDebug|debugRpc)=1(?:&|$)/i.test(
+      String(globalThis.location?.search ?? ""),
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function logSupabaseDebug(message, payload) {
+  if (!isSupabaseDebugEnabled()) return;
+  if (payload === undefined) {
+    console.info(message);
+    return;
+  }
+  console.info(message, payload);
+}
+
 async function parseSupabaseResponse(response, fallbackMessage, requestId = "") {
-  console.info(`[Odyssey RPC ${requestId}] response headers received`, {
+  logSupabaseDebug(`[Odyssey RPC ${requestId}] response headers received`, {
     status: response.status,
     ok: response.ok,
   });
   const rawText = await response.text();
-  console.info(`[Odyssey RPC ${requestId}] response body read`, {
+  logSupabaseDebug(`[Odyssey RPC ${requestId}] response body read`, {
     bytes: rawText.length,
   });
   const body = safeJsonParse(rawText, rawText || null);
@@ -66,13 +91,13 @@ async function requestSupabase(path, options = {}) {
     requestInit.headers["Content-Type"] = "application/json";
   }
   try {
-    console.info(`[Odyssey RPC ${requestId}] request prepared`, {
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] request prepared`, {
       method,
       path,
     });
-    console.info(`[Odyssey RPC ${requestId}] fetch starting`);
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] fetch starting`);
     const fetchPromise = fetch(`${url}/rest/v1/${path}`, requestInit);
-    console.info(`[Odyssey RPC ${requestId}] fetch promise created`);
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] fetch promise created`);
     const response = await fetchPromise;
     return await parseSupabaseResponse(response, fallbackMessage, requestId);
   } catch (error) {
@@ -125,19 +150,20 @@ export async function testSupabaseConnection(settings) {
   };
 }
 
-export async function fetchTokenLinks(roomId, sceneId = "", settings) {
-  const params = [
-    "select=*",
-    `room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}`,
-    `scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}`,
-    "is_active=eq.true",
-  ].join("&");
-  const rows = await fetchSupabaseRows(
-    `odyssey_token_links?${params}`,
+export async function fetchTokenLinks(roomIdOrPayload, sceneId = "", settings) {
+  const payload =
+    roomIdOrPayload && typeof roomIdOrPayload === "object"
+      ? roomIdOrPayload
+      : {
+          room_id: String(roomIdOrPayload ?? "").trim(),
+          scene_id: String(sceneId ?? "").trim(),
+        };
+  const result = await callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    payload,
     settings,
-    "Unable to load token links from Supabase.",
   );
-  return Array.isArray(rows) ? rows : [];
+  return Array.isArray(result?.links) ? result.links : [];
 }
 
 export async function upsertTokenLinkRecord(payload, settings) {
@@ -166,16 +192,13 @@ export async function upsertTokenLinkRecord(payload, settings) {
 }
 
 export async function deactivateTokenLinkRecord(roomId, sceneId, tokenId, settings) {
-  return mutateSupabaseRows(
-    `odyssey_token_links?room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}&scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}&token_id=eq.${encodeURIComponent(String(tokenId ?? "").trim())}`,
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.unbindTokenCharacter,
     {
-      is_active: false,
-      updated_at: new Date().toISOString(),
+      room_id: String(roomId ?? "").trim(),
+      scene_id: String(sceneId ?? "").trim(),
+      token_id: String(tokenId ?? "").trim(),
     },
     settings,
-    {
-      method: "PATCH",
-      fallbackMessage: "Unable to deactivate token link in Supabase.",
-    },
   );
 }

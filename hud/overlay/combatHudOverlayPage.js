@@ -20,7 +20,7 @@ import moduleStyles from "../components/combatHudModule.css";
 
 import { mountCombatHudModule } from "../components/CombatHudModule.js";
 import { mountCombatHudLayoutEditor } from "../components/CombatHudLayoutEditor.js";
-import { BC_HUD_UI_STATE, parseHudUiState } from "./overlayConstants.js";
+import { BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, parseHudUiState } from "./overlayConstants.js";
 import {
   HUD_MODULE_IDS,
   BC_HUD_LAYOUT,
@@ -117,7 +117,7 @@ function start() {
 
   // --- Single HUD module ---
   if (HUD_MODULE_IDS.includes(moduleParam)) {
-    mountCombatHudModule({
+    const mod = mountCombatHudModule({
       root,
       moduleId: moduleParam,
       uiState,
@@ -126,6 +126,18 @@ function start() {
         onCollapse(collapsed) { if (available) send(BC_HUD_UI_STATE, { isHudCollapsed: !!collapsed }); },
       },
     });
+    // Phase 3A: subscribe to live scene-selection (real OBR room). The module
+    // re-renders its own content on every selection change — no popover reopen.
+    // On mount we ask the controller to replay the latest payload so a module
+    // opened after a selection change still shows the current state.
+    if (available) {
+      try {
+        OBR.broadcast.onMessage(BC_HUD_SELECTION, (event) => {
+          try { mod.applySelection(event?.data ?? null); } catch (_e) { /* ignore */ }
+        });
+        send(BC_HUD_SELECTION_REQUEST, {});
+      } catch (_e) { /* standalone or broadcast unavailable → mock render stays */ }
+    }
     // The Player module is always present: seed the controller with the
     // browser-local saved layout so it can place all module popovers (cold
     // start opens at default first, then this corrects once).

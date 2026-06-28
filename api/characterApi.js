@@ -1,4 +1,7 @@
-import { CHARACTER_RPC_NAMES } from "../constants/rpcNames.js";
+import {
+  CHARACTER_RPC_NAMES,
+  CHARACTER_PLACEMENT_RPC_NAMES,
+} from "../constants/rpcNames.js";
 import { callSupabaseRpc, fetchSupabaseRows } from "../bridge/supabaseBridge.js";
 
 export function getCharacterRuleSheet(characterId, settings) {
@@ -56,9 +59,11 @@ export function deactivateTokenLink(payload, settings) {
   );
 }
 
+// Deprecated compatibility wrapper. New placement flows should import
+// api/characterPlacementApi.js instead of characterApi.js.
 export function loadCharacterToToken(payload, settings) {
   return callSupabaseRpc(
-    CHARACTER_RPC_NAMES.loadCharacterToToken,
+    CHARACTER_PLACEMENT_RPC_NAMES.loadCharacterToToken,
     payload ?? {},
     settings,
   );

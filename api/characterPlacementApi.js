@@ -17,6 +17,8 @@ export function getCharacterSpawnCatalog(payload, settings) {
 //           "equipment" | "inventory" | "armory" | "abilities" | "effects" | "token_link"
 // combat section returns body_parts (minor/serious/critical/disabled/destroyed/armor_value/armor_critical),
 // armor_summary, is_alive, is_conscious, state_version, status_summary, combat_flags.
+// owner_player_id is returned on bundle.character. room_id / scene_id are not
+// required for this RPC and should not be sent from new UI code.
 export function getCharacterRuntimeBundle(payload, settings) {
   return callSupabaseRpc(
     CHARACTER_PLACEMENT_RPC_NAMES.getCharacterRuntimeBundle,
@@ -27,6 +29,7 @@ export function getCharacterRuntimeBundle(payload, settings) {
 
 // Returns authoritative token→character bindings for the current OBR room/scene.
 // payload: { room_id, scene_id, campaign_id?, token_id? }
+// scene_id is required by the backend; campaign_id is optional and narrows the scope when provided.
 export function getSceneTokenLinks(payload, settings) {
   return callSupabaseRpc(
     CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,

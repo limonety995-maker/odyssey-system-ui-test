@@ -2,10 +2,9 @@ export const CHARACTER_RPC_NAMES = Object.freeze({
   getCharacterRuleSheet: "get_character_rule_sheet",
   initializeCharacterRuleDefaults: "initialize_character_rule_defaults",
   initializeCharacterCombatDefaults: "initialize_character_combat_defaults",
-  getCharacterSpawnCatalog: "get_character_spawn_catalog",
+  // Legacy token-link RPCs still used by tokenRealtimeSync and older GM flows.
   getRoomTokenLinks: "get_room_token_links",
   deactivateTokenLink: "deactivate_token_link",
-  loadCharacterToToken: "load_character_to_token",
 });
 
 export const CHECK_RPC_NAMES = Object.freeze({

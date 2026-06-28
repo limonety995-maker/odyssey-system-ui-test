@@ -1,6 +1,7 @@
 export const EXTENSION_ID = "com.codex.body-hp";
 
 export const ROOM_SUPABASE_SETTINGS_KEY = `${EXTENSION_ID}/supabaseSettings`;
+export const ROOM_CONTEXT_KEY = `${EXTENSION_ID}/roomContext`;
 export const TOKEN_LINK_KEY = `${EXTENSION_ID}/link`;
 export const SHELL_GLOBAL_KEY = "OdysseyBridge";
 

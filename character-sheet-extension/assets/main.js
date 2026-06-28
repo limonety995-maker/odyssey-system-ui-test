@@ -500,6 +500,7 @@ __export(settingsBridge_exports, {
 var metadataKeys_exports = {};
 __export(metadataKeys_exports, {
   EXTENSION_ID: () => EXTENSION_ID,
+  ROOM_CONTEXT_KEY: () => ROOM_CONTEXT_KEY,
   ROOM_SUPABASE_SETTINGS_KEY: () => ROOM_SUPABASE_SETTINGS_KEY,
   SHELL_GLOBAL_KEY: () => SHELL_GLOBAL_KEY,
   TOKEN_LINK_KEY: () => TOKEN_LINK_KEY,
@@ -508,6 +509,7 @@ __export(metadataKeys_exports, {
 });
 var EXTENSION_ID = "com.codex.body-hp";
 var ROOM_SUPABASE_SETTINGS_KEY = `${EXTENSION_ID}/supabaseSettings`;
+var ROOM_CONTEXT_KEY = `${EXTENSION_ID}/roomContext`;
 var TOKEN_LINK_KEY = `${EXTENSION_ID}/link`;
 var SHELL_GLOBAL_KEY = "OdysseyBridge";
 function normalizeTokenCharacterLink(raw) {
@@ -3747,14 +3749,45 @@ async function setRoomMetadata(patch) {
   await lib_default.room.setMetadata(patch ?? {});
   return getRoomMetadata();
 }
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+function normalizeStoredRoomContext(metadata, roomId) {
+  const meta = metadata && typeof metadata === "object" ? metadata : {};
+  const scoped = meta[ROOM_CONTEXT_KEY] && typeof meta[ROOM_CONTEXT_KEY] === "object" ? meta[ROOM_CONTEXT_KEY] : {};
+  const campaignId = firstNonEmptyText(
+    scoped.campaignId,
+    scoped.campaign_id,
+    meta.campaignId,
+    meta.campaign_id,
+    meta.odysseyCampaignId,
+    meta.odyssey_campaign_id,
+    roomId
+  );
+  const sceneId = firstNonEmptyText(
+    scoped.sceneId,
+    scoped.scene_id,
+    meta.sceneId,
+    meta.scene_id,
+    meta.odysseySceneId,
+    meta.odyssey_scene_id,
+    roomId
+  );
+  return {
+    campaignId,
+    roomId,
+    sceneId
+  };
+}
 async function getRoomSceneContext() {
   await waitForObrReady();
   const roomId = String(lib_default.room?.id ?? "").trim();
-  return {
-    campaignId: roomId,
-    roomId,
-    sceneId: roomId
-  };
+  const metadata = await getRoomMetadata();
+  return normalizeStoredRoomContext(metadata, roomId);
 }
 async function subscribePlayerChanges(listener) {
   await waitForObrReady();
@@ -9249,6 +9282,154 @@ __export(supabaseBridge_exports, {
   testSupabaseConnection: () => testSupabaseConnection,
   upsertTokenLinkRecord: () => upsertTokenLinkRecord
 });
+
+// constants/rpcNames.js
+var CHARACTER_RPC_NAMES = Object.freeze({
+  getCharacterRuleSheet: "get_character_rule_sheet",
+  initializeCharacterRuleDefaults: "initialize_character_rule_defaults",
+  initializeCharacterCombatDefaults: "initialize_character_combat_defaults",
+  // Legacy token-link RPCs still used by tokenRealtimeSync and older GM flows.
+  getRoomTokenLinks: "get_room_token_links",
+  deactivateTokenLink: "deactivate_token_link"
+});
+var CHECK_RPC_NAMES = Object.freeze({
+  rollCharacteristic: "roll_characteristic",
+  rollSkill: "roll_skill",
+  rollDice: "roll_dice"
+});
+var ABILITY_RPC_NAMES = Object.freeze({
+  getCharacterAbilities: "get_character_abilities",
+  syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
+  useAbility: "use_ability",
+  advanceCharacterAbilityStates: "advance_character_ability_states"
+});
+var FEATURE_RPC_NAMES = Object.freeze({
+  reloadFeatureResource: "reload_feature_resource"
+});
+var WEAPON_RPC_NAMES = Object.freeze({
+  getCharacterArmory: "get_character_armory",
+  switchWeaponProfile: "switch_weapon_profile",
+  switchWeaponFireMode: "switch_weapon_fire_mode",
+  loadWeaponProfileMagazine: "load_weapon_profile_magazine",
+  activateWeaponFeature: "activate_weapon_feature",
+  deactivateWeaponFeature: "deactivate_weapon_feature",
+  getCharacterWeaponFeatures: "get_character_weapon_features"
+});
+var COMBAT_RPC_NAMES = Object.freeze({
+  performAttack: "perform_attack",
+  moveCharacter: "combat_move_character",
+  syncPositionsFromOwlbear: "combat_sync_positions_from_owlbear",
+  startEncounter: "combat_start_encounter",
+  addParticipant: "combat_add_participant",
+  removeParticipant: "combat_remove_participant",
+  reorderInitiative: "combat_reorder_initiative",
+  endTurn: "combat_end_turn",
+  skipTurn: "combat_skip_turn",
+  forceNextTurn: "combat_force_next_turn",
+  endEncounter: "combat_end_encounter",
+  getActiveRuntime: "combat_get_active_runtime",
+  markCharacterDead: "combat_mark_character_dead",
+  convertActionToMove: "combat_convert_action_to_move",
+  spendMove: "combat_spend_move",
+  executeAction: "combat_execute_action",
+  getCombatLog: "combat_get_log",
+  grantReactionAction: "combat_grant_reaction_action"
+});
+var GM_RPC_NAMES = Object.freeze({
+  healCharacter: "gm_heal_character",
+  repairCharacterArmor: "gm_repair_character_armor",
+  updateCharacterAttribute: "gm_update_character_attribute"
+});
+var EFFECT_RPC_NAMES = Object.freeze({
+  getCharacterEffectSummary: "get_character_effect_summary",
+  getEffectiveCharacterStats: "get_effective_character_stats",
+  addCharacterEffect: "add_character_effect",
+  removeCharacterEffect: "remove_character_effect",
+  advanceCharacterEffects: "advance_character_effects"
+});
+var PERK_RPC_NAMES = Object.freeze({
+  getCharacterPerks: "get_character_perks",
+  getCharacterAvailablePerks: "get_character_available_perks",
+  grantCharacterPerk: "grant_character_perk",
+  useCharacterPerk: "use_character_perk"
+});
+var EQUIPMENT_RPC_NAMES = Object.freeze({
+  getCharacterArmorSummary: "get_character_armor_summary",
+  getCharacterEquipment: "get_character_equipment",
+  recomputeCharacterArmor: "recompute_character_armor",
+  createCharacterEquipmentItem: "create_character_equipment_item",
+  equipCharacterEquipmentItem: "equip_character_equipment_item",
+  unequipCharacterEquipmentItem: "unequip_character_equipment_item",
+  updateCharacterEquipmentItem: "update_character_equipment_item"
+});
+var INVENTORY_RPC_NAMES = Object.freeze({
+  getCharacterInventory: "get_character_inventory",
+  addCharacterItem: "add_character_item",
+  removeCharacterItemQuantity: "remove_character_item_quantity",
+  getCharacterItemQuantity: "get_character_item_quantity",
+  addCharacterAmmoStock: "add_character_ammo_stock",
+  removeCharacterAmmoStock: "remove_character_ammo_stock",
+  loadRoundsToMagazine: "load_rounds_to_magazine",
+  unloadRoundsFromMagazine: "unload_rounds_from_magazine",
+  useCharacterItem: "use_character_item"
+});
+var CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
+  getCharacterSpawnCatalog: "get_character_spawn_catalog",
+  getCharacterRuntimeBundle: "get_character_runtime_bundle",
+  getSceneTokenLinks: "get_scene_token_links",
+  loadCharacterToToken: "load_character_to_token",
+  unbindTokenCharacter: "unbind_token_character",
+  purgeActiveNpcs: "purge_active_npcs",
+  assignCharacterOwner: "assign_character_owner",
+  clearCharacterOwner: "clear_character_owner",
+  getCharacterQuickbar: "get_character_quickbar",
+  saveCharacterQuickbar: "save_character_quickbar"
+});
+var CREATOR_RPC_NAMES = Object.freeze({
+  getCreatorReferenceData: "get_creator_reference_data",
+  listWeapons: "creator_list_weapons",
+  getWeapon: "creator_get_weapon",
+  upsertWeapon: "creator_upsert_weapon",
+  deleteWeapon: "creator_delete_weapon",
+  listItemDefs: "creator_list_item_defs",
+  getItemDef: "creator_get_item_def",
+  upsertItemDef: "creator_upsert_item_def",
+  deleteItemDef: "creator_delete_item_def",
+  listCalibers: "creator_list_calibers",
+  getCaliber: "creator_get_caliber",
+  upsertCaliber: "creator_upsert_caliber",
+  deleteCaliber: "creator_delete_caliber",
+  listAmmoTypes: "creator_list_ammo_types",
+  getAmmoType: "creator_get_ammo_type",
+  upsertAmmoType: "creator_upsert_ammo_type",
+  deleteAmmoType: "creator_delete_ammo_type",
+  listMagazineDefs: "creator_list_magazine_defs",
+  getMagazineDef: "creator_get_magazine_def",
+  upsertMagazineDef: "creator_upsert_magazine_def",
+  deleteMagazineDef: "creator_delete_magazine_def",
+  listSkills: "creator_list_skills",
+  getSkill: "creator_get_skill",
+  upsertSkill: "creator_upsert_skill",
+  deleteSkill: "creator_delete_skill",
+  listEffects: "creator_list_effects",
+  getEffect: "creator_get_effect",
+  upsertEffect: "creator_upsert_effect",
+  deleteEffect: "creator_delete_effect",
+  listAbilities: "creator_list_abilities",
+  getAbility: "creator_get_ability",
+  upsertAbility: "creator_upsert_ability",
+  deleteAbility: "creator_delete_ability",
+  listPerks: "creator_list_perks",
+  getPerk: "creator_get_perk",
+  upsertPerk: "creator_upsert_perk",
+  deletePerk: "creator_delete_perk",
+  listEquipmentModels: "creator_list_equipment_models",
+  getEquipmentModel: "creator_get_equipment_model",
+  upsertEquipmentModel: "creator_upsert_equipment_model",
+  deleteEquipmentModel: "creator_delete_equipment_model"
+});
+
+// bridge/supabaseBridge.js
 function getSupabaseSettingsOrThrow(settings) {
   const normalized = normalizeSupabaseSettings(settings);
   if (!normalized.url) {
@@ -9270,13 +9451,34 @@ function buildHeaders(apiKey, method, extraHeaders = {}, prefer = "return=repres
   }
   return headers;
 }
+function isSupabaseDebugEnabled() {
+  try {
+    if (globalThis.localStorage?.getItem("odyssey.debug") === "1") return true;
+  } catch (_error) {
+  }
+  try {
+    return /[?&](odysseyDebug|debugRpc)=1(?:&|$)/i.test(
+      String(globalThis.location?.search ?? "")
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+function logSupabaseDebug(message, payload) {
+  if (!isSupabaseDebugEnabled()) return;
+  if (payload === void 0) {
+    console.info(message);
+    return;
+  }
+  console.info(message, payload);
+}
 async function parseSupabaseResponse(response, fallbackMessage, requestId = "") {
-  console.info(`[Odyssey RPC ${requestId}] response headers received`, {
+  logSupabaseDebug(`[Odyssey RPC ${requestId}] response headers received`, {
     status: response.status,
     ok: response.ok
   });
   const rawText = await response.text();
-  console.info(`[Odyssey RPC ${requestId}] response body read`, {
+  logSupabaseDebug(`[Odyssey RPC ${requestId}] response body read`, {
     bytes: rawText.length
   });
   const body = safeJsonParse(rawText, rawText || null);
@@ -9307,13 +9509,13 @@ async function requestSupabase(path, options = {}) {
     requestInit.headers["Content-Type"] = "application/json";
   }
   try {
-    console.info(`[Odyssey RPC ${requestId}] request prepared`, {
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] request prepared`, {
       method,
       path
     });
-    console.info(`[Odyssey RPC ${requestId}] fetch starting`);
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] fetch starting`);
     const fetchPromise = fetch(`${url}/rest/v1/${path}`, requestInit);
-    console.info(`[Odyssey RPC ${requestId}] fetch promise created`);
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] fetch promise created`);
     const response = await fetchPromise;
     return await parseSupabaseResponse(response, fallbackMessage, requestId);
   } catch (error) {
@@ -9361,19 +9563,17 @@ async function testSupabaseConnection(settings) {
     sampleRowCount: Array.isArray(rows) ? rows.length : 0
   };
 }
-async function fetchTokenLinks(roomId, sceneId = "", settings) {
-  const params = [
-    "select=*",
-    `room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}`,
-    `scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}`,
-    "is_active=eq.true"
-  ].join("&");
-  const rows = await fetchSupabaseRows(
-    `odyssey_token_links?${params}`,
-    settings,
-    "Unable to load token links from Supabase."
+async function fetchTokenLinks(roomIdOrPayload, sceneId = "", settings) {
+  const payload = roomIdOrPayload && typeof roomIdOrPayload === "object" ? roomIdOrPayload : {
+    room_id: String(roomIdOrPayload ?? "").trim(),
+    scene_id: String(sceneId ?? "").trim()
+  };
+  const result = await callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    payload,
+    settings
   );
-  return Array.isArray(rows) ? rows : [];
+  return Array.isArray(result?.links) ? result.links : [];
 }
 async function upsertTokenLinkRecord(payload, settings) {
   const row = {
@@ -9400,17 +9600,14 @@ async function upsertTokenLinkRecord(payload, settings) {
   return Array.isArray(rows) ? rows[0] ?? null : rows;
 }
 async function deactivateTokenLinkRecord(roomId, sceneId, tokenId, settings) {
-  return mutateSupabaseRows(
-    `odyssey_token_links?room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}&scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}&token_id=eq.${encodeURIComponent(String(tokenId ?? "").trim())}`,
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.unbindTokenCharacter,
     {
-      is_active: false,
-      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      room_id: String(roomId ?? "").trim(),
+      scene_id: String(sceneId ?? "").trim(),
+      token_id: String(tokenId ?? "").trim()
     },
-    settings,
-    {
-      method: "PATCH",
-      fallbackMessage: "Unable to deactivate token link in Supabase."
-    }
+    settings
   );
 }
 
@@ -9753,153 +9950,6 @@ async function mountBridgeShell({
   };
 }
 
-// constants/rpcNames.js
-var CHARACTER_RPC_NAMES = Object.freeze({
-  getCharacterRuleSheet: "get_character_rule_sheet",
-  initializeCharacterRuleDefaults: "initialize_character_rule_defaults",
-  initializeCharacterCombatDefaults: "initialize_character_combat_defaults",
-  getCharacterSpawnCatalog: "get_character_spawn_catalog",
-  getRoomTokenLinks: "get_room_token_links",
-  deactivateTokenLink: "deactivate_token_link",
-  loadCharacterToToken: "load_character_to_token"
-});
-var CHECK_RPC_NAMES = Object.freeze({
-  rollCharacteristic: "roll_characteristic",
-  rollSkill: "roll_skill",
-  rollDice: "roll_dice"
-});
-var ABILITY_RPC_NAMES = Object.freeze({
-  getCharacterAbilities: "get_character_abilities",
-  syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
-  useAbility: "use_ability",
-  advanceCharacterAbilityStates: "advance_character_ability_states"
-});
-var FEATURE_RPC_NAMES = Object.freeze({
-  reloadFeatureResource: "reload_feature_resource"
-});
-var WEAPON_RPC_NAMES = Object.freeze({
-  getCharacterArmory: "get_character_armory",
-  switchWeaponProfile: "switch_weapon_profile",
-  switchWeaponFireMode: "switch_weapon_fire_mode",
-  loadWeaponProfileMagazine: "load_weapon_profile_magazine",
-  activateWeaponFeature: "activate_weapon_feature",
-  deactivateWeaponFeature: "deactivate_weapon_feature",
-  getCharacterWeaponFeatures: "get_character_weapon_features"
-});
-var COMBAT_RPC_NAMES = Object.freeze({
-  performAttack: "perform_attack",
-  moveCharacter: "combat_move_character",
-  syncPositionsFromOwlbear: "combat_sync_positions_from_owlbear",
-  startEncounter: "combat_start_encounter",
-  addParticipant: "combat_add_participant",
-  removeParticipant: "combat_remove_participant",
-  reorderInitiative: "combat_reorder_initiative",
-  endTurn: "combat_end_turn",
-  skipTurn: "combat_skip_turn",
-  forceNextTurn: "combat_force_next_turn",
-  endEncounter: "combat_end_encounter",
-  getActiveRuntime: "combat_get_active_runtime",
-  markCharacterDead: "combat_mark_character_dead",
-  convertActionToMove: "combat_convert_action_to_move",
-  spendMove: "combat_spend_move",
-  executeAction: "combat_execute_action",
-  getCombatLog: "combat_get_log",
-  grantReactionAction: "combat_grant_reaction_action"
-});
-var GM_RPC_NAMES = Object.freeze({
-  healCharacter: "gm_heal_character",
-  repairCharacterArmor: "gm_repair_character_armor",
-  updateCharacterAttribute: "gm_update_character_attribute"
-});
-var EFFECT_RPC_NAMES = Object.freeze({
-  getCharacterEffectSummary: "get_character_effect_summary",
-  getEffectiveCharacterStats: "get_effective_character_stats",
-  addCharacterEffect: "add_character_effect",
-  removeCharacterEffect: "remove_character_effect",
-  advanceCharacterEffects: "advance_character_effects"
-});
-var PERK_RPC_NAMES = Object.freeze({
-  getCharacterPerks: "get_character_perks",
-  getCharacterAvailablePerks: "get_character_available_perks",
-  grantCharacterPerk: "grant_character_perk",
-  useCharacterPerk: "use_character_perk"
-});
-var EQUIPMENT_RPC_NAMES = Object.freeze({
-  getCharacterArmorSummary: "get_character_armor_summary",
-  getCharacterEquipment: "get_character_equipment",
-  recomputeCharacterArmor: "recompute_character_armor",
-  createCharacterEquipmentItem: "create_character_equipment_item",
-  equipCharacterEquipmentItem: "equip_character_equipment_item",
-  unequipCharacterEquipmentItem: "unequip_character_equipment_item",
-  updateCharacterEquipmentItem: "update_character_equipment_item"
-});
-var INVENTORY_RPC_NAMES = Object.freeze({
-  getCharacterInventory: "get_character_inventory",
-  addCharacterItem: "add_character_item",
-  removeCharacterItemQuantity: "remove_character_item_quantity",
-  getCharacterItemQuantity: "get_character_item_quantity",
-  addCharacterAmmoStock: "add_character_ammo_stock",
-  removeCharacterAmmoStock: "remove_character_ammo_stock",
-  loadRoundsToMagazine: "load_rounds_to_magazine",
-  unloadRoundsFromMagazine: "unload_rounds_from_magazine",
-  useCharacterItem: "use_character_item"
-});
-var CHARACTER_PLACEMENT_RPC_NAMES = Object.freeze({
-  getCharacterSpawnCatalog: "get_character_spawn_catalog",
-  getCharacterRuntimeBundle: "get_character_runtime_bundle",
-  getSceneTokenLinks: "get_scene_token_links",
-  loadCharacterToToken: "load_character_to_token",
-  unbindTokenCharacter: "unbind_token_character",
-  purgeActiveNpcs: "purge_active_npcs",
-  assignCharacterOwner: "assign_character_owner",
-  clearCharacterOwner: "clear_character_owner",
-  getCharacterQuickbar: "get_character_quickbar",
-  saveCharacterQuickbar: "save_character_quickbar"
-});
-var CREATOR_RPC_NAMES = Object.freeze({
-  getCreatorReferenceData: "get_creator_reference_data",
-  listWeapons: "creator_list_weapons",
-  getWeapon: "creator_get_weapon",
-  upsertWeapon: "creator_upsert_weapon",
-  deleteWeapon: "creator_delete_weapon",
-  listItemDefs: "creator_list_item_defs",
-  getItemDef: "creator_get_item_def",
-  upsertItemDef: "creator_upsert_item_def",
-  deleteItemDef: "creator_delete_item_def",
-  listCalibers: "creator_list_calibers",
-  getCaliber: "creator_get_caliber",
-  upsertCaliber: "creator_upsert_caliber",
-  deleteCaliber: "creator_delete_caliber",
-  listAmmoTypes: "creator_list_ammo_types",
-  getAmmoType: "creator_get_ammo_type",
-  upsertAmmoType: "creator_upsert_ammo_type",
-  deleteAmmoType: "creator_delete_ammo_type",
-  listMagazineDefs: "creator_list_magazine_defs",
-  getMagazineDef: "creator_get_magazine_def",
-  upsertMagazineDef: "creator_upsert_magazine_def",
-  deleteMagazineDef: "creator_delete_magazine_def",
-  listSkills: "creator_list_skills",
-  getSkill: "creator_get_skill",
-  upsertSkill: "creator_upsert_skill",
-  deleteSkill: "creator_delete_skill",
-  listEffects: "creator_list_effects",
-  getEffect: "creator_get_effect",
-  upsertEffect: "creator_upsert_effect",
-  deleteEffect: "creator_delete_effect",
-  listAbilities: "creator_list_abilities",
-  getAbility: "creator_get_ability",
-  upsertAbility: "creator_upsert_ability",
-  deleteAbility: "creator_delete_ability",
-  listPerks: "creator_list_perks",
-  getPerk: "creator_get_perk",
-  upsertPerk: "creator_upsert_perk",
-  deletePerk: "creator_delete_perk",
-  listEquipmentModels: "creator_list_equipment_models",
-  getEquipmentModel: "creator_get_equipment_model",
-  upsertEquipmentModel: "creator_upsert_equipment_model",
-  deleteEquipmentModel: "creator_delete_equipment_model"
-});
-
 // api/abilityApi.js
 var abilityApi_exports = {};
 __export(abilityApi_exports, {
@@ -9999,7 +10049,7 @@ function deactivateTokenLink(payload, settings) {
 }
 function loadCharacterToToken(payload, settings) {
   return callSupabaseRpc(
-    CHARACTER_RPC_NAMES.loadCharacterToToken,
+    CHARACTER_PLACEMENT_RPC_NAMES.loadCharacterToToken,
     payload ?? {},
     settings
   );

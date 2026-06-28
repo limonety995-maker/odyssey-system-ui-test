@@ -1,4 +1,5 @@
 import OBR from "@owlbear-rodeo/sdk";
+import { ROOM_CONTEXT_KEY } from "../constants/metadataKeys.js";
 
 let readyPromise = null;
 
@@ -94,18 +95,56 @@ export async function setRoomMetadata(patch) {
   return getRoomMetadata();
 }
 
-// OBR SDK v3.1 does not expose OBR.scene.id. We use room_id as a stable
-// proxy for scene_id — each room has one active scene at a time, so
-// scoping by room is equivalent to scoping by scene. This avoids async
-// scene-metadata reads that can fail if the scene is not ready at startup.
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function normalizeStoredRoomContext(metadata, roomId) {
+  const meta = metadata && typeof metadata === "object" ? metadata : {};
+  const scoped =
+    (meta[ROOM_CONTEXT_KEY] && typeof meta[ROOM_CONTEXT_KEY] === "object")
+      ? meta[ROOM_CONTEXT_KEY]
+      : {};
+
+  const campaignId = firstNonEmptyText(
+    scoped.campaignId,
+    scoped.campaign_id,
+    meta.campaignId,
+    meta.campaign_id,
+    meta.odysseyCampaignId,
+    meta.odyssey_campaign_id,
+    roomId,
+  );
+
+  const sceneId = firstNonEmptyText(
+    scoped.sceneId,
+    scoped.scene_id,
+    meta.sceneId,
+    meta.scene_id,
+    meta.odysseySceneId,
+    meta.odyssey_scene_id,
+    roomId,
+  );
+
+  return {
+    campaignId,
+    roomId,
+    sceneId,
+  };
+}
+
+// OBR SDK v3.1 does not expose canonical campaign/scene ids. We first look for
+// an Odyssey room-metadata override and otherwise fall back to room_id as the
+// stable scope proxy so older rooms keep working.
 export async function getRoomSceneContext() {
   await waitForObrReady();
   const roomId = String(OBR.room?.id ?? "").trim();
-  return {
-    campaignId: roomId,
-    roomId,
-    sceneId: roomId,
-  };
+  const metadata = await getRoomMetadata();
+  return normalizeStoredRoomContext(metadata, roomId);
 }
 
 export async function subscribePlayerChanges(listener) {

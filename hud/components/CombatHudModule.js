@@ -20,6 +20,8 @@ import { renderSkillBlock } from "./SkillBlock.js";
 import { renderCombatControlBlock } from "./CombatControlBlock.js";
 import { renderBattleLogPanel } from "./BattleLogBlock.js";
 import { renderEmptyState, renderErrorState, renderLoadingState } from "./EmptyHudState.js";
+import { renderSelectionModule } from "../scene/selectionView.js";
+import { normalizeSelectionPayload } from "../scene/selectionState.js";
 import { createTooltip } from "./Tooltip.js";
 import { ICON_GRID, ICON_CARET_DOWN } from "./hudIcons.js";
 import { cls, esc } from "./hudDom.js";
@@ -57,6 +59,11 @@ export function mountCombatHudModule(options) {
 
   const store = createCombatHudStore({ adapter });
   store.initialize();
+
+  // Phase 3A: when a LIVE scene-selection payload arrives (real OBR room), it
+  // takes priority over the mock store. `null` means standalone / no live data
+  // yet → keep the existing deterministic mock render (and all Phase 2 tests).
+  let liveSelection = null;
 
   const el = document.createElement("div");
   // `.odyssey-hud` is the DESIGN-TOKEN root (combatHudTokens.css declares every
@@ -96,6 +103,8 @@ export function mountCombatHudModule(options) {
   // console.error(moduleId, stack); it never throws out and never blanks the iframe.
   function bodyHtml(state) {
     try {
+      // Live selection (real room) takes priority over the mock snapshot.
+      if (liveSelection) return renderSelectionModule(moduleId, liveSelection, { dev: DEV });
       if (!state) throw new Error("no snapshot");
       const mode = resolveBodyMode(state);
       if (mode === "ready") {
@@ -134,8 +143,16 @@ export function mountCombatHudModule(options) {
     }
     let bodyMode = "error";
     try { bodyMode = state ? resolveBodyMode(state) : "error"; } catch (_e) { bodyMode = "error"; }
-    el.setAttribute("data-body", bodyMode);
+    el.setAttribute("data-body", liveSelection ? liveSelection.status : bodyMode);
     el.innerHTML = `${bodyHtml(state)}${controlsHtml()}${debugBadge(state)}<div class="ohud-toast" hidden></div>`;
+  }
+
+  /** Apply a LIVE scene-selection payload (Phase 3A). `null`/invalid → fall back
+   *  to the mock render. Re-renders only this module's own content — no popover
+   *  reopen, no layout change. */
+  function applySelection(payload) {
+    liveSelection = payload ? normalizeSelectionPayload(payload) : null;
+    render();
   }
 
   function showToast(text) {
@@ -166,6 +183,7 @@ export function mountCombatHudModule(options) {
 
   return {
     store,
+    applySelection,
     unmount() {
       unsubscribe();
       tooltip.destroy();

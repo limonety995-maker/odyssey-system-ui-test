@@ -31,6 +31,16 @@ export const OVERLAY_HTML = "combat-hud-overlay.html";
  *  placement change, and re-seed the iframe via URL on any re-anchor. */
 export const BC_HUD_UI_STATE = "com.odyssey.combat-hud/ui-state";
 
+/** LOCAL broadcast: scene-selection controller (background) → module iframes,
+ *  carrying the TRIMMED selection payload (status + viewer + access + ready-only
+ *  view). Drives every module's content on real token selection. */
+export const BC_HUD_SELECTION = "com.odyssey.combat-hud/selection";
+
+/** LOCAL broadcast: a freshly-mounted module iframe → scene-selection controller,
+ *  asking it to replay the latest selection payload (so a module opened after a
+ *  selection change still renders the current state). */
+export const BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
+
 /* ----------------- HUD geometry (Phase 2.1) ----------------- */
 //
 // The HUD is a left-anchored bottom panel: a tall PlayerBlock, a responsive

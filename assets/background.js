@@ -3803,6 +3803,37 @@ function buildText() {
 }
 var lib_default = OBR;
 
+// constants/metadataKeys.js
+var metadataKeys_exports = {};
+__export(metadataKeys_exports, {
+  EXTENSION_ID: () => EXTENSION_ID,
+  ROOM_CONTEXT_KEY: () => ROOM_CONTEXT_KEY,
+  ROOM_SUPABASE_SETTINGS_KEY: () => ROOM_SUPABASE_SETTINGS_KEY,
+  SHELL_GLOBAL_KEY: () => SHELL_GLOBAL_KEY,
+  TOKEN_LINK_KEY: () => TOKEN_LINK_KEY,
+  hasTokenCharacterLink: () => hasTokenCharacterLink,
+  normalizeTokenCharacterLink: () => normalizeTokenCharacterLink
+});
+var EXTENSION_ID = "com.codex.body-hp";
+var ROOM_SUPABASE_SETTINGS_KEY = `${EXTENSION_ID}/supabaseSettings`;
+var ROOM_CONTEXT_KEY = `${EXTENSION_ID}/roomContext`;
+var TOKEN_LINK_KEY = `${EXTENSION_ID}/link`;
+var SHELL_GLOBAL_KEY = "OdysseyBridge";
+function normalizeTokenCharacterLink(raw) {
+  return {
+    characterId: String(raw?.characterId ?? raw?.character_id ?? "").trim(),
+    stateVersion: Math.max(
+      0,
+      Number(raw?.stateVersion ?? raw?.state_version ?? 0) || 0
+    ),
+    statusSummary: String(raw?.statusSummary ?? raw?.status_summary ?? "").trim(),
+    updatedAt: String(raw?.updatedAt ?? raw?.updated_at ?? "").trim()
+  };
+}
+function hasTokenCharacterLink(raw) {
+  return Boolean(normalizeTokenCharacterLink(raw).characterId);
+}
+
 // bridge/obrBridge.js
 var readyPromise = null;
 function ensureArray(value) {
@@ -3880,14 +3911,45 @@ async function setRoomMetadata(patch) {
   await lib_default.room.setMetadata(patch ?? {});
   return getRoomMetadata();
 }
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+function normalizeStoredRoomContext(metadata, roomId) {
+  const meta = metadata && typeof metadata === "object" ? metadata : {};
+  const scoped = meta[ROOM_CONTEXT_KEY] && typeof meta[ROOM_CONTEXT_KEY] === "object" ? meta[ROOM_CONTEXT_KEY] : {};
+  const campaignId = firstNonEmptyText(
+    scoped.campaignId,
+    scoped.campaign_id,
+    meta.campaignId,
+    meta.campaign_id,
+    meta.odysseyCampaignId,
+    meta.odyssey_campaign_id,
+    roomId
+  );
+  const sceneId = firstNonEmptyText(
+    scoped.sceneId,
+    scoped.scene_id,
+    meta.sceneId,
+    meta.scene_id,
+    meta.odysseySceneId,
+    meta.odyssey_scene_id,
+    roomId
+  );
+  return {
+    campaignId,
+    roomId,
+    sceneId
+  };
+}
 async function getRoomSceneContext() {
   await waitForObrReady();
   const roomId = String(lib_default.room?.id ?? "").trim();
-  return {
-    campaignId: roomId,
-    roomId,
-    sceneId: roomId
-  };
+  const metadata = await getRoomMetadata();
+  return normalizeStoredRoomContext(metadata, roomId);
 }
 async function subscribePlayerChanges(listener) {
   await waitForObrReady();
@@ -3960,37 +4022,6 @@ __export(settingsBridge_exports, {
   normalizeSupabaseSettings: () => normalizeSupabaseSettings,
   saveRoomSupabaseSettings: () => saveRoomSupabaseSettings
 });
-
-// constants/metadataKeys.js
-var metadataKeys_exports = {};
-__export(metadataKeys_exports, {
-  EXTENSION_ID: () => EXTENSION_ID,
-  ROOM_SUPABASE_SETTINGS_KEY: () => ROOM_SUPABASE_SETTINGS_KEY,
-  SHELL_GLOBAL_KEY: () => SHELL_GLOBAL_KEY,
-  TOKEN_LINK_KEY: () => TOKEN_LINK_KEY,
-  hasTokenCharacterLink: () => hasTokenCharacterLink,
-  normalizeTokenCharacterLink: () => normalizeTokenCharacterLink
-});
-var EXTENSION_ID = "com.codex.body-hp";
-var ROOM_SUPABASE_SETTINGS_KEY = `${EXTENSION_ID}/supabaseSettings`;
-var TOKEN_LINK_KEY = `${EXTENSION_ID}/link`;
-var SHELL_GLOBAL_KEY = "OdysseyBridge";
-function normalizeTokenCharacterLink(raw) {
-  return {
-    characterId: String(raw?.characterId ?? raw?.character_id ?? "").trim(),
-    stateVersion: Math.max(
-      0,
-      Number(raw?.stateVersion ?? raw?.state_version ?? 0) || 0
-    ),
-    statusSummary: String(raw?.statusSummary ?? raw?.status_summary ?? "").trim(),
-    updatedAt: String(raw?.updatedAt ?? raw?.updated_at ?? "").trim()
-  };
-}
-function hasTokenCharacterLink(raw) {
-  return Boolean(normalizeTokenCharacterLink(raw).characterId);
-}
-
-// bridge/settingsBridge.js
 function normalizeSupabaseSettings(raw) {
   return {
     url: String(raw?.url ?? "").trim().replace(/\/+$/, ""),
@@ -4048,6 +4079,8 @@ function serializePlacement(placement) {
 // hud/overlay/overlayConstants.js
 var OVERLAY_HTML = "combat-hud-overlay.html";
 var BC_HUD_UI_STATE = "com.odyssey.combat-hud/ui-state";
+var BC_HUD_SELECTION = "com.odyssey.combat-hud/selection";
+var BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -4099,386 +4132,29 @@ function normalizeHudUiState(partial) {
   };
 }
 
-// hud/overlay/hudLayout.js
-var HUD_LAYOUT_REFERENCE_VIEWPORT = Object.freeze({ width: 1920, height: 1080 });
-var LAYOUT_VERSION = 2;
-var HUD_MODULE_IDS = Object.freeze([
-  "player",
-  "gun",
-  "skills",
-  "combatControl",
-  "log"
-]);
-var HUD_MODULE_POPOVER_IDS = Object.freeze({
-  player: "odyssey-hud-player",
-  gun: "odyssey-hud-gun",
-  skills: "odyssey-hud-skills",
-  combatControl: "odyssey-hud-combat-control",
-  log: "odyssey-hud-log"
+// api/characterPlacementApi.js
+var characterPlacementApi_exports = {};
+__export(characterPlacementApi_exports, {
+  assignCharacterOwner: () => assignCharacterOwner,
+  clearCharacterOwner: () => clearCharacterOwner,
+  getCharacterQuickbar: () => getCharacterQuickbar,
+  getCharacterRuntimeBundle: () => getCharacterRuntimeBundle,
+  getCharacterSpawnCatalog: () => getCharacterSpawnCatalog,
+  getSceneTokenLinks: () => getSceneTokenLinks,
+  loadCharacterToToken: () => loadCharacterToToken,
+  purgeActiveNpcs: () => purgeActiveNpcs,
+  saveCharacterQuickbar: () => saveCharacterQuickbar,
+  unbindTokenCharacter: () => unbindTokenCharacter
 });
-var LEGACY_HUD_POPOVER_IDS = Object.freeze([
-  "odyssey-hud-target",
-  "odyssey-hud-modifiers",
-  "odyssey-hud-action"
-]);
-var HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
-var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
-var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
-var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
-var LAYOUT_MARGIN = 16;
-var COMPACT_LAYOUT_BREAKPOINT = 1100;
-var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
-  player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
-  gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
-  skills: Object.freeze({ left: 663, bottom: 16, width: 600, height: 165, zIndex: 20 }),
-  // Composite: Target (left 165) + Modifiers/Action (right 165). Replaces the
-  // former three separate target/modifiers/action rects.
-  combatControl: Object.freeze({ left: 1263, bottom: 16, width: 330, height: 165, zIndex: 20 }),
-  log: Object.freeze({ left: 1656, bottom: 16, width: 250, height: 250, zIndex: 20 })
-});
-function clamp012(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-function computeLayoutScale(vw, vh) {
-  const w = Math.max(1, Number(vw) || 0);
-  const h = Math.max(1, Number(vh) || 0);
-  return Math.min(w / HUD_LAYOUT_REFERENCE_VIEWPORT.width, h / HUD_LAYOUT_REFERENCE_VIEWPORT.height, 1);
-}
-function isCompactViewport(vw) {
-  return (Number(vw) || 0) < COMPACT_LAYOUT_BREAKPOINT;
-}
-function moduleSize(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleSize(moduleId, vw);
-  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
-  const scale = computeLayoutScale(vw, vh);
-  return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
-}
-function defaultModuleRect(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleRect(moduleId, vw, vh);
-  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
-  const scale = computeLayoutScale(vw, vh);
-  const width = Math.round(def.width * scale);
-  const height = Math.round(def.height * scale);
-  return {
-    left: Math.round(def.left * scale),
-    top: Math.round((Number(vh) || 0) - def.bottom * scale - height),
-    width,
-    height,
-    zIndex: def.zIndex
-  };
-}
-function normalizedToPixels(moduleId, placement, vw, vh) {
-  const { width, height } = moduleSize(moduleId, vw, vh);
-  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
-  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
-  return {
-    left: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.x) * availW),
-    top: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.y) * availH),
-    width,
-    height,
-    zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex
-  };
-}
-function clampRect(rect, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  return {
-    ...rect,
-    left: Math.max(0, Math.min(rect.left, Math.max(0, w - rect.width))),
-    top: Math.max(0, Math.min(rect.top, Math.max(0, h - rect.height)))
-  };
-}
-function resolveModuleRect(moduleId, placement, vw, vh) {
-  const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
-  return clampRect(rect, vw, vh);
-}
-var COMPACT_SIZES = {
-  player: { width: 150, height: 150 },
-  gun: { width: 190, height: 92 },
-  skills: { width: 300, height: 92 },
-  target: { width: 92, height: 92 },
-  modifiers: { width: 92, height: 92 },
-  action: { width: 120, height: 34 },
-  log: { width: 180, height: 140 }
-};
-function compactModuleSize(moduleId, vw) {
-  const s = COMPACT_SIZES[moduleId];
-  const maxW = Math.max(80, (Number(vw) || 0) - 2 * LAYOUT_MARGIN);
-  return { width: Math.min(s.width, maxW), height: s.height };
-}
-function compactModuleRect(moduleId, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  let x = LAYOUT_MARGIN;
-  let rowTopFromBottom = LAYOUT_MARGIN;
-  let rowHeight = 0;
-  for (const id of HUD_MODULE_IDS) {
-    const size = compactModuleSize(id, vw);
-    if (x + size.width + LAYOUT_MARGIN > w && x > LAYOUT_MARGIN) {
-      rowTopFromBottom += rowHeight + 8;
-      x = LAYOUT_MARGIN;
-      rowHeight = 0;
-    }
-    if (id === moduleId) {
-      const top = Math.max(0, h - rowTopFromBottom - size.height);
-      return clampRect({ left: x, top, width: size.width, height: size.height, zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex }, vw, vh);
-    }
-    x += size.width + 8;
-    rowHeight = Math.max(rowHeight, size.height);
-  }
-  return clampRect({ left: LAYOUT_MARGIN, top: LAYOUT_MARGIN, ...compactModuleSize(moduleId, vw), zIndex: 20 }, vw, vh);
-}
-function defaultLayoutState() {
-  const modules = {};
-  for (const id of HUD_MODULE_IDS) modules[id] = { mode: "default", x: 0, y: 0 };
-  return { version: LAYOUT_VERSION, modules };
-}
-function migrateLegacyModules(modules) {
-  if (!modules || modules.combatControl) return modules;
-  const hasLegacy = modules.target || modules.modifiers || modules.action;
-  if (!hasLegacy) return modules;
-  const base = modules.target;
-  if (base && base.mode === "custom" && Number.isFinite(base.x) && Number.isFinite(base.y)) {
-    return { ...modules, combatControl: { mode: "custom", x: clamp012(base.x), y: clamp012(base.y) } };
-  }
-  return modules;
-}
-function validateLayoutState(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  if (raw.version !== LAYOUT_VERSION) return null;
-  if (!raw.modules || typeof raw.modules !== "object") return null;
-  const src = migrateLegacyModules(raw.modules);
-  const out = defaultLayoutState();
-  for (const id of HUD_MODULE_IDS) {
-    const m = src[id];
-    if (m && (m.mode === "default" || m.mode === "custom") && typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y)) {
-      out.modules[id] = { mode: m.mode, x: clamp012(m.x), y: clamp012(m.y) };
-    }
-  }
-  return out;
-}
-function normalizeLayoutState(state) {
-  return validateLayoutState(state) ?? defaultLayoutState();
-}
-
-// hud/overlay/combatHudOverlayController.js
-var VIEWPORT_POLL_MS = 600;
-var PILL_W = 150;
-var PILL_H = 44;
-var OPEN_ORDER = [...HUD_MODULE_IDS].sort(
-  (a, b) => DEFAULT_HUD_LAYOUT_V2[a].zIndex - DEFAULT_HUD_LAYOUT_V2[b].zIndex
-);
-var started = false;
-var lastVW = 0;
-var lastVH = 0;
-var lastUiState = { ...DEFAULT_HUD_UI_STATE };
-var lastLayout = defaultLayoutState();
-var mode = "modules";
-var pollTimer = null;
-var cleanups = [];
-function isCollapsed() {
-  return Boolean(lastUiState.isHudCollapsed);
-}
-function placementsEqual(a, b) {
-  if (!a || !b) return a === b;
-  if (a.mode !== b.mode) return false;
-  return Math.abs((a.x || 0) - (b.x || 0)) < 1e-4 && Math.abs((a.y || 0) - (b.y || 0)) < 1e-4;
-}
-function layoutsEqual(a, b) {
-  if (!a || !b || !a.modules || !b.modules) return false;
-  return HUD_MODULE_IDS.every((id) => placementsEqual(a.modules[id], b.modules[id]));
-}
-async function readViewport() {
-  const [vw, vh] = await Promise.all([lib_default.viewport.getWidth(), lib_default.viewport.getHeight()]);
-  lastVW = vw;
-  lastVH = vh;
-  return { vw, vh };
-}
-function baseHref() {
-  return typeof window !== "undefined" ? window.location.href : "";
-}
-function pageUrl(moduleId) {
-  const params = new URLSearchParams(serializeHudUiState(lastUiState));
-  params.set("module", moduleId);
-  params.set("vw", String(Math.round(lastVW)));
-  params.set("vh", String(Math.round(lastVH)));
-  try {
-    const url = new URL(OVERLAY_HTML, baseHref());
-    url.search = params.toString();
-    return url.toString();
-  } catch {
-    return `${OVERLAY_HTML}?${params.toString()}`;
-  }
-}
-function paramsForRect(rect) {
-  return {
-    width: Math.max(1, rect.width),
-    height: Math.max(1, rect.height),
-    anchorReference: "POSITION",
-    anchorPosition: { left: rect.left, top: rect.top },
-    anchorOrigin: { horizontal: "LEFT", vertical: "TOP" },
-    transformOrigin: { horizontal: "LEFT", vertical: "TOP" },
-    hidePaper: true,
-    disableClickAway: true,
-    marginThreshold: 0
-  };
-}
-function moduleRect(moduleId) {
-  return resolveModuleRect(moduleId, lastLayout.modules[moduleId], lastVW, lastVH);
-}
-async function openModule(moduleId) {
-  const rect = moduleRect(moduleId);
-  await lib_default.popover.open({
-    id: HUD_MODULE_POPOVER_IDS[moduleId],
-    url: pageUrl(moduleId),
-    ...paramsForRect(rect)
-  });
-}
-async function openAllModules() {
-  for (const id of OPEN_ORDER) {
-    try {
-      await openModule(id);
-    } catch (_e) {
-    }
-  }
-}
-async function closeAllModules() {
-  for (const id of HUD_MODULE_IDS) {
-    try {
-      await lib_default.popover.close(HUD_MODULE_POPOVER_IDS[id]);
-    } catch (_e) {
-    }
-  }
-}
-async function closeLegacyPopovers() {
-  for (const id of LEGACY_HUD_POPOVER_IDS) {
-    try {
-      await lib_default.popover.close(id);
-    } catch (_e) {
-    }
-  }
-}
-async function openChangedModules(prev, next) {
-  const changed = OPEN_ORDER.filter((id) => !placementsEqual(prev.modules[id], next.modules[id]));
-  for (const id of changed) {
-    try {
-      await openModule(id);
-    } catch (_e) {
-    }
-  }
-}
-async function openEditor() {
-  const rect = { left: 0, top: 0, width: lastVW, height: lastVH };
-  await lib_default.popover.open({ id: HUD_EDITOR_POPOVER_ID, url: pageUrl("editor"), ...paramsForRect(rect) });
-}
-async function closeEditorPopover() {
-  try {
-    await lib_default.popover.close(HUD_EDITOR_POPOVER_ID);
-  } catch (_e) {
-  }
-}
-function pillRect() {
-  const p = moduleRect("player");
-  return clampRect({ left: p.left, top: p.top + p.height - PILL_H, width: PILL_W, height: PILL_H, zIndex: 50 }, lastVW, lastVH);
-}
-async function openPill() {
-  await lib_default.popover.open({ id: HUD_PILL_POPOVER_ID, url: pageUrl("pill"), ...paramsForRect(pillRect()) });
-}
-async function closePill() {
-  try {
-    await lib_default.popover.close(HUD_PILL_POPOVER_ID);
-  } catch (_e) {
-  }
-}
-async function applyMode() {
-  if (mode === "collapsed") {
-    await closeEditorPopover();
-    await closeAllModules();
-    await openPill();
-  } else if (mode === "editor") {
-    await closePill();
-    await closeAllModules();
-    await openEditor();
-  } else {
-    await closePill();
-    await closeEditorPopover();
-    await openAllModules();
-  }
-}
-function startViewportPoll() {
-  if (pollTimer) return;
-  pollTimer = setInterval(async () => {
-    try {
-      const { vw, vh } = { vw: await lib_default.viewport.getWidth(), vh: await lib_default.viewport.getHeight() };
-      if (vw === lastVW && vh === lastVH) return;
-      lastVW = vw;
-      lastVH = vh;
-      await applyMode();
-    } catch (_e) {
-    }
-  }, VIEWPORT_POLL_MS);
-  cleanups.push(() => {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  });
-}
-function setupCombatHudOverlay() {
-  if (started) return;
-  if (typeof lib_default === "undefined" || lib_default.isAvailable === false) return;
-  started = true;
-  lib_default.onReady(async () => {
-    try {
-      await readViewport();
-      await closeLegacyPopovers();
-      mode = isCollapsed() ? "collapsed" : "modules";
-      await applyMode();
-      startViewportPoll();
-      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_UI_STATE, async (event) => {
-        const next = normalizeHudUiState(event?.data);
-        const collapseChanged = next.isHudCollapsed !== lastUiState.isHudCollapsed;
-        lastUiState = { ...lastUiState, ...next };
-        if (collapseChanged) {
-          mode = isCollapsed() ? "collapsed" : "modules";
-          await applyMode();
-        }
-      }));
-      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_EDITOR, async (event) => {
-        const open = Boolean(event?.data && event.data.open);
-        if (open && mode !== "editor") {
-          mode = "editor";
-          await applyMode();
-        } else if (!open && mode === "editor") {
-          mode = "modules";
-          await applyMode();
-        }
-      }));
-      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_LAYOUT, async (event) => {
-        const next = normalizeLayoutState(event?.data);
-        if (layoutsEqual(next, lastLayout)) return;
-        const prev = lastLayout;
-        lastLayout = next;
-        if (mode === "modules") await openChangedModules(prev, next);
-      }));
-    } catch (error) {
-      console.error("[combatHud/overlay] setup failed", error);
-      started = false;
-    }
-  });
-}
 
 // constants/rpcNames.js
 var CHARACTER_RPC_NAMES = Object.freeze({
   getCharacterRuleSheet: "get_character_rule_sheet",
   initializeCharacterRuleDefaults: "initialize_character_rule_defaults",
   initializeCharacterCombatDefaults: "initialize_character_combat_defaults",
-  getCharacterSpawnCatalog: "get_character_spawn_catalog",
+  // Legacy token-link RPCs still used by tokenRealtimeSync and older GM flows.
   getRoomTokenLinks: "get_room_token_links",
-  deactivateTokenLink: "deactivate_token_link",
-  loadCharacterToToken: "load_character_to_token"
+  deactivateTokenLink: "deactivate_token_link"
 });
 var CHECK_RPC_NAMES = Object.freeze({
   rollCharacteristic: "roll_characteristic",
@@ -4711,13 +4387,34 @@ function buildHeaders(apiKey, method, extraHeaders = {}, prefer = "return=repres
   }
   return headers;
 }
+function isSupabaseDebugEnabled() {
+  try {
+    if (globalThis.localStorage?.getItem("odyssey.debug") === "1") return true;
+  } catch (_error) {
+  }
+  try {
+    return /[?&](odysseyDebug|debugRpc)=1(?:&|$)/i.test(
+      String(globalThis.location?.search ?? "")
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+function logSupabaseDebug(message, payload) {
+  if (!isSupabaseDebugEnabled()) return;
+  if (payload === void 0) {
+    console.info(message);
+    return;
+  }
+  console.info(message, payload);
+}
 async function parseSupabaseResponse(response, fallbackMessage, requestId = "") {
-  console.info(`[Odyssey RPC ${requestId}] response headers received`, {
+  logSupabaseDebug(`[Odyssey RPC ${requestId}] response headers received`, {
     status: response.status,
     ok: response.ok
   });
   const rawText = await response.text();
-  console.info(`[Odyssey RPC ${requestId}] response body read`, {
+  logSupabaseDebug(`[Odyssey RPC ${requestId}] response body read`, {
     bytes: rawText.length
   });
   const body = safeJsonParse(rawText, rawText || null);
@@ -4748,13 +4445,13 @@ async function requestSupabase(path, options = {}) {
     requestInit.headers["Content-Type"] = "application/json";
   }
   try {
-    console.info(`[Odyssey RPC ${requestId}] request prepared`, {
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] request prepared`, {
       method,
       path
     });
-    console.info(`[Odyssey RPC ${requestId}] fetch starting`);
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] fetch starting`);
     const fetchPromise = fetch(`${url}/rest/v1/${path}`, requestInit);
-    console.info(`[Odyssey RPC ${requestId}] fetch promise created`);
+    logSupabaseDebug(`[Odyssey RPC ${requestId}] fetch promise created`);
     const response = await fetchPromise;
     return await parseSupabaseResponse(response, fallbackMessage, requestId);
   } catch (error) {
@@ -4802,19 +4499,17 @@ async function testSupabaseConnection(settings) {
     sampleRowCount: Array.isArray(rows) ? rows.length : 0
   };
 }
-async function fetchTokenLinks(roomId, sceneId = "", settings) {
-  const params = [
-    "select=*",
-    `room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}`,
-    `scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}`,
-    "is_active=eq.true"
-  ].join("&");
-  const rows = await fetchSupabaseRows(
-    `odyssey_token_links?${params}`,
-    settings,
-    "Unable to load token links from Supabase."
+async function fetchTokenLinks(roomIdOrPayload, sceneId = "", settings) {
+  const payload = roomIdOrPayload && typeof roomIdOrPayload === "object" ? roomIdOrPayload : {
+    room_id: String(roomIdOrPayload ?? "").trim(),
+    scene_id: String(sceneId ?? "").trim()
+  };
+  const result = await callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    payload,
+    settings
   );
-  return Array.isArray(rows) ? rows : [];
+  return Array.isArray(result?.links) ? result.links : [];
 }
 async function upsertTokenLinkRecord(payload, settings) {
   const row = {
@@ -4841,18 +4536,1175 @@ async function upsertTokenLinkRecord(payload, settings) {
   return Array.isArray(rows) ? rows[0] ?? null : rows;
 }
 async function deactivateTokenLinkRecord(roomId, sceneId, tokenId, settings) {
-  return mutateSupabaseRows(
-    `odyssey_token_links?room_id=eq.${encodeURIComponent(String(roomId ?? "").trim())}&scene_id=eq.${encodeURIComponent(String(sceneId ?? "").trim())}&token_id=eq.${encodeURIComponent(String(tokenId ?? "").trim())}`,
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.unbindTokenCharacter,
     {
-      is_active: false,
-      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      room_id: String(roomId ?? "").trim(),
+      scene_id: String(sceneId ?? "").trim(),
+      token_id: String(tokenId ?? "").trim()
     },
-    settings,
-    {
-      method: "PATCH",
-      fallbackMessage: "Unable to deactivate token link in Supabase."
-    }
+    settings
   );
+}
+
+// api/characterPlacementApi.js
+function getCharacterSpawnCatalog(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterSpawnCatalog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCharacterRuntimeBundle(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterRuntimeBundle,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getSceneTokenLinks(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function assignCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.assignCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function clearCharacterOwner(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.clearCharacterOwner,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function saveCharacterQuickbar(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.saveCharacterQuickbar,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function loadCharacterToToken(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.loadCharacterToToken,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function unbindTokenCharacter(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.unbindTokenCharacter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function purgeActiveNpcs(payload, settings) {
+  return callSupabaseRpc(
+    CHARACTER_PLACEMENT_RPC_NAMES.purgeActiveNpcs,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+
+// hud/models/combatHudContracts.js
+var HUD_STATUS = Object.freeze({
+  idle: "idle",
+  loading: "loading",
+  ready: "ready",
+  empty: "empty",
+  error: "error"
+});
+var HUD_SOURCE = Object.freeze({
+  mock: "mock",
+  supabase: "supabase"
+});
+var VIEWER_ROLES = Object.freeze({
+  player: "player",
+  gm: "gm"
+});
+var TOKEN_KINDS = Object.freeze({
+  player: "player",
+  npc: "npc",
+  turret: "turret",
+  mech: "mech",
+  other: "other"
+});
+var ZONE_STATES = Object.freeze({
+  healthy: "healthy",
+  wounded: "wounded",
+  serious: "serious",
+  critical: "critical",
+  disabled: "disabled"
+});
+var ZONE_STATE_ORDER = Object.freeze([
+  ZONE_STATES.healthy,
+  ZONE_STATES.wounded,
+  ZONE_STATES.serious,
+  ZONE_STATES.critical,
+  ZONE_STATES.disabled
+]);
+var COMBAT_STATUS = Object.freeze({
+  inactive: "inactive",
+  active: "active",
+  ended: "ended"
+});
+var SKILL_TYPES = Object.freeze({
+  attackTechnique: "attackTechnique",
+  targetedAbility: "targetedAbility",
+  instantAbility: "instantAbility",
+  toggleAbility: "toggleAbility",
+  itemAction: "itemAction"
+});
+var SKILL_SOURCES = Object.freeze({
+  perk: "perk",
+  psionic: "psionic",
+  implant: "implant",
+  item: "item"
+});
+var ACTION_COSTS = Object.freeze({
+  free: "FREE",
+  move: "MOVE",
+  main: "MAIN",
+  turn: "TURN"
+});
+var COLOR_SEMANTICS = Object.freeze({
+  attack: "attack",
+  neutral: "neutral",
+  psionic: "psionic",
+  implant: "implant",
+  intervention: "intervention",
+  positive: "positive",
+  negative: "negative"
+});
+var TARGETING_MODES = Object.freeze({
+  none: "none",
+  token: "token",
+  multipleTokens: "multipleTokens",
+  point: "point"
+});
+var MODIFIER_KINDS = Object.freeze({
+  passive: "passive",
+  active: "active",
+  narrative: "narrative"
+});
+var MODIFIER_POLARITY = Object.freeze({
+  positive: "positive",
+  negative: "negative",
+  neutral: "neutral"
+});
+var LOG_ENTRY_KINDS = Object.freeze({
+  action: "action",
+  system: "system",
+  narrative: "narrative"
+});
+var EMPTY_REASONS = Object.freeze({
+  noToken: "NO_TOKEN_SELECTED",
+  noCharacterLink: "TOKEN_HAS_NO_CHARACTER",
+  notOwner: "CHARACTER_NOT_CONTROLLED_BY_VIEWER"
+});
+var EMPTY_REASON_TEXT = Object.freeze({
+  [EMPTY_REASONS.noToken]: "No token selected.",
+  [EMPTY_REASONS.noCharacterLink]: "Selected token is not linked to a character.",
+  [EMPTY_REASONS.notOwner]: "You do not control this character."
+});
+function createInactiveCombatSession() {
+  return {
+    id: null,
+    status: COMBAT_STATUS.inactive,
+    round: 0,
+    currentParticipantId: null,
+    participants: [],
+    isViewerTurn: false
+  };
+}
+
+// hud/runtime/runtimeBundleMapper.js
+function str(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+function num(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function bool(v, fallback = false) {
+  return v === null || v === void 0 ? fallback : Boolean(v);
+}
+function zoneStateFromBodyPart(bp) {
+  if (bool(bp?.destroyed) || bool(bp?.disabled)) return ZONE_STATES.disabled;
+  if (num(bp?.critical) > 0) return ZONE_STATES.critical;
+  if (num(bp?.serious) > 0) return ZONE_STATES.serious;
+  if (num(bp?.minor) > 0) return ZONE_STATES.wounded;
+  return ZONE_STATES.healthy;
+}
+var ZONE_LABELS = Object.freeze({
+  head: "Head",
+  torso: "Torso",
+  l_arm: "Left Arm",
+  r_arm: "Right Arm",
+  l_leg: "Left Leg",
+  r_leg: "Right Leg"
+});
+function mapZones(bodyParts) {
+  if (!Array.isArray(bodyParts) || bodyParts.length === 0) return [];
+  return bodyParts.map((bp) => {
+    const id = str(bp?.zone_id) ?? "unknown";
+    return {
+      id,
+      label: ZONE_LABELS[id] ?? id,
+      state: zoneStateFromBodyPart(bp),
+      canBeTargeted: !bool(bp?.disabled) && !bool(bp?.destroyed)
+    };
+  });
+}
+function normalizePolarity(p) {
+  const v = String(p ?? "").toLowerCase();
+  if (v === "positive") return MODIFIER_POLARITY.positive;
+  if (v === "negative") return MODIFIER_POLARITY.negative;
+  return MODIFIER_POLARITY.neutral;
+}
+function mapEffect(ef) {
+  return {
+    id: str(ef?.id) ?? `ef-${Math.random().toString(36).slice(2)}`,
+    name: str(ef?.effect_name) ?? str(ef?.name) ?? "Unknown effect",
+    polarity: normalizePolarity(ef?.polarity),
+    durationTurns: ef?.remaining_turns != null ? num(ef.remaining_turns) : null,
+    description: str(ef?.description) ?? ""
+  };
+}
+function mapEntity(bundle) {
+  const char = bundle?.character ?? {};
+  const state = bundle?.state ?? {};
+  const combat = bundle?.combat ?? {};
+  const flags = combat?.combat_flags ?? state?.combat_flags ?? {};
+  const shieldCur = num(combat.shield_current ?? state.shield_current, 0);
+  const shieldMax = num(combat.shield_max ?? state.shield_max, 0);
+  const psiCur = num(combat.psi_current ?? state.psi_current, 0);
+  const psiMax = num(combat.psi_max ?? state.psi_max, 0);
+  const zones = mapZones(combat.body_parts ?? []);
+  const effects = Array.isArray(bundle?.effects) ? bundle.effects.map(mapEffect) : [];
+  return {
+    summary: {
+      id: str(char.id) ?? str(char.character_key) ?? "unknown",
+      name: str(char.display_name) ?? str(char.character_key) ?? "Unknown",
+      icon: null,
+      characterType: "player",
+      ownerPlayerId: str(char.owner_player_id),
+      svgRef: "humanoid"
+    },
+    zones,
+    shield: { current: shieldCur, max: shieldMax },
+    armorByZone: [],
+    psi: { current: psiCur, max: psiMax },
+    actions: {
+      main: !bool(flags?.main_action_spent, false),
+      move: !bool(flags?.move_action_spent, false)
+    },
+    // All DB effects shown as status chips in the Player block.
+    statuses: effects,
+    effects: [],
+    flags: {
+      alive: bool(state.is_alive ?? combat.is_alive, true),
+      conscious: bool(state.is_conscious ?? combat.is_conscious, true)
+    },
+    mech: null,
+    pilot: null
+  };
+}
+function mapMagazine(mag) {
+  if (!mag) return null;
+  return {
+    id: str(mag.id) ?? `mag-${Math.random().toString(36).slice(2)}`,
+    ammoType: str(mag.ammo_type_key) ?? str(mag.ammo_type_name) ?? "\u2014",
+    description: str(mag.ammo_type_name) ?? "",
+    current: num(mag.current_rounds, 0),
+    max: num(mag.max_rounds, 0),
+    caliber: str(mag.caliber) ?? ""
+  };
+}
+function mapWeapon(armory) {
+  const ew = armory?.equipped_weapon ?? null;
+  if (!ew) return null;
+  const rawModes = Array.isArray(ew.fire_modes) ? ew.fire_modes : [];
+  const fireModes = rawModes.map((m) => str(m)).filter(Boolean);
+  const loadedMag = mapMagazine(ew.loaded_magazine);
+  const reserve = Array.isArray(ew.reserve_magazines) ? ew.reserve_magazines.map(mapMagazine).filter(Boolean) : [];
+  return {
+    id: str(ew.id) ?? "wpn-unknown",
+    name: str(ew.weapon_name) ?? str(ew.name) ?? "Unknown Weapon",
+    svgRef: str(ew.weapon_type_key) ?? str(ew.weapon_type) ?? "rifle",
+    fireModes,
+    currentFireMode: str(ew.current_fire_mode) ?? fireModes[0] ?? null,
+    usesMagazine: bool(ew.uses_magazine, true),
+    usesConsumable: bool(ew.uses_consumable, false),
+    requiresAmmo: bool(ew.requires_ammo, true),
+    loadedMagazine: loadedMag,
+    reserveMagazines: reserve,
+    ammo: {
+      current: loadedMag ? loadedMag.current : num(ew.ammo_current, 0),
+      max: loadedMag ? loadedMag.max : num(ew.ammo_max, 0)
+    },
+    reloadCandidateId: reserve[0]?.id ?? null,
+    canReload: bool(ew.can_reload, false),
+    disabledReason: str(ew.disabled_reason)
+  };
+}
+function normalizeEnum(v, validSet, fallback) {
+  const s = String(v ?? "");
+  return validSet.has(s) ? s : fallback;
+}
+var VALID_SKILL_TYPES = new Set(Object.values(SKILL_TYPES));
+var VALID_SKILL_SOURCES = new Set(Object.values(SKILL_SOURCES));
+var VALID_COLORS = new Set(Object.values(COLOR_SEMANTICS));
+var VALID_TARGETING = new Set(Object.values(TARGETING_MODES));
+var VALID_COSTS = new Set(Object.values(ACTION_COSTS));
+function mapSkillAction(qa) {
+  const rawCost = String(qa?.action_cost ?? "MAIN").toUpperCase();
+  return {
+    id: str(qa?.id) ?? `sk-${Math.random().toString(36).slice(2)}`,
+    name: str(qa?.ability_name) ?? str(qa?.name) ?? "Unknown",
+    type: normalizeEnum(qa?.ability_type ?? qa?.type, VALID_SKILL_TYPES, SKILL_TYPES.instantAbility),
+    source: normalizeEnum(qa?.source_type ?? qa?.source, VALID_SKILL_SOURCES, SKILL_SOURCES.perk),
+    icon: str(qa?.icon_key) ?? str(qa?.icon) ?? "bolt",
+    color: normalizeEnum(qa?.color_key ?? qa?.color, VALID_COLORS, COLOR_SEMANTICS.neutral),
+    actionCost: normalizeEnum(rawCost, VALID_COSTS, ACTION_COSTS.main),
+    resourceCost: null,
+    cooldownTurns: num(qa?.cooldown_remaining_turns ?? qa?.cooldown_remaining, 0),
+    weaponRequirements: Array.isArray(qa?.weapon_requirements) ? qa.weapon_requirements.map(String) : [],
+    targeting: normalizeEnum(qa?.targeting_mode ?? qa?.targeting, VALID_TARGETING, TARGETING_MODES.none),
+    allowsMultipleTargets: bool(qa?.allows_multiple_targets, false),
+    usesPoint: bool(qa?.uses_point, false),
+    radius: qa?.radius != null ? num(qa.radius) : null,
+    isToggled: bool(qa?.is_toggled, false),
+    disabledReason: str(qa?.disabled_reason),
+    tooltip: str(qa?.tooltip) ?? ""
+  };
+}
+function mapSkills(abilitiesSection) {
+  if (!abilitiesSection || typeof abilitiesSection !== "object") {
+    return { library: [], quickSlots: [] };
+  }
+  const rawActions = Array.isArray(abilitiesSection.quick_actions) ? abilitiesSection.quick_actions : [];
+  const rawSlots = Array.isArray(abilitiesSection.quickbar_slots ?? abilitiesSection.quickbar) ? abilitiesSection.quickbar_slots ?? abilitiesSection.quickbar : [];
+  const library = rawActions.map(mapSkillAction);
+  const idSet = new Set(library.map((sk) => sk.id));
+  const quickSlots = rawSlots.map((s) => {
+    const sid = str(s?.ability_id ?? s?.skill_id);
+    return {
+      index: num(s?.slot_index ?? s?.index, 0),
+      skillId: sid && idSet.has(sid) ? sid : null
+    };
+  }).sort((a, b) => a.index - b.index);
+  return { library, quickSlots };
+}
+function mapModifiers(_bundle) {
+  return { passive: [], active: [], narrative: [] };
+}
+function mapCombatSession() {
+  return createInactiveCombatSession();
+}
+function mapBundleToHudSnapshot(bundle) {
+  const empty = {
+    entity: null,
+    weapon: { primary: null, secondary: null },
+    skills: { library: [], quickSlots: [] },
+    combatSession: createInactiveCombatSession(),
+    modifiers: { passive: [], active: [], narrative: [] },
+    battleLog: { entries: [] }
+  };
+  if (!bundle || typeof bundle !== "object") return empty;
+  let entity = null;
+  try {
+    entity = mapEntity(bundle);
+  } catch (_e) {
+    entity = null;
+  }
+  let weaponPrimary = null;
+  try {
+    weaponPrimary = bundle.armory ? mapWeapon(bundle.armory) : null;
+  } catch (_e) {
+    weaponPrimary = null;
+  }
+  let skills = { library: [], quickSlots: [] };
+  try {
+    skills = mapSkills(bundle.abilities);
+  } catch (_e) {
+    skills = { library: [], quickSlots: [] };
+  }
+  let modifiers = { passive: [], active: [], narrative: [] };
+  try {
+    modifiers = mapModifiers(bundle);
+  } catch (_e) {
+    modifiers = { passive: [], active: [], narrative: [] };
+  }
+  return {
+    entity,
+    weapon: { primary: weaponPrimary, secondary: null },
+    skills,
+    combatSession: mapCombatSession(),
+    modifiers,
+    battleLog: { entries: [] }
+  };
+}
+
+// hud/scene/selectionState.js
+var SELECTION_STATUS = Object.freeze({
+  ready: "ready",
+  loading: "loading",
+  noSelection: "no-selection",
+  multipleSelection: "multiple-selection",
+  unlinkedToken: "unlinked-token",
+  notOwned: "not-owned",
+  unavailable: "unavailable",
+  error: "error"
+});
+var ACCESS_REASON = Object.freeze({
+  noToken: "NO_TOKEN_SELECTED",
+  multipleTokens: "MULTIPLE_TOKENS_SELECTED",
+  noLink: "TOKEN_HAS_NO_CHARACTER",
+  notOwner: "CHARACTER_NOT_CONTROLLED_BY_VIEWER",
+  ownershipUnverifiable: "OWNERSHIP_UNVERIFIABLE",
+  backendUnconfigured: "BACKEND_UNCONFIGURED",
+  runtimeUnavailable: "RUNTIME_UNAVAILABLE"
+});
+var PRIMARY_MODULE_ID = "player";
+var SECONDARY_MODULE_IDS = Object.freeze(["gun", "skills", "combatControl", "log"]);
+function isReadyStatus(status) {
+  return status === SELECTION_STATUS.ready;
+}
+function normalizeSelectionIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const v of raw) {
+    const s = String(v ?? "").trim();
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+function normalizeViewer(raw) {
+  const playerId = String(raw?.playerId ?? raw?.id ?? "").trim() || null;
+  let role = String(raw?.role ?? "").trim().toUpperCase();
+  if (role !== "PLAYER" && role !== "GM") role = "UNKNOWN";
+  return { playerId, role };
+}
+function emptyState(status, viewer, reason, extra) {
+  return {
+    status,
+    selectedItemId: null,
+    characterId: null,
+    viewer: normalizeViewer(viewer),
+    access: { canView: false, reason: reason ?? null },
+    runtimeBundle: null,
+    view: null,
+    error: { code: null, message: null },
+    ...extra
+  };
+}
+function createInitialSelectionState(viewer) {
+  return emptyState(SELECTION_STATUS.loading, viewer, null);
+}
+function buildView(bundle, viewer) {
+  const character = bundle?.character ?? {};
+  const state = bundle?.state ?? {};
+  const ownerId = String(character.owner_player_id ?? "").trim() || null;
+  return {
+    name: String(character.display_name ?? character.character_key ?? "").trim() || null,
+    characterKey: character.character_key ?? null,
+    ownerName: String(character.owner_player_name ?? "").trim() || null,
+    ownerPlayerId: ownerId,
+    gmView: viewer.role === "GM",
+    isAlive: state.is_alive !== false,
+    isConscious: state.is_conscious !== false,
+    statusSummary: String(state.status_summary ?? "").trim() || null
+  };
+}
+function deriveSelectionState(input) {
+  const viewer = normalizeViewer(input?.viewer);
+  const ids = normalizeSelectionIds(input?.selectionIds);
+  const single = ids.length === 1 ? ids[0] : null;
+  if (input?.failure) {
+    const f = input.failure;
+    return emptyState(f.status === "unavailable" ? SELECTION_STATUS.unavailable : SELECTION_STATUS.error, viewer, f.code, {
+      selectedItemId: single,
+      characterId: input?.link?.characterId ?? null,
+      error: { code: f.code ?? null, message: f.message ?? null }
+    });
+  }
+  if (ids.length === 0) return emptyState(SELECTION_STATUS.noSelection, viewer, ACCESS_REASON.noToken);
+  if (ids.length > 1) return emptyState(SELECTION_STATUS.multipleSelection, viewer, ACCESS_REASON.multipleTokens);
+  const link = input?.link ?? null;
+  if (!link || !link.characterId) {
+    return emptyState(SELECTION_STATUS.unlinkedToken, viewer, ACCESS_REASON.noLink, { selectedItemId: single });
+  }
+  const bundle = input?.bundle ?? null;
+  if (!bundle || bundle.ok === false) {
+    return emptyState(SELECTION_STATUS.unavailable, viewer, ACCESS_REASON.runtimeUnavailable, {
+      selectedItemId: single,
+      characterId: link.characterId,
+      error: { code: bundle?.error ?? ACCESS_REASON.runtimeUnavailable, message: bundle?.message ?? null }
+    });
+  }
+  const ownerId = String(bundle.character?.owner_player_id ?? "").trim() || null;
+  if (viewer.role === "GM") {
+    return readyState(viewer, single, link.characterId, bundle);
+  }
+  if (!ownerId) {
+    return emptyState(SELECTION_STATUS.unavailable, viewer, ACCESS_REASON.ownershipUnverifiable, {
+      selectedItemId: single,
+      characterId: link.characterId,
+      error: { code: ACCESS_REASON.ownershipUnverifiable, message: "Runtime bundle did not provide owner_player_id." }
+    });
+  }
+  if (ownerId !== viewer.playerId) {
+    return emptyState(SELECTION_STATUS.notOwned, viewer, ACCESS_REASON.notOwner, {
+      selectedItemId: single,
+      characterId: link.characterId
+    });
+  }
+  return readyState(viewer, single, link.characterId, bundle);
+}
+function readyState(viewer, selectedItemId, characterId, bundle) {
+  return {
+    status: SELECTION_STATUS.ready,
+    selectedItemId,
+    characterId,
+    viewer,
+    access: { canView: true, reason: null },
+    runtimeBundle: bundle,
+    view: buildView(bundle, viewer),
+    error: { code: null, message: null }
+  };
+}
+function buildBroadcastPayload(state) {
+  const s = state ?? createInitialSelectionState(null);
+  const ready = s.status === SELECTION_STATUS.ready && s.access?.canView === true;
+  let hudSnapshot = null;
+  if (ready && s.runtimeBundle) {
+    try {
+      hudSnapshot = mapBundleToHudSnapshot(s.runtimeBundle);
+    } catch (_e) {
+    }
+  }
+  return {
+    status: s.status,
+    selectedItemId: s.selectedItemId ?? null,
+    characterId: ready ? s.characterId ?? null : null,
+    viewer: { playerId: s.viewer?.playerId ?? null, role: s.viewer?.role ?? "UNKNOWN" },
+    access: { canView: !!s.access?.canView, reason: s.access?.reason ?? null },
+    view: ready ? s.view ?? null : null,
+    // Normalized HUD view models — block renderers use this; full bundle is NOT included.
+    hudSnapshot: ready ? hudSnapshot : null,
+    error: { code: s.error?.code ?? null, message: s.error?.message ?? null }
+  };
+}
+function createGenerationGate() {
+  let current2 = 0;
+  return {
+    next() {
+      current2 += 1;
+      return current2;
+    },
+    isCurrent(token) {
+      return token === current2;
+    },
+    get current() {
+      return current2;
+    }
+  };
+}
+
+// hud/scene/sceneSelectionAdapter.js
+function errMessage(err) {
+  return String((err && (err.message || err)) ?? "Unknown error");
+}
+function pickLink(res, tokenId) {
+  const links = Array.isArray(res?.links) ? res.links : [];
+  const match = links.find(
+    (l) => String(l?.token_id ?? "").trim() === tokenId && l?.is_active !== false
+  );
+  if (!match || !match.character || !match.character.id) return null;
+  return {
+    characterId: String(match.character.id).trim() || null,
+    characterName: match.character.display_name ?? null,
+    raw: match
+  };
+}
+function createSceneSelectionAdapter(deps) {
+  const {
+    fetchSceneTokenLink,
+    fetchCharacterBundle,
+    getViewer,
+    backendConfigured = true
+  } = deps ?? {};
+  const gate = createGenerationGate();
+  async function resolve(selectionIds) {
+    const ids = normalizeSelectionIds(selectionIds);
+    const viewer = typeof getViewer === "function" ? getViewer() : null;
+    if (!backendConfigured) {
+      return deriveSelectionState({
+        viewer,
+        selectionIds: ids,
+        failure: {
+          status: "unavailable",
+          code: ACCESS_REASON.backendUnconfigured,
+          message: "Supabase backend is not configured for this room."
+        }
+      });
+    }
+    if (ids.length !== 1) return deriveSelectionState({ viewer, selectionIds: ids });
+    const tokenId = ids[0];
+    let link = null;
+    try {
+      const res = await fetchSceneTokenLink(tokenId);
+      if (res && res.ok === false) {
+        return deriveSelectionState({
+          viewer,
+          selectionIds: ids,
+          failure: { status: "error", code: "LINK_FETCH_FAILED", message: res.message || "Scene token links unavailable." }
+        });
+      }
+      link = pickLink(res, tokenId);
+    } catch (err) {
+      return deriveSelectionState({
+        viewer,
+        selectionIds: ids,
+        failure: { status: "error", code: "LINK_FETCH_FAILED", message: errMessage(err) }
+      });
+    }
+    if (!link || !link.characterId) {
+      return deriveSelectionState({ viewer, selectionIds: ids, link: link || null });
+    }
+    let bundle = null;
+    try {
+      bundle = await fetchCharacterBundle(link.characterId);
+    } catch (err) {
+      return deriveSelectionState({
+        viewer,
+        selectionIds: ids,
+        link,
+        failure: { status: "error", code: "RUNTIME_FETCH_FAILED", message: errMessage(err) }
+      });
+    }
+    return deriveSelectionState({ viewer, selectionIds: ids, link, bundle });
+  }
+  async function resolveLatest(selectionIds) {
+    const token = gate.next();
+    const state = await resolve(selectionIds);
+    return { stale: !gate.isCurrent(token), state };
+  }
+  return { resolve, resolveLatest, SELECTION_STATUS };
+}
+
+// hud/scene/sceneSelectionController.js
+var SCENE_RERESOLVE_DEBOUNCE_MS = 600;
+function setupSceneSelection(hooks = {}) {
+  if (typeof lib_default === "undefined" || lib_default.isAvailable === false) return () => {
+  };
+  const onSelectionState = typeof hooks.onSelectionState === "function" ? hooks.onSelectionState : null;
+  let disposed = false;
+  let lastPayload = null;
+  let sceneTimer = null;
+  const cleanups2 = [];
+  function broadcast(payload) {
+    try {
+      lib_default.broadcast.sendMessage(BC_HUD_SELECTION, payload, { destination: "LOCAL" });
+    } catch (_e) {
+    }
+  }
+  async function init() {
+    const [player, context, settings] = await Promise.all([
+      getPlayerInfo(),
+      getRoomSceneContext(),
+      loadRoomSupabaseSettings()
+    ]);
+    if (disposed) return;
+    let viewer = normalizeViewer({ playerId: player.id, role: player.role });
+    const configured = hasSupabaseSettings(settings);
+    const adapter = createSceneSelectionAdapter({
+      backendConfigured: configured,
+      getViewer: () => viewer,
+      fetchSceneTokenLink: (tokenId) => getSceneTokenLinks(
+        { room_id: context.roomId, scene_id: context.sceneId, campaign_id: context.campaignId, token_id: tokenId },
+        settings
+      ),
+      fetchCharacterBundle: (characterId) => getCharacterRuntimeBundle(
+        {
+          character_id: characterId,
+          sections: ["summary", "combat", "armory", "abilities", "effects"]
+        },
+        settings
+      )
+    });
+    async function resolveAndPublish(selectionIds) {
+      const { stale, state } = await adapter.resolveLatest(selectionIds);
+      if (disposed || stale) return;
+      lastPayload = buildBroadcastPayload(state);
+      broadcast(lastPayload);
+      if (onSelectionState) {
+        try {
+          await onSelectionState(lastPayload);
+        } catch (_e) {
+        }
+      }
+    }
+    await resolveAndPublish(player.selection);
+    cleanups2.push(await subscribePlayerChanges((p) => {
+      viewer = normalizeViewer({ playerId: p.id, role: p.role });
+      void resolveAndPublish(p.selection);
+    }));
+    cleanups2.push(await subscribeSceneItems(() => {
+      if (sceneTimer) clearTimeout(sceneTimer);
+      sceneTimer = setTimeout(() => {
+        lib_default.player.getSelection().then((sel) => {
+          if (Array.isArray(sel) && sel.length === 1) return resolveAndPublish(sel);
+        }).catch(() => {
+        });
+      }, SCENE_RERESOLVE_DEBOUNCE_MS);
+    }));
+    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_SELECTION_REQUEST, () => {
+      if (lastPayload) broadcast(lastPayload);
+    }));
+  }
+  lib_default.onReady(() => {
+    if (disposed) return;
+    void init().catch((error) => {
+      console.error("[combatHud/scene] selection setup failed", error);
+    });
+  });
+  return () => {
+    disposed = true;
+    if (sceneTimer) {
+      clearTimeout(sceneTimer);
+      sceneTimer = null;
+    }
+    for (const fn of cleanups2.splice(0)) {
+      try {
+        fn();
+      } catch (_e) {
+      }
+    }
+  };
+}
+
+// hud/overlay/hudLayout.js
+var HUD_LAYOUT_REFERENCE_VIEWPORT = Object.freeze({ width: 1920, height: 1080 });
+var LAYOUT_VERSION = 2;
+var HUD_MODULE_IDS = Object.freeze([
+  "player",
+  "gun",
+  "skills",
+  "combatControl",
+  "log"
+]);
+var HUD_MODULE_POPOVER_IDS = Object.freeze({
+  player: "odyssey-hud-player",
+  gun: "odyssey-hud-gun",
+  skills: "odyssey-hud-skills",
+  combatControl: "odyssey-hud-combat-control",
+  log: "odyssey-hud-log"
+});
+var LEGACY_HUD_POPOVER_IDS = Object.freeze([
+  "odyssey-hud-target",
+  "odyssey-hud-modifiers",
+  "odyssey-hud-action"
+]);
+var HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
+var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
+var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
+var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
+var LAYOUT_MARGIN = 16;
+var COMPACT_LAYOUT_BREAKPOINT = 1100;
+var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
+  player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
+  gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
+  skills: Object.freeze({ left: 663, bottom: 16, width: 600, height: 165, zIndex: 20 }),
+  // Composite: Target (left 165) + Modifiers/Action (right 165). Replaces the
+  // former three separate target/modifiers/action rects.
+  combatControl: Object.freeze({ left: 1263, bottom: 16, width: 330, height: 165, zIndex: 20 }),
+  log: Object.freeze({ left: 1656, bottom: 16, width: 250, height: 250, zIndex: 20 })
+});
+function clamp012(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+function computeLayoutScale(vw, vh) {
+  const w = Math.max(1, Number(vw) || 0);
+  const h = Math.max(1, Number(vh) || 0);
+  return Math.min(w / HUD_LAYOUT_REFERENCE_VIEWPORT.width, h / HUD_LAYOUT_REFERENCE_VIEWPORT.height, 1);
+}
+function isCompactViewport(vw) {
+  return (Number(vw) || 0) < COMPACT_LAYOUT_BREAKPOINT;
+}
+function moduleSize(moduleId, vw, vh) {
+  if (isCompactViewport(vw)) return compactModuleSize(moduleId, vw);
+  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
+  const scale = computeLayoutScale(vw, vh);
+  return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
+}
+function defaultModuleRect(moduleId, vw, vh) {
+  if (isCompactViewport(vw)) return compactModuleRect(moduleId, vw, vh);
+  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
+  const scale = computeLayoutScale(vw, vh);
+  const width = Math.round(def.width * scale);
+  const height = Math.round(def.height * scale);
+  return {
+    left: Math.round(def.left * scale),
+    top: Math.round((Number(vh) || 0) - def.bottom * scale - height),
+    width,
+    height,
+    zIndex: def.zIndex
+  };
+}
+function normalizedToPixels(moduleId, placement, vw, vh) {
+  const { width, height } = moduleSize(moduleId, vw, vh);
+  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
+  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
+  return {
+    left: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.x) * availW),
+    top: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.y) * availH),
+    width,
+    height,
+    zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex
+  };
+}
+function clampRect(rect, vw, vh) {
+  const w = Number(vw) || 0;
+  const h = Number(vh) || 0;
+  return {
+    ...rect,
+    left: Math.max(0, Math.min(rect.left, Math.max(0, w - rect.width))),
+    top: Math.max(0, Math.min(rect.top, Math.max(0, h - rect.height)))
+  };
+}
+function resolveModuleRect(moduleId, placement, vw, vh) {
+  const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
+  return clampRect(rect, vw, vh);
+}
+var COMPACT_SIZES = {
+  player: { width: 150, height: 150 },
+  gun: { width: 190, height: 92 },
+  skills: { width: 300, height: 92 },
+  target: { width: 92, height: 92 },
+  modifiers: { width: 92, height: 92 },
+  action: { width: 120, height: 34 },
+  log: { width: 180, height: 140 }
+};
+function compactModuleSize(moduleId, vw) {
+  const s = COMPACT_SIZES[moduleId];
+  const maxW = Math.max(80, (Number(vw) || 0) - 2 * LAYOUT_MARGIN);
+  return { width: Math.min(s.width, maxW), height: s.height };
+}
+function compactModuleRect(moduleId, vw, vh) {
+  const w = Number(vw) || 0;
+  const h = Number(vh) || 0;
+  let x = LAYOUT_MARGIN;
+  let rowTopFromBottom = LAYOUT_MARGIN;
+  let rowHeight = 0;
+  for (const id of HUD_MODULE_IDS) {
+    const size = compactModuleSize(id, vw);
+    if (x + size.width + LAYOUT_MARGIN > w && x > LAYOUT_MARGIN) {
+      rowTopFromBottom += rowHeight + 8;
+      x = LAYOUT_MARGIN;
+      rowHeight = 0;
+    }
+    if (id === moduleId) {
+      const top = Math.max(0, h - rowTopFromBottom - size.height);
+      return clampRect({ left: x, top, width: size.width, height: size.height, zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex }, vw, vh);
+    }
+    x += size.width + 8;
+    rowHeight = Math.max(rowHeight, size.height);
+  }
+  return clampRect({ left: LAYOUT_MARGIN, top: LAYOUT_MARGIN, ...compactModuleSize(moduleId, vw), zIndex: 20 }, vw, vh);
+}
+function defaultLayoutState() {
+  const modules = {};
+  for (const id of HUD_MODULE_IDS) modules[id] = { mode: "default", x: 0, y: 0 };
+  return { version: LAYOUT_VERSION, modules };
+}
+function migrateLegacyModules(modules) {
+  if (!modules || modules.combatControl) return modules;
+  const hasLegacy = modules.target || modules.modifiers || modules.action;
+  if (!hasLegacy) return modules;
+  const base = modules.target;
+  if (base && base.mode === "custom" && Number.isFinite(base.x) && Number.isFinite(base.y)) {
+    return { ...modules, combatControl: { mode: "custom", x: clamp012(base.x), y: clamp012(base.y) } };
+  }
+  return modules;
+}
+function validateLayoutState(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.version !== LAYOUT_VERSION) return null;
+  if (!raw.modules || typeof raw.modules !== "object") return null;
+  const src = migrateLegacyModules(raw.modules);
+  const out = defaultLayoutState();
+  for (const id of HUD_MODULE_IDS) {
+    const m = src[id];
+    if (m && (m.mode === "default" || m.mode === "custom") && typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y)) {
+      out.modules[id] = { mode: m.mode, x: clamp012(m.x), y: clamp012(m.y) };
+    }
+  }
+  return out;
+}
+function normalizeLayoutState(state) {
+  return validateLayoutState(state) ?? defaultLayoutState();
+}
+
+// hud/overlay/combatHudOverlayController.js
+var VIEWPORT_POLL_MS = 600;
+var PILL_W = 150;
+var PILL_H = 44;
+var OPEN_ORDER = [...HUD_MODULE_IDS].sort(
+  (a, b) => DEFAULT_HUD_LAYOUT_V2[a].zIndex - DEFAULT_HUD_LAYOUT_V2[b].zIndex
+);
+var started = false;
+var lastVW = 0;
+var lastVH = 0;
+var lastUiState = { ...DEFAULT_HUD_UI_STATE };
+var lastLayout = defaultLayoutState();
+var mode = "modules";
+var pollTimer = null;
+var lastSelectionStatus = SELECTION_STATUS.loading;
+var sceneCleanup = null;
+var cleanups = [];
+var SECONDARY_SET = new Set(SECONDARY_MODULE_IDS);
+function moduleShouldBeOpen(id) {
+  if (mode !== "modules") return false;
+  if (id === PRIMARY_MODULE_ID) return true;
+  if (SECONDARY_SET.has(id)) return isReadyStatus(lastSelectionStatus);
+  return true;
+}
+function isCollapsed() {
+  return Boolean(lastUiState.isHudCollapsed);
+}
+function placementsEqual(a, b) {
+  if (!a || !b) return a === b;
+  if (a.mode !== b.mode) return false;
+  return Math.abs((a.x || 0) - (b.x || 0)) < 1e-4 && Math.abs((a.y || 0) - (b.y || 0)) < 1e-4;
+}
+function layoutsEqual(a, b) {
+  if (!a || !b || !a.modules || !b.modules) return false;
+  return HUD_MODULE_IDS.every((id) => placementsEqual(a.modules[id], b.modules[id]));
+}
+async function readViewport() {
+  const [vw, vh] = await Promise.all([lib_default.viewport.getWidth(), lib_default.viewport.getHeight()]);
+  lastVW = vw;
+  lastVH = vh;
+  return { vw, vh };
+}
+function baseHref() {
+  return typeof window !== "undefined" ? window.location.href : "";
+}
+function pageUrl(moduleId) {
+  const params = new URLSearchParams(serializeHudUiState(lastUiState));
+  params.set("module", moduleId);
+  params.set("vw", String(Math.round(lastVW)));
+  params.set("vh", String(Math.round(lastVH)));
+  try {
+    const url = new URL(OVERLAY_HTML, baseHref());
+    url.search = params.toString();
+    return url.toString();
+  } catch {
+    return `${OVERLAY_HTML}?${params.toString()}`;
+  }
+}
+function paramsForRect(rect) {
+  return {
+    width: Math.max(1, rect.width),
+    height: Math.max(1, rect.height),
+    anchorReference: "POSITION",
+    anchorPosition: { left: rect.left, top: rect.top },
+    anchorOrigin: { horizontal: "LEFT", vertical: "TOP" },
+    transformOrigin: { horizontal: "LEFT", vertical: "TOP" },
+    hidePaper: true,
+    disableClickAway: true,
+    marginThreshold: 0
+  };
+}
+function moduleRect(moduleId) {
+  return resolveModuleRect(moduleId, lastLayout.modules[moduleId], lastVW, lastVH);
+}
+async function openModule(moduleId) {
+  const rect = moduleRect(moduleId);
+  await lib_default.popover.open({
+    id: HUD_MODULE_POPOVER_IDS[moduleId],
+    url: pageUrl(moduleId),
+    ...paramsForRect(rect)
+  });
+}
+async function openVisibleModules() {
+  for (const id of OPEN_ORDER) {
+    if (!moduleShouldBeOpen(id)) continue;
+    try {
+      await openModule(id);
+    } catch (_e) {
+    }
+  }
+}
+async function reconcileSecondaryModules(prevStatus, nextStatus) {
+  if (mode !== "modules") return;
+  const wasReady = isReadyStatus(prevStatus);
+  const nowReady = isReadyStatus(nextStatus);
+  if (nowReady === wasReady) return;
+  for (const id of OPEN_ORDER) {
+    if (!SECONDARY_SET.has(id)) continue;
+    try {
+      if (nowReady) await openModule(id);
+      else await lib_default.popover.close(HUD_MODULE_POPOVER_IDS[id]);
+    } catch (_e) {
+    }
+  }
+}
+async function closeAllModules() {
+  for (const id of HUD_MODULE_IDS) {
+    try {
+      await lib_default.popover.close(HUD_MODULE_POPOVER_IDS[id]);
+    } catch (_e) {
+    }
+  }
+}
+async function closeLegacyPopovers() {
+  for (const id of LEGACY_HUD_POPOVER_IDS) {
+    try {
+      await lib_default.popover.close(id);
+    } catch (_e) {
+    }
+  }
+}
+async function openChangedModules(prev, next) {
+  const changed = OPEN_ORDER.filter(
+    (id) => moduleShouldBeOpen(id) && !placementsEqual(prev.modules[id], next.modules[id])
+  );
+  for (const id of changed) {
+    try {
+      await openModule(id);
+    } catch (_e) {
+    }
+  }
+}
+async function openEditor() {
+  const rect = { left: 0, top: 0, width: lastVW, height: lastVH };
+  await lib_default.popover.open({ id: HUD_EDITOR_POPOVER_ID, url: pageUrl("editor"), ...paramsForRect(rect) });
+}
+async function closeEditorPopover() {
+  try {
+    await lib_default.popover.close(HUD_EDITOR_POPOVER_ID);
+  } catch (_e) {
+  }
+}
+function pillRect() {
+  const p = moduleRect("player");
+  return clampRect({ left: p.left, top: p.top + p.height - PILL_H, width: PILL_W, height: PILL_H, zIndex: 50 }, lastVW, lastVH);
+}
+async function openPill() {
+  await lib_default.popover.open({ id: HUD_PILL_POPOVER_ID, url: pageUrl("pill"), ...paramsForRect(pillRect()) });
+}
+async function closePill() {
+  try {
+    await lib_default.popover.close(HUD_PILL_POPOVER_ID);
+  } catch (_e) {
+  }
+}
+async function applyMode() {
+  if (mode === "collapsed") {
+    await closeEditorPopover();
+    await closeAllModules();
+    await openPill();
+  } else if (mode === "editor") {
+    await closePill();
+    await closeAllModules();
+    await openEditor();
+  } else {
+    await closePill();
+    await closeEditorPopover();
+    await openVisibleModules();
+  }
+}
+function startViewportPoll() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      const { vw, vh } = { vw: await lib_default.viewport.getWidth(), vh: await lib_default.viewport.getHeight() };
+      if (vw === lastVW && vh === lastVH) return;
+      lastVW = vw;
+      lastVH = vh;
+      await applyMode();
+    } catch (_e) {
+    }
+  }, VIEWPORT_POLL_MS);
+  cleanups.push(() => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  });
+}
+function setupCombatHudOverlay() {
+  if (started) return;
+  if (typeof lib_default === "undefined" || lib_default.isAvailable === false) return;
+  started = true;
+  lib_default.onReady(async () => {
+    try {
+      await readViewport();
+      await closeLegacyPopovers();
+      mode = isCollapsed() ? "collapsed" : "modules";
+      await applyMode();
+      startViewportPoll();
+      sceneCleanup = setupSceneSelection({
+        onSelectionState: async (payload) => {
+          const prev = lastSelectionStatus;
+          lastSelectionStatus = payload?.status ?? SELECTION_STATUS.loading;
+          await reconcileSecondaryModules(prev, lastSelectionStatus);
+        }
+      });
+      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_UI_STATE, async (event) => {
+        const next = normalizeHudUiState(event?.data);
+        const collapseChanged = next.isHudCollapsed !== lastUiState.isHudCollapsed;
+        lastUiState = { ...lastUiState, ...next };
+        if (collapseChanged) {
+          mode = isCollapsed() ? "collapsed" : "modules";
+          await applyMode();
+        }
+      }));
+      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_EDITOR, async (event) => {
+        const open = Boolean(event?.data && event.data.open);
+        if (open && mode !== "editor") {
+          mode = "editor";
+          await applyMode();
+        } else if (!open && mode === "editor") {
+          mode = "modules";
+          await applyMode();
+        }
+      }));
+      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_LAYOUT, async (event) => {
+        const next = normalizeLayoutState(event?.data);
+        if (layoutsEqual(next, lastLayout)) return;
+        const prev = lastLayout;
+        lastLayout = next;
+        if (mode === "modules") await openChangedModules(prev, next);
+      }));
+    } catch (error) {
+      console.error("[combatHud/overlay] setup failed", error);
+      started = false;
+    }
+  });
 }
 
 // bridge/tokenBridge.js
@@ -4952,7 +5804,7 @@ __export(characterApi_exports, {
   initializeCharacterCombatDefaults: () => initializeCharacterCombatDefaults,
   initializeCharacterRuleDefaults: () => initializeCharacterRuleDefaults,
   listCharacters: () => listCharacters,
-  loadCharacterToToken: () => loadCharacterToToken
+  loadCharacterToToken: () => loadCharacterToToken2
 });
 function getCharacterRuleSheet(characterId, settings) {
   return callSupabaseRpc(
@@ -5003,9 +5855,9 @@ function deactivateTokenLink(payload, settings) {
     settings
   );
 }
-function loadCharacterToToken(payload, settings) {
+function loadCharacterToToken2(payload, settings) {
   return callSupabaseRpc(
-    CHARACTER_RPC_NAMES.loadCharacterToToken,
+    CHARACTER_PLACEMENT_RPC_NAMES.loadCharacterToToken,
     payload ?? {},
     settings
   );
@@ -5572,91 +6424,6 @@ function getCombatLogRows(payload, settings) {
   );
 }
 
-// api/characterPlacementApi.js
-var characterPlacementApi_exports = {};
-__export(characterPlacementApi_exports, {
-  assignCharacterOwner: () => assignCharacterOwner,
-  clearCharacterOwner: () => clearCharacterOwner,
-  getCharacterQuickbar: () => getCharacterQuickbar,
-  getCharacterRuntimeBundle: () => getCharacterRuntimeBundle,
-  getCharacterSpawnCatalog: () => getCharacterSpawnCatalog,
-  getSceneTokenLinks: () => getSceneTokenLinks,
-  loadCharacterToToken: () => loadCharacterToToken2,
-  purgeActiveNpcs: () => purgeActiveNpcs,
-  saveCharacterQuickbar: () => saveCharacterQuickbar,
-  unbindTokenCharacter: () => unbindTokenCharacter
-});
-function getCharacterSpawnCatalog(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterSpawnCatalog,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function getCharacterRuntimeBundle(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterRuntimeBundle,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function getSceneTokenLinks(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.getSceneTokenLinks,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function assignCharacterOwner(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.assignCharacterOwner,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function clearCharacterOwner(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.clearCharacterOwner,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function getCharacterQuickbar(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.getCharacterQuickbar,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function saveCharacterQuickbar(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.saveCharacterQuickbar,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function loadCharacterToToken2(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.loadCharacterToToken,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function unbindTokenCharacter(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.unbindTokenCharacter,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function purgeActiveNpcs(payload, settings) {
-  return callSupabaseRpc(
-    CHARACTER_PLACEMENT_RPC_NAMES.purgeActiveNpcs,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-
 // api/creatorApi.js
 var creatorApi_exports = {};
 __export(creatorApi_exports, {
@@ -6190,7 +6957,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.19";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.20";
 function createToolIcon() {
   return MOVE_TOOL_ICON_URL;
 }
