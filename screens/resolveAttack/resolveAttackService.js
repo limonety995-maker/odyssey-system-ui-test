@@ -49,10 +49,12 @@ export const ERROR_MESSAGES = Object.freeze({
   ABILITY_NOT_FOUND: "Ability was not found or is disabled.",
   INVALID_ABILITY: "Invalid ability for this action.",
   INVALID_ATTACK_TYPE: "This ability cannot be used as an attack.",
+  ABILITY_NOT_AVAILABLE_FOR_WEAPON_PROFILE: "This weapon ability is not available for the current weapon profile.",
   ABILITY_ON_COOLDOWN: "Ability is on cooldown.",
   NO_ENERGY: "Not enough energy for this ability.",
   NOT_ENOUGH_RESOURCE: "Not enough resource to use this ability.",
   RESOURCE_POOL_NOT_FOUND: "Resource pool was not found.",
+  WEAPON_ABILITY_SOURCE_NOT_AVAILABLE: "This weapon ability is no longer available on its source weapon.",
   // ammo stock / magazine loading
   AMMO_STOCK_NOT_FOUND: "Ammo stock was not found.",
   OWNER_MISMATCH: "Magazine and ammo stock belong to different characters.",
@@ -157,6 +159,7 @@ export function normalizeResult(raw) {
   const magazine = r.magazine && typeof r.magazine === "object" ? r.magazine : {};
   const resource = r.resource && typeof r.resource === "object" ? r.resource : {};
   const targetState = r.target_state && typeof r.target_state === "object" ? r.target_state : {};
+  const weaponEffects = r.weapon_effects && typeof r.weapon_effects === "object" ? r.weapon_effects : {};
 
   return {
     ok: r.ok !== false,
@@ -178,6 +181,15 @@ export function normalizeResult(raw) {
     energyRemaining: firstDefined(resource.remaining, resource.current_value),
     feature: firstDefined(r.feature),
     armor: firstDefined(bodyPart.effective_armor, r.effective_armor, r.armor),
+    armorPierceUsed: firstDefined(
+      damage.armor_pierce_used,
+      damage.total_armor_pierce,
+      r.armor_pierce_used,
+      weaponEffects.armor_pierce,
+    ),
+    armorValueUsed: firstDefined(damage.armor_value_used, bodyPart.armor_value),
+    effectiveArmor: firstDefined(damage.effective_armor, bodyPart.effective_armor, r.effective_armor),
+    weaponEffects: Object.keys(weaponEffects).length ? weaponEffects : null,
     pendingChecks: asArray(firstDefined(r.pending_checks, r.pending_saves, [])),
     targetAlive: typeof targetState.is_alive === "boolean" ? targetState.is_alive : null,
     targetConscious: typeof targetState.is_conscious === "boolean" ? targetState.is_conscious : null,

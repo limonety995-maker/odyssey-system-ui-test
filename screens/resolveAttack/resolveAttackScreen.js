@@ -391,6 +391,21 @@ export function mountResolveAttackScreen({ root, runtime }) {
   function attackAbilities() {
     return state.attacker.abilities.filter((a) => a.attack_type && a.attack_type !== "none");
   }
+  function abilityProfileMismatch(ability) {
+    return ability?.source?.type === "weapon" && ability?.source?.is_available_for_active_profile === false;
+  }
+  function abilityOptionLabel(ability) {
+    const level = dash(ability?.effective_level);
+    const weaponName = String(ability?.source?.weapon_name ?? ability?.source_weapon_name ?? "").trim();
+    const profileName = String(ability?.source?.required_profile_code ?? ability?.source?.required_profile_name ?? "").trim();
+    const parts = [
+      `${ability?.name || ability?.code || "Ability"} - lvl ${level}`,
+      weaponName ? `Weapon: ${weaponName}` : "",
+      profileName ? `Profile: ${profileName}` : "",
+      abilityProfileMismatch(ability) ? "unavailable for current profile" : "",
+    ].filter(Boolean);
+    return parts.join(" | ");
+  }
   function currentWeapon() {
     return arr(state.attacker.armory?.weapons).find((w) => w.id === state.attacker.weaponId) || null;
   }
@@ -432,8 +447,12 @@ export function mountResolveAttackScreen({ root, runtime }) {
 
   function renderAbilitySelect() {
     const abilities = attackAbilities();
+    const available = abilities.filter((ability) => !abilityProfileMismatch(ability));
+    if (!available.some((ability) => ability.id === state.attacker.abilityId)) {
+      state.attacker.abilityId = available[0]?.id || abilities[0]?.id || "";
+    }
     refs.abilitySelect.innerHTML = abilities.length
-      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${dash(a.effective_level)}</option>`).join("")
+      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}${abilityProfileMismatch(a) ? " disabled" : ""}>${esc(abilityOptionLabel(a))}</option>`).join("")
       : `<option value="">- no attack abilities -</option>`;
   }
 
@@ -1006,19 +1025,21 @@ export function mountResolveAttackScreen({ root, runtime }) {
     const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
     const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
     const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
-    refs.summary.innerHTML = [
+    const stats = [
       stat("Result", esc(hitTxt), hitCls),
       stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
       stat("Attack total", esc(dash(data.attackTotal))),
       stat("Defense total", esc(dash(data.defenseTotal))),
       stat("Damage", `${esc(dash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
       stat("Body part", esc(dash(data.targetBodyPartName))),
+      data.armorPierceUsed && data.armorPierceUsed > 0 ? stat("Armor Pierce", esc(dash(data.armorPierceUsed))) : "",
       stat("Ammo spent", esc(dash(data.ammoSpent))),
       stat("Energy spent", esc(dash(data.energySpent))),
       stat("Pending", esc(pending || "-")),
       stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? String(data.combatLogId).slice(0, 8) + "..." : "-")}</span>`),
       stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : ""),
-    ].join("");
+    ].filter(Boolean);
+    refs.summary.innerHTML = stats.join("");
     refs.summaryCard.classList.remove("ra-hidden");
   }
 
@@ -1109,8 +1130,12 @@ export function mountResolveAttackScreen({ root, runtime }) {
   }
   function renderAbilitySelect() {
     const abilities = attackAbilities();
+    const available = abilities.filter((ability) => !abilityProfileMismatch(ability));
+    if (!available.some((ability) => ability.id === state.attacker.abilityId)) {
+      state.attacker.abilityId = available[0]?.id || abilities[0]?.id || "";
+    }
     refs.abilitySelect.innerHTML = abilities.length
-      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${uiDash(a.effective_level)}</option>`).join("")
+      ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}${abilityProfileMismatch(a) ? " disabled" : ""}>${esc(abilityOptionLabel(a))}</option>`).join("")
       : `<option value="">- no attack abilities -</option>`;
   }
   function renderProfileAndFireMode() {
@@ -1300,19 +1325,21 @@ export function mountResolveAttackScreen({ root, runtime }) {
     const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
     const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
     const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
-    refs.summary.innerHTML = [
+    const stats = [
       stat("Result", esc(hitTxt), hitCls),
       stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
       stat("Attack total", esc(uiDash(data.attackTotal))),
       stat("Defense total", esc(uiDash(data.defenseTotal))),
       stat("Damage", `${esc(uiDash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
       stat("Body part", esc(uiDash(data.targetBodyPartName))),
+      data.armorPierceUsed && data.armorPierceUsed > 0 ? stat("Armor Pierce", esc(uiDash(data.armorPierceUsed))) : "",
       stat("Ammo spent", esc(uiDash(data.ammoSpent))),
       stat("Energy spent", esc(uiDash(data.energySpent))),
       stat("Pending", esc(pending || "-")),
       stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? `${String(data.combatLogId).slice(0, 8)}...` : "-")}</span>`),
       stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : ""),
-    ].join("");
+    ].filter(Boolean);
+    refs.summary.innerHTML = stats.join("");
     refs.summaryCard.classList.remove("ra-hidden");
   }
   function logResult(n) {
@@ -1320,6 +1347,7 @@ export function mountResolveAttackScreen({ root, runtime }) {
     const autoTxt = n.auto === "crit" ? " - auto-crit" : n.auto === "fail" ? " - auto-fail" : "";
     pushLog(`<span class="who">accuracy</span> - <span class="ra-mono">${uiDash(n.attackRoll)} -> ${uiDash(n.attackTotal)}</span> vs <span class="ra-mono">${uiDash(n.defenseTotal)}</span> - ${n.hit ? "hit" : "miss"}${autoTxt}`);
     if (n.hit) pushLog(`<span class="who">damage</span> - ${esc(uiDash(n.targetBodyPartName))} - <span class="ra-mono">D ${uiDash(n.damageDiff)}</span> - ${esc(uiDash(n.damageLevel))}`);
+    if (n.armorPierceUsed && n.armorPierceUsed > 0) pushLog(`<span class="who">armor pierce</span> - <span class="ra-mono">${uiDash(n.armorPierceUsed)}</span>`);
     if (n.targetAlive === false) pushLog(`<span class="ra-neg">target is dead</span>`);
     else if (n.targetConscious === false) pushLog(`<span class="ra-neg">target is unconscious</span>`);
   }

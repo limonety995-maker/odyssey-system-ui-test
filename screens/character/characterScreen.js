@@ -2147,6 +2147,22 @@ export function mountCharacterScreen({ root, runtime }) {
     </div>`;
   }
 
+  function getWeaponAbilities(weapon) {
+    const linked = arr(weapon?.weapon_abilities);
+    if (!linked.length) return [];
+    return linked.map((entry) => {
+      const full = state.abilities.find((ability) => ability.id === entry.character_ability_id);
+      return full
+        ? {
+            ...full,
+            source_weapon_name: entry.weapon_name || weapon?.name || "",
+            required_profile_name: entry.profile_name || "",
+            is_available_for_active_profile: entry.is_available_for_active_profile !== false,
+          }
+        : entry;
+    });
+  }
+
   /* ---- INVENTORY (weapons mgmt + magazines + ammo + items + GM) ---- */
   function renderInventory() {
     const armory = state.armory;
@@ -2261,6 +2277,7 @@ export function mountCharacterScreen({ root, runtime }) {
       : (mag
           ? `<span class="cp-chip ${(mag.current_rounds ?? 0) <= 0 ? "bad" : ""}">${dash(mag.current_rounds)}/${dash(mag.capacity || mag.magazine_def?.capacity)} - ${esc(mag.ammo_type_name || mag.ammo_type?.name || "")}</span>`
           : `<span class="cp-chip bad">no magazine</span>`);
+    const weaponAbilities = getWeaponAbilities(w);
     return `<div class="cp-card" data-weapon="${esc(w.id)}">
       <div class="cp-rowitem"><span><b>${esc(w.name)}</b> <span class="cp-pill">${esc(w.model?.weapon_class_name || w.model?.weapon_class || "")}</span></span>
         <span class="cp-row" style="gap:6px">${w.model?.caliber_name ? `<span class="cp-chip">${esc(w.model.caliber_name)}</span>` : ""}${ammoChips}</span></div>
@@ -2269,6 +2286,23 @@ export function mountCharacterScreen({ root, runtime }) {
         ${fireModes.length && !isMelee ? `<label class="cp-field" style="min-width:130px"><span>Fire mode</span><select data-wact="firemode" data-weapon="${esc(w.id)}">${fireModes.map((f) => `<option value="${esc(f.id)}" ${f.id === fm?.id ? "selected" : ""}>${esc(f.name || f.code)}</option>`).join("")}</select></label>` : ""}
         ${!isMelee ? `<label class="cp-field" style="min-width:150px"><span>Insert magazine</span><select data-wact="reloadmag" data-weapon="${esc(w.id)}">${compatMags.length ? compatMags.map((m) => `<option value="${esc(m.id)}">${esc(m.name)} - ${dash(m.current_rounds)}/${dash(m.magazine_def?.capacity ?? m.capacity)}</option>`).join("") : `<option value="">-- none --</option>`}</select></label>` : ""}
       </div>
+      ${weaponAbilities.length ? `<div class="cp-list" style="margin-top:8px">${weaponAbilities.map((ability) => {
+        const passive = ability.activation_type === "passive" || ability.ability_kind === "passive";
+        const cooldown = ability.current_cooldown_rounds;
+        const attackAbility = ability.attack_type && ability.attack_type !== "none";
+        const canUse = !passive && !cooldown && !attackAbility && ability.is_available_for_active_profile !== false;
+        return `<div class="cp-card">
+          <div class="cp-rowitem">
+            <span><b>${esc(ability.name || ability.code || "Ability")}</b> <span class="cp-pill">weapon ability</span></span>
+            <span class="cp-row" style="gap:6px">
+              ${ability.required_profile_name ? `<span class="cp-chip">${esc(ability.required_profile_name)}</span>` : `<span class="cp-chip">all profiles</span>`}
+              ${attackAbility ? `<span class="cp-chip">attack: ${esc(ability.attack_type)}</span>` : ""}
+              ${ability.is_available_for_active_profile === false ? `<span class="cp-chip bad">profile mismatch</span>` : ""}
+            </span>
+          </div>
+          ${canUse ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm" type="button" data-ability-use="${esc(ability.id)}">Use ability</button></div>` : ""}
+        </div>`;
+      }).join("")}</div>` : ""}
       ${!isMelee ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm" data-wbtn="reload" data-weapon="${esc(w.id)}" type="button" ${compatMags.length ? "" : "disabled"}>Reload (insert magazine)</button>${isGM() ? `<button class="cp-btn-sm secondary" data-gmdel="weapon" data-id="${esc(w.id)}" type="button">GM delete</button>` : ""}</div>${compatMags.length ? "" : `<div class="cp-muted">No compatible magazine to insert.</div>`}` : `${isGM() ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-gmdel="weapon" data-id="${esc(w.id)}" type="button">GM delete</button></div>` : ""}`}
     </div>`;
   }
@@ -2840,11 +2874,46 @@ export function mountCharacterScreen({ root, runtime }) {
   /* ---- abilities (activation) ---- */
   function onUseAbility(abilityId) {
     const ability = state.abilities.find((a) => a.id === abilityId);
-    if (!ability) return;
+    if (!ability || state.busy) return;
     const passive = ability.activation_type === "passive" || ability.ability_kind === "passive";
     if (passive) { setNotice("warn", "Passive abilities activate automatically."); render(); return; }
-    setNotice("info", `Ability activation: ${esc(ability.name)} - ready to use (no RPC yet).`);
+    if (ability.attack_type && ability.attack_type !== "none") {
+      setNotice("warn", "Attack abilities are resolved from Combat → Resolve Attack.");
+      render();
+      return;
+    }
+    const payload = {
+      character_id: state.characterId,
+      character_ability_id: ability.id,
+      created_by: isGM() ? "GM" : "PLAYER",
+    };
+    const sourceWeaponId = String(
+      ability.source?.character_weapon_id
+      ?? ability.source_character_weapon_id
+      ?? ""
+    ).trim();
+    if (sourceWeaponId) {
+      payload.character_weapon_id = sourceWeaponId;
+    }
+    state.busy = true;
+    state.notice = `Using ability ${ability.name}...`;
     render();
+    (async () => {
+      try {
+        const result = await api.ability.useAbility(payload, settings());
+        if (!result || result.ok === false) {
+          setNotice("err", `${esc(describeError(result?.error, result?.message || "Ability use failed."))}${result?.error ? ` <span class="cp-mono">[${esc(result.error)}]</span>` : ""}`);
+          return;
+        }
+        await refresh({ sheet: true, armory: true, equipment: false, inventory: false, abilities: true, perkAvailability: false });
+        setNotice("ok", esc(result.message || `${ability.name} used.`));
+      } catch (e) {
+        setNotice("err", `Ability use failed: ${esc(e.message)}`);
+      } finally {
+        state.busy = false;
+        render();
+      }
+    })();
   }
 
   async function onUsePerk(perkId) {

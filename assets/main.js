@@ -3924,6 +3924,7 @@ var MODIFIER_TARGET_OPTIONS = Object.freeze([
   { value: "attack_accuracy", label: "Attack Accuracy" },
   { value: "defense", label: "Defense" },
   { value: "damage", label: "Damage" },
+  { value: "armor_pierce", label: "Armor Pierce" },
   { value: "armor", label: "Armor" },
   { value: "action_count", label: "Action Count" },
   { value: "concentration_slots", label: "Concentration Slots" },
@@ -4109,7 +4110,8 @@ function createEmptyWeaponDraft() {
     id: "",
     name: "",
     description: "",
-    profiles: [createEmptyWeaponProfileDraft(0)]
+    profiles: [createEmptyWeaponProfileDraft(0)],
+    abilityLinks: []
   };
 }
 function createEmptyItemDraft() {
@@ -4240,6 +4242,8 @@ function createEmptyAbilityLinkDraft() {
   return {
     abilityDefId: "",
     grantMode: "activated",
+    profileId: "",
+    enabledByDefault: true,
     durationRoundsMode: "none",
     durationRounds: "",
     chargesMode: "none",
@@ -4431,8 +4435,43 @@ function createInitialState() {
       equipmentPayload: true,
       equipmentDataModifiers: true
     },
+    definitionStore: {
+      data: {
+        effects: [],
+        abilities: [],
+        items: [],
+        equipment: [],
+        weapons: [],
+        skills: []
+      },
+      loadedAt: {},
+      dirtyTypes: /* @__PURE__ */ new Set(),
+      listeners: /* @__PURE__ */ new Set()
+    },
+    pendingWeaponAbilityCreate: null,
     requestNonce: 0
   };
+}
+function subscribeDefinitionStore(store, listener) {
+  if (!store?.listeners) {
+    return () => {
+    };
+  }
+  store.listeners.add(listener);
+  return () => {
+    store.listeners.delete(listener);
+  };
+}
+function notifyDefinitionStore(store, payload) {
+  if (!store?.listeners?.size) {
+    return;
+  }
+  for (const listener of store.listeners) {
+    try {
+      listener(payload);
+    } catch {
+    }
+  }
 }
 function cloneJson(value) {
   return safeJsonParse(JSON.stringify(value), value);
@@ -4889,7 +4928,23 @@ function normalizeWeaponDraft(bundle) {
     id: String(weapon.id ?? ""),
     name: String(weapon.name ?? ""),
     description: String(weapon.description ?? ""),
-    profiles
+    profiles,
+    abilityLinks: Array.isArray(bundle?.ability_links) ? bundle.ability_links.map((entry) => ({
+      abilityDefId: String(entry?.ability_def_id ?? ""),
+      grantMode: String(entry?.grant_mode ?? "available"),
+      profileId: String(entry?.profile_id ?? entry?.data?.profile_id ?? ""),
+      enabledByDefault: Boolean(
+        entry?.is_enabled_by_default ?? entry?.is_enabled ?? true
+      ),
+      durationRoundsMode: "none",
+      durationRounds: "",
+      chargesMode: "none",
+      charges: "",
+      cooldownRoundsMode: "none",
+      cooldownRounds: "",
+      reloadMode: "",
+      reloadItemCode: ""
+    })) : []
   };
 }
 function normalizeItemDraft(bundle) {
@@ -5179,7 +5234,10 @@ function makeWeaponDuplicateDraft(source) {
       ...cloneJson(entry),
       id: "",
       isDefault: index === 0
-    })) : [createEmptyWeaponProfileDraft(0)]
+    })) : [createEmptyWeaponProfileDraft(0)],
+    abilityLinks: Array.isArray(source.abilityLinks) ? source.abilityLinks.map((entry) => ({
+      ...cloneJson(entry)
+    })) : []
   };
 }
 function makeItemDuplicateDraft(source) {
@@ -5400,6 +5458,23 @@ function buildAbilityLinkPayload(link, index) {
     data
   };
 }
+function buildWeaponAbilityLinkPayload(link, index) {
+  const abilityDefId = String(link?.abilityDefId ?? "").trim();
+  const profileId = String(link?.profileId ?? "").trim();
+  if (!abilityDefId) {
+    return null;
+  }
+  return {
+    ability_def_id: abilityDefId,
+    profile_id: profileId || null,
+    grant_mode: "available",
+    is_enabled: Boolean(link?.enabledByDefault ?? true),
+    sort_order: index,
+    data: profileId ? {
+      profile_id: profileId
+    } : {}
+  };
+}
 function buildFlagPayload(entry) {
   const key = String(entry?.key ?? "").trim() === "custom" ? String(entry?.customKey ?? "").trim() : String(entry?.key ?? "").trim();
   if (!key) {
@@ -5486,7 +5561,7 @@ function buildWeaponPayload(draft, auto, references) {
     tags: auto.tags,
     profiles: payloadProfiles,
     feature_links: [],
-    ability_links: []
+    ability_links: (Array.isArray(draft.abilityLinks) ? draft.abilityLinks : []).map((entry, index) => buildWeaponAbilityLinkPayload(entry, index)).filter(Boolean)
   };
 }
 function buildItemPayload(draft, auto) {
@@ -5780,9 +5855,13 @@ function buildModifierPayload(entry) {
   if (!resolvedTarget) {
     return null;
   }
+  const resolvedValue = coerceInteger(entry?.value, 0);
+  if (resolvedTarget === "armor_pierce" && resolvedValue < 0) {
+    return null;
+  }
   const payload = {
     target: resolvedTarget,
-    value: coerceInteger(entry?.value, 0)
+    value: resolvedTarget === "armor_pierce" ? Math.max(0, resolvedValue) : resolvedValue
   };
   if (resolvedTarget === "attribute") {
     const attributeCode = String(entry?.attributeCode ?? "").trim();
@@ -6610,6 +6689,16 @@ function buildWeaponEditorMarkup(state, references) {
           <button type="button" data-creator-action="addWeaponProfile">Add Profile</button>
         </div>
         ${(Array.isArray(draft.profiles) ? draft.profiles : []).map((profile, index) => buildWeaponProfileEditorMarkup(state, references, profile, index)).join("")}
+      </div>
+      <div class="creator-links-block">
+        <div class="creator-links-head">
+          <span>Weapon Abilities</span>
+          <div class="button-row">
+            <button type="button" data-creator-action="addWeaponAbilityLink">Add Ability</button>
+            <button type="button" class="secondary" data-creator-action="createWeaponAbility">Create Ability</button>
+          </div>
+        </div>
+        ${buildWeaponAbilityLinksEditorMarkup(draft, references)}
       </div>
       ${buildDisclosureSection({
     title: "Payload Preview",
@@ -7519,6 +7608,59 @@ function buildAbilityLinksEditorMarkup(draft, references) {
       `;
   }).join("");
 }
+function buildWeaponAbilityProfileOptions(draft, selectedValue) {
+  const profiles = Array.isArray(draft?.profiles) ? draft.profiles : [];
+  const options = ['<option value="">All profiles</option>'];
+  for (const profile of profiles) {
+    options.push(
+      `<option value="${escapeHtml(profile.id)}"${selectedValue === profile.id ? " selected" : ""}>${escapeHtml(profile.name || profile.code || "profile")}${profile.attackType ? ` | ${escapeHtml(profile.attackType)}` : ""}</option>`
+    );
+  }
+  return options.join("");
+}
+function buildWeaponAbilityLinksEditorMarkup(draft, references) {
+  const links = Array.isArray(draft?.abilityLinks) ? draft.abilityLinks : [];
+  const selectedIds = links.map((entry) => entry?.abilityDefId).filter(Boolean);
+  if (!links.length) {
+    return `<div class="creator-empty">No weapon abilities yet. Add one to attach an ability to this weapon model.</div>`;
+  }
+  return links.map((link, index) => {
+    const ability = (Array.isArray(references?.abilities) ? references.abilities : []).find((entry) => entry.id === link.abilityDefId);
+    return `
+      <div class="creator-link-card" data-creator-weapon-ability-row="${index}">
+        <div class="creator-link-head">
+          <strong>Weapon Ability ${index + 1}</strong>
+          <div class="button-row">
+            <button type="button" class="secondary" data-creator-weapon-ability-move="up" data-link-index="${index}"${index > 0 ? "" : " disabled"}>Up</button>
+            <button type="button" class="secondary" data-creator-weapon-ability-move="down" data-link-index="${index}"${index < links.length - 1 ? "" : " disabled"}>Down</button>
+            <button type="button" class="secondary" data-creator-weapon-ability-remove="${index}">Remove</button>
+          </div>
+        </div>
+        <div class="field-grid creator-grid-3">
+          <label class="field-stack">
+            <span>Ability</span>
+            <select data-creator-weapon-ability-input="abilityDefId" data-link-index="${index}">
+              ${buildAbilityOptions(references, link.abilityDefId, selectedIds)}
+            </select>
+          </label>
+          <label class="field-stack">
+            <span>Profile Scope</span>
+            <select data-creator-weapon-ability-input="profileId" data-link-index="${index}">
+              ${buildWeaponAbilityProfileOptions(draft, link.profileId)}
+            </select>
+          </label>
+          <label class="toggle-inline creator-toggle-card">
+            <input data-creator-weapon-ability-input="enabledByDefault" data-link-index="${index}" type="checkbox"${link.enabledByDefault ? " checked" : ""}>
+            <span>Enabled by default</span>
+          </label>
+        </div>
+        <div class="creator-auto-meta creator-small-meta">
+          <div><strong>Summary:</strong> ${escapeHtml(ability?.name || "Select ability")} | ${escapeHtml(ability?.attack_type || ability?.ability_kind || "ability")} | ${escapeHtml(link.profileId ? (draft.profiles || []).find((entry) => entry.id === link.profileId)?.name || "profile" : "All profiles")} | ${link.enabledByDefault ? "Enabled" : "Disabled"}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
 function buildEquipmentEditorMarkup(state, references) {
   const draft = state.drafts.equipment;
   const auto = generatedEquipmentPreview(draft, state);
@@ -7733,11 +7875,32 @@ function readWeaponDraftFromDom(root2, fallbackDraft = createEmptyWeaponDraft())
   if (profiles.length && !profiles.some((entry) => entry.isDefault)) {
     profiles[0].isDefault = true;
   }
+  const abilityLinkRows = Array.from(form.querySelectorAll("[data-creator-weapon-ability-row]"));
+  const abilityLinks = abilityLinkRows.length ? abilityLinkRows.map((row) => {
+    const index = String(row.getAttribute("data-creator-weapon-ability-row") ?? "");
+    const fallbackLink = Array.isArray(fallbackDraft.abilityLinks) ? fallbackDraft.abilityLinks[Number.parseInt(index, 10)] ?? createEmptyAbilityLinkDraft() : createEmptyAbilityLinkDraft();
+    const linkQuery = (field) => form.querySelector(`[data-creator-weapon-ability-input="${field}"][data-link-index="${index}"]`);
+    return {
+      abilityDefId: String(linkQuery("abilityDefId")?.value ?? fallbackLink.abilityDefId ?? ""),
+      grantMode: "available",
+      profileId: String(linkQuery("profileId")?.value ?? fallbackLink.profileId ?? ""),
+      enabledByDefault: Boolean(linkQuery("enabledByDefault")?.checked ?? fallbackLink.enabledByDefault ?? true),
+      durationRoundsMode: "none",
+      durationRounds: "",
+      chargesMode: "none",
+      charges: "",
+      cooldownRoundsMode: "none",
+      cooldownRounds: "",
+      reloadMode: "",
+      reloadItemCode: ""
+    };
+  }) : cloneJson(fallbackDraft.abilityLinks ?? []);
   return {
     id: String(form.dataset.creatorEntityId ?? ""),
     name: String(query("name")?.value ?? fallbackDraft.name ?? ""),
     description: String(query("description")?.value ?? fallbackDraft.description ?? ""),
-    profiles
+    profiles,
+    abilityLinks
   };
 }
 function readItemDraftFromDom(root2, fallbackDraft = createEmptyItemDraft()) {
@@ -8028,6 +8191,11 @@ function mountCreatorMenu({
   }
 }) {
   const state = createInitialState();
+  const unsubscribeDefinitionStore = subscribeDefinitionStore(state.definitionStore, ({ type }) => {
+    if (type === "effects") {
+      reconcileAbilityEffectLinks();
+    }
+  });
   function getAccess() {
     const player = getPlayer();
     const settings = getSettings();
@@ -8065,6 +8233,126 @@ function mountCreatorMenu({
   function clearMessages() {
     state.error = "";
     state.info = "";
+  }
+  function invalidateDefinitionType(type) {
+    if (!type) return;
+    state.definitionStore.dirtyTypes.add(type);
+    notifyDefinitionStore(state.definitionStore, {
+      type,
+      operation: "invalidate",
+      definition: null
+    });
+  }
+  async function refreshDefinitionType(type, settings, { force = false } = {}) {
+    if (!type) {
+      return [];
+    }
+    const store = state.definitionStore;
+    const hasCached = Array.isArray(store.data?.[type]) && store.data[type].length > 0;
+    if (!force && hasCached && !store.dirtyTypes.has(type)) {
+      return store.data[type];
+    }
+    let items = [];
+    if (type === "effects") {
+      const result = await runtime2.api.creator.listEffects({ search: null, categories: [] }, settings);
+      if (!result?.ok) {
+        throw new Error(formatCreatorError(result, "Unable to refresh effect definitions."));
+      }
+      items = Array.isArray(result.items) ? result.items : [];
+    } else if (type === "abilities") {
+      const result = await runtime2.api.creator.listAbilities({ search: null }, settings);
+      if (!result?.ok) {
+        throw new Error(formatCreatorError(result, "Unable to refresh ability definitions."));
+      }
+      items = Array.isArray(result.items) ? result.items : [];
+    } else if (type === "items") {
+      const rows = await runtime2.bridges.supabase.fetchSupabaseRows(
+        "odyssey_item_defs?select=id,code,name,item_type&order=name.asc",
+        settings,
+        "Unable to load item definition reference data."
+      );
+      items = Array.isArray(rows) ? rows : [];
+    } else if (type === "weapons") {
+      const result = await runtime2.api.creator.listWeapons({ search: null }, settings);
+      if (!result?.ok) {
+        throw new Error(formatCreatorError(result, "Unable to refresh weapon definitions."));
+      }
+      items = Array.isArray(result.items) ? result.items : [];
+    } else if (type === "skills") {
+      const result = await runtime2.api.creator.listSkills({ search: null, categories: [] }, settings);
+      if (!result?.ok) {
+        throw new Error(formatCreatorError(result, "Unable to refresh skill definitions."));
+      }
+      items = Array.isArray(result.items) ? result.items : [];
+    } else if (type === "equipment") {
+      const result = await runtime2.api.creator.listEquipmentModels({ search: null, itemTypes: [] }, settings);
+      if (!result?.ok) {
+        throw new Error(formatCreatorError(result, "Unable to refresh equipment definitions."));
+      }
+      items = Array.isArray(result.items) ? result.items : [];
+    }
+    store.data[type] = items;
+    store.loadedAt[type] = Date.now();
+    store.dirtyTypes.delete(type);
+    notifyDefinitionStore(store, {
+      type,
+      operation: "refresh",
+      definition: null,
+      items
+    });
+    return items;
+  }
+  function reconcileAbilityEffectLinks() {
+    const effectIds = new Set((Array.isArray(state.references?.effects) ? state.references.effects : []).map((entry) => entry.id));
+    const draft = state.drafts.abilities;
+    if (!draft || !Array.isArray(draft.effectLinks)) {
+      return;
+    }
+    let removed = false;
+    draft.effectLinks = draft.effectLinks.map((entry) => {
+      const next = { ...entry };
+      if (next.effectDefId && !effectIds.has(next.effectDefId)) {
+        next.effectDefId = "";
+        removed = true;
+      }
+      return next;
+    });
+    if (removed) {
+      state.info = "Selected effect was removed. Choose another effect.";
+    }
+  }
+  async function refreshReferenceDefinitions(changedTypes, settings, operation = "refresh") {
+    const types = Array.from(new Set((Array.isArray(changedTypes) ? changedTypes : [changedTypes]).filter(Boolean)));
+    if (!types.length) {
+      return;
+    }
+    for (const type of types) {
+      invalidateDefinitionType(type);
+      const items = await refreshDefinitionType(type, settings, { force: true });
+      if (type === "effects") {
+        state.references = {
+          ...state.references ?? {},
+          effects: items
+        };
+        reconcileAbilityEffectLinks();
+      } else if (type === "abilities") {
+        state.references = {
+          ...state.references ?? {},
+          abilities: items
+        };
+      } else if (type === "items") {
+        state.references = {
+          ...state.references ?? {},
+          itemDefinitions: items
+        };
+      }
+      notifyDefinitionStore(state.definitionStore, {
+        type,
+        operation,
+        definition: null,
+        items
+      });
+    }
   }
   function resetLoadedData({ keepTab = true } = {}) {
     const activeTab = keepTab ? state.activeTab : "calibers";
@@ -8140,6 +8428,41 @@ function mountCreatorMenu({
           state.drafts.equipment.abilityLinks.splice(index, 1);
           state.dirty.equipment = true;
         }
+        clearMessages();
+        render();
+      });
+    });
+    root2.querySelectorAll("[data-creator-weapon-ability-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        captureActiveDraft();
+        const index = Number.parseInt(String(button.dataset.creatorWeaponAbilityRemove ?? ""), 10);
+        if (!Number.isFinite(index)) return;
+        state.drafts.weapons.abilityLinks.splice(index, 1);
+        state.dirty.weapons = true;
+        clearMessages();
+        render();
+      });
+    });
+    root2.querySelectorAll("[data-creator-weapon-ability-move]").forEach((button) => {
+      button.addEventListener("click", () => {
+        captureActiveDraft();
+        const index = Number.parseInt(String(button.dataset.linkIndex ?? ""), 10);
+        const direction = String(button.dataset.creatorWeaponAbilityMove ?? "");
+        const list = Array.isArray(state.drafts.weapons.abilityLinks) ? state.drafts.weapons.abilityLinks : [];
+        if (!Number.isFinite(index) || !list.length) return;
+        const targetIndex = direction === "up" ? index - 1 : direction === "down" ? index + 1 : index;
+        if (targetIndex < 0 || targetIndex >= list.length || targetIndex === index) return;
+        const [entry] = list.splice(index, 1);
+        list.splice(targetIndex, 0, entry);
+        state.dirty.weapons = true;
+        clearMessages();
+        render();
+      });
+    });
+    root2.querySelectorAll("[data-creator-weapon-ability-input]").forEach((input) => {
+      input.addEventListener("change", () => {
+        captureActiveDraft();
+        state.dirty.weapons = true;
         clearMessages();
         render();
       });
@@ -8370,12 +8693,26 @@ function mountCreatorMenu({
             clearMessages();
             render();
             break;
+          case "addWeaponAbilityLink":
+            captureActiveDraft();
+            state.drafts.weapons.abilityLinks.push({
+              ...createEmptyAbilityLinkDraft(),
+              grantMode: "available"
+            });
+            state.dirty.weapons = true;
+            clearMessages();
+            render();
+            break;
           case "addItemAbilityLink":
             captureActiveDraft();
             state.drafts.items.abilityLinks.push(createEmptyAbilityLinkDraft());
             state.dirty.items = true;
             clearMessages();
             render();
+            break;
+          case "createWeaponAbility":
+            captureActiveDraft();
+            void beginWeaponAbilityCreateFlow();
             break;
           case "addWeaponProfile":
             captureActiveDraft();
@@ -8535,14 +8872,11 @@ function mountCreatorMenu({
     }
   }
   async function loadReferenceData(settings) {
-    const [referenceResult, itemDefinitions, effectDefinitions] = await Promise.all([
+    const [referenceResult, itemDefinitions, effectDefinitions, abilityDefinitions] = await Promise.all([
       runtime2.api.creator.getCreatorReferenceData(settings),
-      runtime2.bridges.supabase.fetchSupabaseRows(
-        "odyssey_item_defs?select=id,code,name,item_type&order=name.asc",
-        settings,
-        "Unable to load item definition reference data."
-      ).catch(() => []),
-      runtime2.api.creator.listEffects({ search: null, categories: [] }, settings).catch(() => ({ ok: true, items: [] }))
+      refreshDefinitionType("items", settings, { force: true }).catch(() => []),
+      refreshDefinitionType("effects", settings, { force: true }).catch(() => []),
+      refreshDefinitionType("abilities", settings, { force: true }).catch(() => [])
     ]);
     if (!referenceResult?.ok) {
       throw new Error(formatCreatorError(referenceResult, "Unable to load creator reference data."));
@@ -8550,7 +8884,8 @@ function mountCreatorMenu({
     return {
       ...referenceResult,
       itemDefinitions: Array.isArray(itemDefinitions) ? itemDefinitions : [],
-      effects: effectDefinitions?.ok && Array.isArray(effectDefinitions.items) ? effectDefinitions.items : []
+      effects: Array.isArray(effectDefinitions) ? effectDefinitions : [],
+      abilities: Array.isArray(abilityDefinitions) ? abilityDefinitions : []
     };
   }
   async function ensureReadyForActiveTab({ forceRefs = false } = {}) {
@@ -9029,6 +9364,78 @@ function mountCreatorMenu({
     };
     return buildEquipmentPayload(draft, auto);
   }
+  async function saveWeaponDraftForFlow(settings) {
+    const payload = await buildSavePayload("weapons", state.drafts.weapons, settings);
+    const result = await runtime2.api.creator.upsertWeapon(payload, settings);
+    if (!result?.ok) {
+      throw new Error(formatCreatorError(result, "Unable to save weapon draft."));
+    }
+    const bundle = extractEntityBundle(result);
+    if (!bundle?.ok) {
+      throw new Error("Weapon save succeeded but the returned entity bundle was incomplete.");
+    }
+    state.selectedIds.weapons = String(result.entity_id ?? "");
+    state.bundles.weapons = bundle;
+    state.drafts.weapons = normalizeWeaponDraft(bundle);
+    state.dirty.weapons = false;
+    await loadListForTab("weapons", settings);
+    return {
+      entityId: state.selectedIds.weapons,
+      bundle
+    };
+  }
+  async function beginWeaponAbilityCreateFlow() {
+    const access = getAccess();
+    if (!access.isGm || !access.configured) {
+      return;
+    }
+    clearMessages();
+    try {
+      if (!state.drafts.weapons.name.trim()) {
+        throw new Error("Save the weapon draft name before creating a linked ability.");
+      }
+      if (!state.selectedIds.weapons || state.dirty.weapons) {
+        state.loading = true;
+        state.loadingLabel = "saving weapon model for ability link";
+        render();
+        await saveWeaponDraftForFlow(access.settings);
+      }
+      state.pendingWeaponAbilityCreate = {
+        weaponId: state.selectedIds.weapons
+      };
+      state.activeTab = "abilities";
+      state.selectedIds.abilities = "";
+      state.bundles.abilities = null;
+      state.drafts.abilities = createEmptyAbilityDraft();
+      state.dirty.abilities = false;
+      state.loading = false;
+      state.info = "Create and save the new ability. It will be linked back to the current weapon automatically.";
+      render();
+    } catch (error) {
+      state.loading = false;
+      state.error = toErrorMessage(error, "Unable to start linked ability creation.");
+      onDiagnostic("error", "Weapon ability flow failed", state.error);
+      render();
+    }
+  }
+  async function finalizePendingWeaponAbilityLink(savedAbilityId, settings) {
+    const pending = state.pendingWeaponAbilityCreate;
+    if (!pending?.weaponId || !savedAbilityId) {
+      return;
+    }
+    const alreadyLinked = (Array.isArray(state.drafts.weapons.abilityLinks) ? state.drafts.weapons.abilityLinks : []).some((entry) => entry.abilityDefId === savedAbilityId);
+    if (!alreadyLinked) {
+      state.drafts.weapons.abilityLinks.push({
+        ...createEmptyAbilityLinkDraft(),
+        abilityDefId: savedAbilityId,
+        grantMode: "available",
+        enabledByDefault: true
+      });
+      state.dirty.weapons = true;
+    }
+    await saveWeaponDraftForFlow(settings);
+    state.pendingWeaponAbilityCreate = null;
+  }
   async function saveDraft() {
     const access = getAccess();
     if (!access.isGm || !access.configured) {
@@ -9101,6 +9508,18 @@ function mountCreatorMenu({
         state.dirty.equipment = false;
       }
       await loadListForTab(state.activeTab, access.settings);
+      if (state.activeTab === "effects") {
+        await refreshReferenceDefinitions(["effects"], access.settings, "update");
+      } else if (state.activeTab === "abilities") {
+        await refreshReferenceDefinitions(["abilities"], access.settings, "update");
+        if (state.pendingWeaponAbilityCreate) {
+          await finalizePendingWeaponAbilityLink(String(result.entity_id ?? ""), access.settings);
+          await refreshReferenceDefinitions(["weapons"], access.settings, "update").catch(() => {
+          });
+        }
+      } else if (state.activeTab === "items") {
+        await refreshReferenceDefinitions(["items"], access.settings, "update");
+      }
       state.loading = false;
       state.info = `${state.activeTab === "weapons" ? "Weapon" : state.activeTab === "items" ? "Item" : state.activeTab === "calibers" ? "Caliber" : state.activeTab === "ammo" ? "Ammo" : state.activeTab === "magazines" ? "Magazine" : state.activeTab === "skills" ? "Skill" : state.activeTab === "effects" ? "Effect" : state.activeTab === "abilities" ? "Ability" : state.activeTab === "perks" ? "Perk" : "Equipment model"} saved to Supabase.`;
       onDiagnostic("info", "Creator save complete", state.info);
@@ -9190,6 +9609,13 @@ function mountCreatorMenu({
         state.dirty.equipment = false;
       }
       await loadListForTab(state.activeTab, access.settings);
+      if (state.activeTab === "effects") {
+        await refreshReferenceDefinitions(["effects"], access.settings, "delete");
+      } else if (state.activeTab === "abilities") {
+        await refreshReferenceDefinitions(["abilities"], access.settings, "delete");
+      } else if (state.activeTab === "items") {
+        await refreshReferenceDefinitions(["items"], access.settings, "delete");
+      }
       state.loading = false;
       state.info = `${label[0].toUpperCase()}${label.slice(1)} deleted from the catalog.`;
       onDiagnostic("info", "Creator delete complete", state.info);
@@ -11152,10 +11578,12 @@ var ERROR_MESSAGES = Object.freeze({
   ABILITY_NOT_FOUND: "Ability was not found or is disabled.",
   INVALID_ABILITY: "Invalid ability for this action.",
   INVALID_ATTACK_TYPE: "This ability cannot be used as an attack.",
+  ABILITY_NOT_AVAILABLE_FOR_WEAPON_PROFILE: "This weapon ability is not available for the current weapon profile.",
   ABILITY_ON_COOLDOWN: "Ability is on cooldown.",
   NO_ENERGY: "Not enough energy for this ability.",
   NOT_ENOUGH_RESOURCE: "Not enough resource to use this ability.",
   RESOURCE_POOL_NOT_FOUND: "Resource pool was not found.",
+  WEAPON_ABILITY_SOURCE_NOT_AVAILABLE: "This weapon ability is no longer available on its source weapon.",
   // ammo stock / magazine loading
   AMMO_STOCK_NOT_FOUND: "Ammo stock was not found.",
   OWNER_MISMATCH: "Magazine and ammo stock belong to different characters.",
@@ -11242,6 +11670,7 @@ function normalizeResult(raw) {
   const magazine = r.magazine && typeof r.magazine === "object" ? r.magazine : {};
   const resource = r.resource && typeof r.resource === "object" ? r.resource : {};
   const targetState = r.target_state && typeof r.target_state === "object" ? r.target_state : {};
+  const weaponEffects = r.weapon_effects && typeof r.weapon_effects === "object" ? r.weapon_effects : {};
   return {
     ok: r.ok !== false,
     hit: typeof r.hit === "boolean" ? r.hit : null,
@@ -11263,6 +11692,15 @@ function normalizeResult(raw) {
     energyRemaining: firstDefined(resource.remaining, resource.current_value),
     feature: firstDefined(r.feature),
     armor: firstDefined(bodyPart.effective_armor, r.effective_armor, r.armor),
+    armorPierceUsed: firstDefined(
+      damage.armor_pierce_used,
+      damage.total_armor_pierce,
+      r.armor_pierce_used,
+      weaponEffects.armor_pierce
+    ),
+    armorValueUsed: firstDefined(damage.armor_value_used, bodyPart.armor_value),
+    effectiveArmor: firstDefined(damage.effective_armor, bodyPart.effective_armor, r.effective_armor),
+    weaponEffects: Object.keys(weaponEffects).length ? weaponEffects : null,
     pendingChecks: asArray(firstDefined(r.pending_checks, r.pending_saves, [])),
     targetAlive: typeof targetState.is_alive === "boolean" ? targetState.is_alive : null,
     targetConscious: typeof targetState.is_conscious === "boolean" ? targetState.is_conscious : null,
@@ -32748,6 +33186,21 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
   function attackAbilities() {
     return state.attacker.abilities.filter((a) => a.attack_type && a.attack_type !== "none");
   }
+  function abilityProfileMismatch(ability) {
+    return ability?.source?.type === "weapon" && ability?.source?.is_available_for_active_profile === false;
+  }
+  function abilityOptionLabel(ability) {
+    const level = dash(ability?.effective_level);
+    const weaponName = String(ability?.source?.weapon_name ?? ability?.source_weapon_name ?? "").trim();
+    const profileName = String(ability?.source?.required_profile_code ?? ability?.source?.required_profile_name ?? "").trim();
+    const parts = [
+      `${ability?.name || ability?.code || "Ability"} - lvl ${level}`,
+      weaponName ? `Weapon: ${weaponName}` : "",
+      profileName ? `Profile: ${profileName}` : "",
+      abilityProfileMismatch(ability) ? "unavailable for current profile" : ""
+    ].filter(Boolean);
+    return parts.join(" | ");
+  }
   function currentWeapon() {
     return arr(state.attacker.armory?.weapons).find((w) => w.id === state.attacker.weaponId) || null;
   }
@@ -32782,7 +33235,11 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
   }
   function renderAbilitySelect() {
     const abilities = attackAbilities();
-    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${dash(a.effective_level)}</option>`).join("") : `<option value="">- no attack abilities -</option>`;
+    const available = abilities.filter((ability) => !abilityProfileMismatch(ability));
+    if (!available.some((ability) => ability.id === state.attacker.abilityId)) {
+      state.attacker.abilityId = available[0]?.id || abilities[0]?.id || "";
+    }
+    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}${abilityProfileMismatch(a) ? " disabled" : ""}>${esc(abilityOptionLabel(a))}</option>`).join("") : `<option value="">- no attack abilities -</option>`;
   }
   function renderProfileAndFireMode() {
     const w = currentWeapon();
@@ -33339,19 +33796,21 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
     const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
     const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
     const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
-    refs.summary.innerHTML = [
+    const stats = [
       stat("Result", esc(hitTxt), hitCls),
       stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
       stat("Attack total", esc(dash(data.attackTotal))),
       stat("Defense total", esc(dash(data.defenseTotal))),
       stat("Damage", `${esc(dash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
       stat("Body part", esc(dash(data.targetBodyPartName))),
+      data.armorPierceUsed && data.armorPierceUsed > 0 ? stat("Armor Pierce", esc(dash(data.armorPierceUsed))) : "",
       stat("Ammo spent", esc(dash(data.ammoSpent))),
       stat("Energy spent", esc(dash(data.energySpent))),
       stat("Pending", esc(pending || "-")),
       stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? String(data.combatLogId).slice(0, 8) + "..." : "-")}</span>`),
       stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : "")
-    ].join("");
+    ].filter(Boolean);
+    refs.summary.innerHTML = stats.join("");
     refs.summaryCard.classList.remove("ra-hidden");
   }
   function renderDebug() {
@@ -33443,7 +33902,11 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
   }
   function renderAbilitySelect() {
     const abilities = attackAbilities();
-    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}>${esc(a.name)} - lvl ${uiDash(a.effective_level)}</option>`).join("") : `<option value="">- no attack abilities -</option>`;
+    const available = abilities.filter((ability) => !abilityProfileMismatch(ability));
+    if (!available.some((ability) => ability.id === state.attacker.abilityId)) {
+      state.attacker.abilityId = available[0]?.id || abilities[0]?.id || "";
+    }
+    refs.abilitySelect.innerHTML = abilities.length ? abilities.map((a) => `<option value="${esc(a.id)}" ${a.id === state.attacker.abilityId ? "selected" : ""}${abilityProfileMismatch(a) ? " disabled" : ""}>${esc(abilityOptionLabel(a))}</option>`).join("") : `<option value="">- no attack abilities -</option>`;
   }
   function renderProfileAndFireMode() {
     const w = currentWeapon();
@@ -33636,19 +34099,21 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
     const autoTxt = data.auto === "crit" ? "auto-crit" : data.auto === "fail" ? "auto-fail" : "-";
     const stat = (k, v, cls = "") => `<div class="ra-stat"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
     const pending = arr(data.pendingChecks).map((c) => c.skill_code || c.type || "check").join(", ");
-    refs.summary.innerHTML = [
+    const stats = [
       stat("Result", esc(hitTxt), hitCls),
       stat("Auto", esc(autoTxt), data.auto === "crit" ? "crit" : ""),
       stat("Attack total", esc(uiDash(data.attackTotal))),
       stat("Defense total", esc(uiDash(data.defenseTotal))),
       stat("Damage", `${esc(uiDash(data.damageLevel))}${data.damageDiff != null ? ` <span class="ra-mono">D${esc(data.damageDiff)}</span>` : ""}`, data.damageLevel === "critical" ? "crit" : ""),
       stat("Body part", esc(uiDash(data.targetBodyPartName))),
+      data.armorPierceUsed && data.armorPierceUsed > 0 ? stat("Armor Pierce", esc(uiDash(data.armorPierceUsed))) : "",
       stat("Ammo spent", esc(uiDash(data.ammoSpent))),
       stat("Energy spent", esc(uiDash(data.energySpent))),
       stat("Pending", esc(pending || "-")),
       stat("Combat log id", `<span class="ra-mono">${esc(data.combatLogId ? `${String(data.combatLogId).slice(0, 8)}...` : "-")}</span>`),
       stat("Target", data.targetAlive === false ? "dead" : data.targetConscious === false ? "unconscious" : "-", data.targetAlive === false ? "danger" : "")
-    ].join("");
+    ].filter(Boolean);
+    refs.summary.innerHTML = stats.join("");
     refs.summaryCard.classList.remove("ra-hidden");
   }
   function logResult(n) {
@@ -33659,6 +34124,7 @@ function mountResolveAttackScreen({ root: root2, runtime: runtime2 }) {
     const autoTxt = n.auto === "crit" ? " - auto-crit" : n.auto === "fail" ? " - auto-fail" : "";
     pushLog(`<span class="who">accuracy</span> - <span class="ra-mono">${uiDash(n.attackRoll)} -> ${uiDash(n.attackTotal)}</span> vs <span class="ra-mono">${uiDash(n.defenseTotal)}</span> - ${n.hit ? "hit" : "miss"}${autoTxt}`);
     if (n.hit) pushLog(`<span class="who">damage</span> - ${esc(uiDash(n.targetBodyPartName))} - <span class="ra-mono">D ${uiDash(n.damageDiff)}</span> - ${esc(uiDash(n.damageLevel))}`);
+    if (n.armorPierceUsed && n.armorPierceUsed > 0) pushLog(`<span class="who">armor pierce</span> - <span class="ra-mono">${uiDash(n.armorPierceUsed)}</span>`);
     if (n.targetAlive === false) pushLog(`<span class="ra-neg">target is dead</span>`);
     else if (n.targetConscious === false) pushLog(`<span class="ra-neg">target is unconscious</span>`);
   }
@@ -36007,6 +36473,19 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       ${effect ? `<div class="cp-muted" style="margin-top:6px">${esc2(effect)}</div>` : ""}
     </div>`;
   }
+  function getWeaponAbilities(weapon) {
+    const linked = arr2(weapon?.weapon_abilities);
+    if (!linked.length) return [];
+    return linked.map((entry) => {
+      const full = state.abilities.find((ability) => ability.id === entry.character_ability_id);
+      return full ? {
+        ...full,
+        source_weapon_name: entry.weapon_name || weapon?.name || "",
+        required_profile_name: entry.profile_name || "",
+        is_available_for_active_profile: entry.is_available_for_active_profile !== false
+      } : entry;
+    });
+  }
   function renderInventory() {
     const armory = state.armory;
     const weapons = arr2(armory?.weapons);
@@ -36082,6 +36561,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const fireModes = arr2(w.available_fire_modes?.length ? w.available_fire_modes : w.active_profile?.available_fire_modes);
     const compatMags = arr2(state.armory?.magazines).filter((m) => !w.model?.caliber || (m.magazine_def?.caliber || m.caliber) === w.model.caliber);
     const ammoChips = isMelee ? `<span class="cp-chip">melee</span>` : mag ? `<span class="cp-chip ${(mag.current_rounds ?? 0) <= 0 ? "bad" : ""}">${dash2(mag.current_rounds)}/${dash2(mag.capacity || mag.magazine_def?.capacity)} - ${esc2(mag.ammo_type_name || mag.ammo_type?.name || "")}</span>` : `<span class="cp-chip bad">no magazine</span>`;
+    const weaponAbilities = getWeaponAbilities(w);
     return `<div class="cp-card" data-weapon="${esc2(w.id)}">
       <div class="cp-rowitem"><span><b>${esc2(w.name)}</b> <span class="cp-pill">${esc2(w.model?.weapon_class_name || w.model?.weapon_class || "")}</span></span>
         <span class="cp-row" style="gap:6px">${w.model?.caliber_name ? `<span class="cp-chip">${esc2(w.model.caliber_name)}</span>` : ""}${ammoChips}</span></div>
@@ -36090,6 +36570,23 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         ${fireModes.length && !isMelee ? `<label class="cp-field" style="min-width:130px"><span>Fire mode</span><select data-wact="firemode" data-weapon="${esc2(w.id)}">${fireModes.map((f) => `<option value="${esc2(f.id)}" ${f.id === fm?.id ? "selected" : ""}>${esc2(f.name || f.code)}</option>`).join("")}</select></label>` : ""}
         ${!isMelee ? `<label class="cp-field" style="min-width:150px"><span>Insert magazine</span><select data-wact="reloadmag" data-weapon="${esc2(w.id)}">${compatMags.length ? compatMags.map((m) => `<option value="${esc2(m.id)}">${esc2(m.name)} - ${dash2(m.current_rounds)}/${dash2(m.magazine_def?.capacity ?? m.capacity)}</option>`).join("") : `<option value="">-- none --</option>`}</select></label>` : ""}
       </div>
+      ${weaponAbilities.length ? `<div class="cp-list" style="margin-top:8px">${weaponAbilities.map((ability) => {
+      const passive = ability.activation_type === "passive" || ability.ability_kind === "passive";
+      const cooldown = ability.current_cooldown_rounds;
+      const attackAbility = ability.attack_type && ability.attack_type !== "none";
+      const canUse = !passive && !cooldown && !attackAbility && ability.is_available_for_active_profile !== false;
+      return `<div class="cp-card">
+          <div class="cp-rowitem">
+            <span><b>${esc2(ability.name || ability.code || "Ability")}</b> <span class="cp-pill">weapon ability</span></span>
+            <span class="cp-row" style="gap:6px">
+              ${ability.required_profile_name ? `<span class="cp-chip">${esc2(ability.required_profile_name)}</span>` : `<span class="cp-chip">all profiles</span>`}
+              ${attackAbility ? `<span class="cp-chip">attack: ${esc2(ability.attack_type)}</span>` : ""}
+              ${ability.is_available_for_active_profile === false ? `<span class="cp-chip bad">profile mismatch</span>` : ""}
+            </span>
+          </div>
+          ${canUse ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm" type="button" data-ability-use="${esc2(ability.id)}">Use ability</button></div>` : ""}
+        </div>`;
+    }).join("")}</div>` : ""}
       ${!isMelee ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm" data-wbtn="reload" data-weapon="${esc2(w.id)}" type="button" ${compatMags.length ? "" : "disabled"}>Reload (insert magazine)</button>${isGM() ? `<button class="cp-btn-sm secondary" data-gmdel="weapon" data-id="${esc2(w.id)}" type="button">GM delete</button>` : ""}</div>${compatMags.length ? "" : `<div class="cp-muted">No compatible magazine to insert.</div>`}` : `${isGM() ? `<div class="button-row" style="margin-top:8px"><button class="cp-btn-sm secondary" data-gmdel="weapon" data-id="${esc2(w.id)}" type="button">GM delete</button></div>` : ""}`}
     </div>`;
   }
@@ -36722,15 +37219,48 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function onUseAbility(abilityId) {
     const ability = state.abilities.find((a) => a.id === abilityId);
-    if (!ability) return;
+    if (!ability || state.busy) return;
     const passive = ability.activation_type === "passive" || ability.ability_kind === "passive";
     if (passive) {
       setNotice("warn", "Passive abilities activate automatically.");
       render();
       return;
     }
-    setNotice("info", `Ability activation: ${esc2(ability.name)} - ready to use (no RPC yet).`);
+    if (ability.attack_type && ability.attack_type !== "none") {
+      setNotice("warn", "Attack abilities are resolved from Combat \u2192 Resolve Attack.");
+      render();
+      return;
+    }
+    const payload = {
+      character_id: state.characterId,
+      character_ability_id: ability.id,
+      created_by: isGM() ? "GM" : "PLAYER"
+    };
+    const sourceWeaponId = String(
+      ability.source?.character_weapon_id ?? ability.source_character_weapon_id ?? ""
+    ).trim();
+    if (sourceWeaponId) {
+      payload.character_weapon_id = sourceWeaponId;
+    }
+    state.busy = true;
+    state.notice = `Using ability ${ability.name}...`;
     render();
+    (async () => {
+      try {
+        const result = await api.ability.useAbility(payload, settings());
+        if (!result || result.ok === false) {
+          setNotice("err", `${esc2(describeError(result?.error, result?.message || "Ability use failed."))}${result?.error ? ` <span class="cp-mono">[${esc2(result.error)}]</span>` : ""}`);
+          return;
+        }
+        await refresh({ sheet: true, armory: true, equipment: false, inventory: false, abilities: true, perkAvailability: false });
+        setNotice("ok", esc2(result.message || `${ability.name} used.`));
+      } catch (e) {
+        setNotice("err", `Ability use failed: ${esc2(e.message)}`);
+      } finally {
+        state.busy = false;
+        render();
+      }
+    })();
   }
   async function onUsePerk(perkId) {
     const perk = state.perks.find((p) => p.id === perkId);
