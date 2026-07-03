@@ -5533,7 +5533,21 @@ function titleCase(word) {
   if (!word) return "";
   return word.charAt(0) + word.slice(1).toLowerCase();
 }
+function renderBasicAttackButton(state) {
+  const ba = state?.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." };
+  const disabled = ba.inFlight || !ba.uiAllowed;
+  const tip = disabled ? tipAttr("Action unavailable", [esc(ba.uiBlockReason || (ba.inFlight ? "Attack is resolving." : "Not available"))]) : tipAttr("Attack", ["Costs: MAIN"]);
+  return `<div class="ohud-action">
+    <span class="ohud-action-econ">
+      <span class="ohud-econ-pip is-spend">M</span>
+      <span class="ohud-econ-pip">Mv</span>
+    </span>
+    <button type="button" class="${cls("ohud-action-btn", disabled ? "is-disabled" : "is-ready")}"
+      data-action="basic-attack"${disabled ? ' aria-disabled="true"' : ""}${tip}>Attack</button>
+  </div>`;
+}
 function renderActionButton(state) {
+  if (!selectSelectedSkill(state)) return renderBasicAttackButton(state);
   const label = titleCase(selectActionLabel(state));
   const can = selectCanAct(state);
   const reason = selectDisabledReason(state);
@@ -5771,6 +5785,83 @@ var VALID_COLORS = new Set(Object.values(COLOR_SEMANTICS));
 var VALID_TARGETING = new Set(Object.values(TARGETING_MODES));
 var VALID_COSTS = new Set(Object.values(ACTION_COSTS));
 
+// hud/combat/basicAttackPolicy.js
+var BASIC_ATTACK_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  inFlight: "Attack is resolving.",
+  noWeapon: "No active weapon.",
+  noTarget: "Select a target.",
+  targetNotLinked: "Target has no linked character.",
+  selfTarget: "Cannot target yourself.",
+  noZone: "Select a body zone.",
+  zoneUnresolved: "Target body zone data unavailable."
+});
+var ALLOWED = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+
+// screens/resolveAttack/resolveAttackService.js
+var ERROR_MESSAGES = Object.freeze({
+  // characters / targets
+  CHARACTER_NOT_FOUND: "Attacker character was not found.",
+  TARGET_NOT_FOUND: "Target character was not found.",
+  INVALID_TARGET: "Invalid target for this attack.",
+  // body parts
+  BODY_PART_NOT_FOUND: "Target body part was not found or cannot be targeted.",
+  TARGET_BODY_PART_NOT_FOUND: "Target body part was not found.",
+  BODY_PART_DESTROYED: "That body part is already destroyed \u2014 choose another.",
+  // weapon model / profile
+  WEAPON_NOT_FOUND: "Weapon was not found for the attacker.",
+  INVALID_WEAPON_MODEL: "Weapon model linked to the weapon was not found.",
+  INVALID_PROFILE: "Selected weapon profile is invalid.",
+  PROFILE_NOT_FOUND: "Weapon profile was not found.",
+  NO_ACTIVE_PROFILE: "Weapon has no active profile.",
+  // fire mode
+  INVALID_FIRE_MODE: "Fire mode is missing or not allowed for this weapon.",
+  FIRE_MODE_NOT_ALLOWED: "This fire mode is not allowed for the weapon.",
+  FIRE_MODE_NOT_ALLOWED_FOR_ACTIVE_PROFILE: "This fire mode is not allowed for the active profile.",
+  // magazine / ammo
+  NO_MAGAZINE: "Weapon requires a loaded magazine.",
+  INVALID_MAGAZINE: "Loaded magazine is invalid or incompatible.",
+  MAGAZINE_EMPTY: "The loaded magazine is empty.",
+  NO_AMMO: "Not enough ammunition to fire.",
+  MAGAZINE_HAS_DIFFERENT_AMMO_TYPE: "Magazine ammo type does not match.",
+  CALIBER_MISMATCH: "Magazine caliber does not match the weapon.",
+  // features
+  WEAPON_FEATURE_NOT_AVAILABLE: "That weapon feature is not available right now.",
+  MISSING_RELOAD_ITEM: "Missing the item required to reload this feature.",
+  // abilities / resources
+  ABILITY_NOT_FOUND: "Ability was not found or is disabled.",
+  INVALID_ABILITY: "Invalid ability for this action.",
+  INVALID_ATTACK_TYPE: "This ability cannot be used as an attack.",
+  ABILITY_NOT_AVAILABLE_FOR_WEAPON_PROFILE: "This weapon ability is not available for the current weapon profile.",
+  ABILITY_ON_COOLDOWN: "Ability is on cooldown.",
+  NO_ENERGY: "Not enough energy for this ability.",
+  NOT_ENOUGH_RESOURCE: "Not enough resource to use this ability.",
+  RESOURCE_POOL_NOT_FOUND: "Resource pool was not found.",
+  WEAPON_ABILITY_SOURCE_NOT_AVAILABLE: "This weapon ability is no longer available on its source weapon.",
+  // ammo stock / magazine loading
+  AMMO_STOCK_NOT_FOUND: "Ammo stock was not found.",
+  OWNER_MISMATCH: "Magazine and ammo stock belong to different characters.",
+  MAGAZINE_FULL: "Magazine is already full.",
+  NOT_ENOUGH_AMMO_STOCK: "Not enough ammo in stock.",
+  NOT_ENOUGH_MAGAZINE_ROUNDS: "Magazine does not contain that many rounds.",
+  INVALID_QUANTITY: "Invalid quantity.",
+  MAGAZINE_INCOMPATIBLE: "Magazine is not compatible with this weapon profile.",
+  // consumable items / healing (use_character_item)
+  ITEM_NOT_FOUND: "Item was not found.",
+  ITEM_NOT_AVAILABLE: "Item is not available (none left).",
+  ITEM_OWNERSHIP_MISMATCH: "Item belongs to another character.",
+  ITEM_ACTION_NOT_SUPPORTED: "This item cannot be used this way.",
+  BODY_PART_TARGET_MISMATCH: "Body part does not belong to that character.",
+  NO_HEALABLE_DAMAGE: "Nothing to heal on that body part.",
+  // GM tools
+  CHARACTER_ID_REQUIRED: "A character must be selected.",
+  // equipment / armor
+  BODY_PART_NOT_ALLOWED: "This item can't be equipped to that body part.",
+  EQUIPMENT_ITEM_NOT_FOUND: "Equipment item was not found.",
+  ALREADY_EQUIPPED: "This item is already equipped.",
+  SLOT_OCCUPIED: "That body part already has equipment in this slot."
+});
+
 // hud/scene/selectionState.js
 var SELECTION_STATUS = Object.freeze({
   ready: "ready",
@@ -5902,6 +5993,7 @@ function buildSyntheticState(payload) {
       weaponSelectorOpen: !!payload.ui?.weaponSelectorOpen,
       fireModeSelectorOpen: !!payload.ui?.fireModeSelectorOpen,
       activeIntent: payload.ui?.activeIntent ?? { kind: "weapon-attack", weaponId: null },
+      basicAttack: payload.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." },
       targeting: {
         mode: targeting.mode ?? "none",
         selectedTargetIds: Array.isArray(targeting.selectedTargetIds) ? targeting.selectedTargetIds : [],
@@ -6172,6 +6264,11 @@ function mountCombatHudModule(options) {
         break;
       case "primary":
         if (!t.classList.contains("is-disabled")) showToast("Action resolution arrives in a later phase");
+        break;
+      case "basic-attack":
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "basic-attack", type: "execute" });
+        }
         break;
       case "pick-target":
         integration.onCommand && integration.onCommand({ type: "pick-target" });

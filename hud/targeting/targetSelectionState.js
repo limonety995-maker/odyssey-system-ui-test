@@ -12,6 +12,7 @@
 // players.
 
 import { DEFAULT_PROFILE_ID, getDefaultZoneId, isValidZoneId } from "./targetProfiles.js";
+import { resolveBodyPartId } from "./targetBodyZones.js";
 
 /** Targeting modes (string values are part of the broadcast wire contract). */
 export const TARGETING_MODE = Object.freeze({
@@ -86,7 +87,8 @@ export function cancelPicking(state) {
  * zone to the profile default (a new target starts at TORSO).
  *
  * @param {{ tokenId:string, characterId?:string|null, displayName?:string,
- *           profileId?:string, distance?:({value:number,unit:string}|null) }} candidate
+ *           profileId?:string, distance?:({value:number,unit:string}|null),
+ *           bodyZones?: Array<{zoneId:string, bodyPartId:string, canBeTargeted:boolean}> }} candidate
  */
 export function applyResolvedTarget(state, candidate) {
   const s = state ?? createInitialTargetState();
@@ -102,6 +104,13 @@ export function applyResolvedTarget(state, candidate) {
       profileId,
       selectedZoneId: getDefaultZoneId(profileId),
       distance: normalizeDistance(candidate.distance),
+      // Basic Weapon Attack v1: the target's own body-part row ids (zoneId →
+      // uuid), needed to satisfy perform_attack's target_body_part_id
+      // contract. Fetched via the existing get_character_runtime_bundle RPC
+      // ("combat" section only — see targetBodyZones.js). NEVER broadcast as
+      // a raw list (see buildTargetingBroadcast below) — only the resolved id
+      // for the CURRENTLY selected zone ever leaves this module.
+      bodyZones: Array.isArray(candidate.bodyZones) ? candidate.bodyZones : [],
     },
     error: noError(),
   };
@@ -215,6 +224,9 @@ export function buildTargetingBroadcast(state) {
           profileId: s.target.profileId,
           selectedZoneId: s.target.selectedZoneId,
           distance: s.target.distance ?? null,
+          // Resolved fresh from bodyZones on every broadcast (never stale) —
+          // the raw bodyZones list itself is NOT shipped over the wire.
+          resolvedBodyPartId: resolveBodyPartId(s.target.bodyZones, s.target.selectedZoneId),
         }
       : null,
     error: { code: s.error?.code ?? null, message: s.error?.message ?? null },
@@ -233,6 +245,7 @@ export function normalizeTargetingPayload(raw) {
         profileId: String(raw.target.profileId ?? DEFAULT_PROFILE_ID),
         selectedZoneId: String(raw.target.selectedZoneId ?? getDefaultZoneId(raw.target.profileId)),
         distance: normalizeDistance(raw.target.distance),
+        resolvedBodyPartId: raw.target.resolvedBodyPartId ?? null,
       }
     : null;
   return {

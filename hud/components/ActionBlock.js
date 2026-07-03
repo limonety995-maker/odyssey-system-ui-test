@@ -11,6 +11,7 @@ import {
   selectCanAct,
   selectDisabledReason,
   selectCurrentActionCost,
+  selectSelectedSkill,
 } from "../core/combatHudSelectors.js";
 import { esc, tipAttr, cls } from "./hudDom.js";
 
@@ -20,7 +21,30 @@ function titleCase(word) {
   return word.charAt(0) + word.slice(1).toLowerCase();
 }
 
+/** Basic Weapon Attack v1 — no skill/technique drafted (plain "Attack"). The
+ *  server (perform_attack) is the sole judge of hit/miss/damage/ammo; this
+ *  button only reflects basicAttackPolicy's PRECONDITIONS (source/target/
+ *  weapon/zone present) — never a fabricated reason like "No ammo". */
+function renderBasicAttackButton(state) {
+  const ba = state?.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." };
+  const disabled = ba.inFlight || !ba.uiAllowed;
+  const tip = disabled
+    ? tipAttr("Action unavailable", [esc(ba.uiBlockReason || (ba.inFlight ? "Attack is resolving." : "Not available"))])
+    : tipAttr("Attack", ["Costs: MAIN"]);
+
+  return `<div class="ohud-action">
+    <span class="ohud-action-econ">
+      <span class="ohud-econ-pip is-spend">M</span>
+      <span class="ohud-econ-pip">Mv</span>
+    </span>
+    <button type="button" class="${cls("ohud-action-btn", disabled ? "is-disabled" : "is-ready")}"
+      data-action="basic-attack"${disabled ? ' aria-disabled="true"' : ""}${tip}>Attack</button>
+  </div>`;
+}
+
 export function renderActionButton(state) {
+  if (!selectSelectedSkill(state)) return renderBasicAttackButton(state);
+
   const label = titleCase(selectActionLabel(state));
   const can = selectCanAct(state);
   const reason = selectDisabledReason(state);

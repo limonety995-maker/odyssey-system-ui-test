@@ -222,6 +222,11 @@ export function mountCombatHudModule(options) {
       case "primary":
         if (!t.classList.contains("is-disabled")) showToast("Action resolution arrives in a later phase");
         break;
+      case "basic-attack":
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "basic-attack", type: "execute" });
+        }
+        break;
       case "pick-target":
         integration.onCommand && integration.onCommand({ type: "pick-target" });
         break;

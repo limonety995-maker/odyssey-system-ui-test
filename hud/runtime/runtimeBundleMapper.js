@@ -111,7 +111,10 @@ function hasValue(v) {
   return v !== null && v !== undefined && v !== "";
 }
 
-function normalizePartId(bp) {
+// Exported so hud/targeting/targetBodyZones.js can reuse the SAME zone-code
+// normalization when resolving a TARGET's body parts (never duplicate this
+// alias table — see targetBodyZones.js for why the target needs it).
+export function normalizePartId(bp) {
   const raw = str(bp?.zone_id) ?? str(bp?.part_key) ?? str(bp?.code) ?? str(bp?.id) ?? "unknown";
   const v = raw.toLowerCase();
   const aliases = {

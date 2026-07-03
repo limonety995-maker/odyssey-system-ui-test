@@ -136,6 +136,7 @@ function buildSyntheticState(payload) {
       weaponSelectorOpen:      !!payload.ui?.weaponSelectorOpen,
       fireModeSelectorOpen:    !!payload.ui?.fireModeSelectorOpen,
       activeIntent:            payload.ui?.activeIntent ?? { kind: "weapon-attack", weaponId: null },
+      basicAttack: payload.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." },
       targeting: {
         mode:                targeting.mode ?? "none",
         selectedTargetIds:   Array.isArray(targeting.selectedTargetIds) ? targeting.selectedTargetIds : [],

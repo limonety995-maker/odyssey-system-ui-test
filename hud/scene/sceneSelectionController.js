@@ -23,10 +23,13 @@ import {
 import { loadRoomSupabaseSettings, hasSupabaseSettings } from "../../bridge/settingsBridge.js";
 import { getSceneTokenLinks, getCharacterRuntimeBundle } from "../../api/characterPlacementApi.js";
 import { loadWeaponProfileMagazine, getCharacterArmory, switchWeaponFireMode } from "../../api/weaponApi.js";
+import { performAttack } from "../../api/combatApi.js";
 import { getCharacterInventory } from "../../api/inventoryApi.js";
 import { resolveReloadMagazineId, normalizeReloadRpcResult } from "./reloadPolicy.js";
 import { normalizeFireModeRpcResult } from "./fireModePolicy.js";
-import { BC_HUD_COMMAND, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST } from "../overlay/overlayConstants.js";
+import { evaluateBasicAttack, buildAttackRequestSignature, isAttackResultStale } from "../combat/basicAttackPolicy.js";
+import { buildBasicAttackCtx, resolveAttack } from "../combat/basicAttackPayload.js";
+import { BC_HUD_COMMAND, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_TARGETING_COMMAND } from "../overlay/overlayConstants.js";
 import { createSceneSelectionAdapter } from "./sceneSelectionAdapter.js";
 import { buildCanonicalArmory } from "../runtime/runtimeBundleMapper.js";
 import { buildBroadcastPayload, normalizeViewer } from "./selectionState.js";
@@ -71,6 +74,14 @@ export function setupSceneSelection(hooks = {}) {
     // weapons away and back never carries a mode over from a different weapon.
     fireModeSelectorOpen: false,
     fireModeRpcResult: null,
+    // Basic Weapon Attack v1: true only for the duration of an in-flight
+    // perform_attack call — blocks double-submit (see handleCommand's
+    // "execute" branch) and disables the Action button client-side.
+    basicAttackInFlight: false,
+    // Last outcome for ?debug=1 / the commandStatus toast — never a
+    // fabricated hit/miss/damage, only what buildBasicAttackDebugInfo()
+    // forwards from the real server response or exception.
+    basicAttackResult: null,
   };
   let debugEnabled = false;
   try { debugEnabled = new URLSearchParams(window.location.search).get("debug") === "1"; } catch (_e) { debugEnabled = false; }
@@ -140,6 +151,11 @@ export function setupSceneSelection(hooks = {}) {
       ephemeral.reloadRpcResult = null;
       ephemeral.fireModeSelectorOpen = false;
       ephemeral.fireModeRpcResult = null;
+      // NOTE: basicAttackInFlight is intentionally NOT force-cleared here — an
+      // in-flight request's own staleness check (comparing a source/weapon/
+      // target signature captured at request time) is what actually protects
+      // against a stale result applying to a new character; see "execute".
+      ephemeral.basicAttackResult = null;
     }
 
     function buildEphemeralForPayload() {
@@ -159,6 +175,8 @@ export function setupSceneSelection(hooks = {}) {
         reloadRpcResult: ephemeral.reloadRpcResult,
         fireModeSelectorOpen: ephemeral.fireModeSelectorOpen,
         fireModeRpcResult: ephemeral.fireModeRpcResult,
+        basicAttackInFlight: ephemeral.basicAttackInFlight,
+        basicAttackResult: ephemeral.basicAttackResult,
       };
     }
 
@@ -179,7 +197,13 @@ export function setupSceneSelection(hooks = {}) {
         mode: payload?.mode === "picking" ? "picking" : "none",
         selectedTargetIds: target?.tokenId ? [String(target.tokenId)] : [],
         selectedTargetName: target?.displayName ?? null,
+        // NOTE: selectedBodyPartId here is the WIRE ZONE CODE (e.g. "TORSO"),
+        // an existing, unchanged field used for display/highlight. The REAL
+        // per-character body-part uuid perform_attack needs is the separate
+        // resolvedBodyPartId field below — never conflate the two.
         selectedBodyPartId: target?.selectedZoneId ?? "torso",
+        selectedTargetCharacterId: target?.characterId ?? null,
+        resolvedBodyPartId: target?.resolvedBodyPartId ?? null,
         distance: Number.isFinite(Number(target?.distance?.value)) ? Number(target.distance.value) : null,
         error: payload?.error ?? null,
       };
@@ -243,6 +267,101 @@ export function setupSceneSelection(hooks = {}) {
           return;
         }
         return; // unknown fire-mode command → ignore, never falls through below
+      }
+
+      // Basic Weapon Attack v1: same namespaced-scope routing pattern as
+      // fire-mode above — cannot collide with weapon/magazine/reload/target/
+      // skill/arrange commands regardless of `type` string reuse.
+      if (command?.scope === "combat-hud" && command?.feature === "basic-attack") {
+        const baType = String(command.type ?? "");
+        if (baType !== "execute") return; // unknown → ignore
+
+        // Double-submit guard: a second "execute" while one is in flight is a
+        // no-op, not a queued second attack.
+        if (ephemeral.basicAttackInFlight) return;
+
+        const weapon = lastPayload.hudSnapshot?.weapon?.primary ?? null;
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          weaponId: weapon?.id ?? null,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          bodyZoneId: targeting.selectedBodyPartId ?? null,
+          resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+          inFlight: false,
+        };
+        const evalResult = evaluateBasicAttack(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.basicAttackResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        // Snapshot the source/weapon/target this request is FOR. If any of
+        // them changed by the time the RPC resolves, the result must not be
+        // applied to the (now different) HUD state — see the staleness check
+        // below.
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, weaponId: evalCtx.weaponId, targetCharacterId: evalCtx.targetCharacterId };
+        const ctx = buildBasicAttackCtx({
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          weaponId: evalCtx.weaponId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          bodyPartId: evalCtx.resolvedBodyPartId,
+          distance: targeting.distance ?? 0,
+        });
+
+        ephemeral.basicAttackInFlight = true;
+        if (lastState) publishState(lastState); // Action disables immediately
+
+        let outcome;
+        try {
+          outcome = await resolveAttack(ctx, { performAttack: (payload) => performAttack(payload, settings) });
+        } catch (error) {
+          // resolveAttack() already catches RPC/network errors internally and
+          // returns { ok:false, ... } — this catch only guards a thrown
+          // ValidationError (a locally-missing required field).
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Attack failed.") };
+        }
+
+        ephemeral.basicAttackInFlight = false;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          weaponId: lastPayload.hudSnapshot?.weapon?.primary?.id ?? null,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null,
+        };
+        const stale = isAttackResultStale(requestCtx, currentCtx);
+
+        ephemeral.basicAttackResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+
+        if (stale) {
+          // Source/weapon/target changed mid-flight: never apply this result
+          // to the new HUD state (no toast, no target/zone reset, no refresh
+          // tied to the OLD context) — just stop showing "resolving".
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Attack resolved." };
+          // Only the temporary selection state that should end after a
+          // normal attack: the selected target + its body zone. No modifier
+          // state to reset — v1 wires none into the payload (see the report).
+          try { OBR.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "clear" }, { destination: "LOCAL" }); } catch (_e) { /* best-effort */ }
+          // Authoritative refresh of THIS source's armory/inventory/runtime —
+          // never the target's private bundle.
+          await refetchCurrent();
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Attack failed." };
+          // Target/body zone are intentionally left untouched on failure. A
+          // denial can stem from stale local state (e.g. a weapon lock that
+          // changed elsewhere), so refresh the SOURCE's own state — this never
+          // touches target/zone selection either.
+          await refetchCurrent();
+        }
+        return;
       }
 
       const type = String(command.type ?? "");

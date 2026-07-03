@@ -6,9 +6,19 @@
 //   - map-level item geometry (position) for distance;
 //   - the scene grid + canonical distance math.
 //
-// It NEVER loads the target's private runtime bundle, never reads token metadata,
-// and never writes anything. All I/O arrives through injected functions so this
-// module is pure-testable with fakes (incl. the A→B race via delayed promises).
+// It never reads token metadata and never writes anything. All I/O arrives
+// through injected functions so this module is pure-testable with fakes
+// (incl. the A→B race via delayed promises).
+//
+// Basic Weapon Attack v1 exception: `fetchTargetBodyZones` (optional) fetches
+// ONLY the target's "combat" section (existing get_character_runtime_bundle
+// RPC, no new RPC) to resolve its body-part zone→uuid mapping — required by
+// perform_attack's target_body_part_id contract (verified against the SQL;
+// it does not accept a generic zone code). Every other field of that section
+// (shield/psi/combat_flags/status_summary) is discarded by
+// targetBodyZones.mapTargetBodyZones() before it ever reaches this adapter —
+// this module still never sees or forwards the target's armory/abilities/
+// effects/summary sections.
 
 import { validateCandidate, extractTokenLink, createTargetGenerationGate, TARGETING_ERROR } from "./targetSelectionState.js";
 import { DEFAULT_PROFILE_ID } from "./targetProfiles.js";
@@ -19,6 +29,7 @@ import { computeTargetDistance } from "./targetDistance.js";
  *   fetchSceneTokenLink: (tokenId:string) => Promise<object>,
  *   getTokenSummary?: (tokenId:string) => Promise<{ displayName?:string, position?:{x:number,y:number}|null }|null>,
  *   getGrid?: () => (object|Promise<object>),
+ *   fetchTargetBodyZones?: (characterId:string) => Promise<Array<{zoneId:string,bodyPartId:string,canBeTargeted:boolean}>>,
  *   getSourceContext: () => { tokenId:(string|null), characterId:(string|null), characterName:(string|null) },
  * }} deps
  */
@@ -26,6 +37,7 @@ export function createTargetSelectionAdapter(deps = {}) {
   const fetchSceneTokenLink = deps.fetchSceneTokenLink;
   const getTokenSummary = typeof deps.getTokenSummary === "function" ? deps.getTokenSummary : null;
   const getGrid = typeof deps.getGrid === "function" ? deps.getGrid : null;
+  const fetchTargetBodyZones = typeof deps.fetchTargetBodyZones === "function" ? deps.fetchTargetBodyZones : null;
   const getSourceContext = typeof deps.getSourceContext === "function" ? deps.getSourceContext : () => ({});
   const gate = createTargetGenerationGate();
 
@@ -73,6 +85,15 @@ export function createTargetSelectionAdapter(deps = {}) {
       distance = null;
     }
 
+    // 5) Target body-part zone→uuid map (best-effort; never fatal). Absent
+    // fetcher or failure → empty list, so the zone simply won't resolve to a
+    // real id (basicAttackPolicy blocks Attack with a clear, honest reason
+    // rather than sending an invalid target_body_part_id).
+    let bodyZones = [];
+    if (fetchTargetBodyZones && link.characterId) {
+      try { bodyZones = await fetchTargetBodyZones(link.characterId); } catch (_e) { bodyZones = []; }
+    }
+
     return {
       ok: true,
       candidate: {
@@ -81,6 +102,7 @@ export function createTargetSelectionAdapter(deps = {}) {
         displayName,
         profileId: DEFAULT_PROFILE_ID,
         distance,
+        bodyZones,
       },
     };
   }

@@ -4691,6 +4691,155 @@ function getCharacterWeaponFeatures(characterWeaponId, settings) {
   );
 }
 
+// api/combatApi.js
+var combatApi_exports = {};
+__export(combatApi_exports, {
+  addParticipant: () => addParticipant,
+  convertActionToMove: () => convertActionToMove,
+  endEncounter: () => endEncounter,
+  endTurn: () => endTurn,
+  executeAction: () => executeAction,
+  forceNextTurn: () => forceNextTurn,
+  getActiveRuntime: () => getActiveRuntime,
+  getCombatLog: () => getCombatLog,
+  grantReactionAction: () => grantReactionAction,
+  markCharacterDead: () => markCharacterDead,
+  moveCharacter: () => moveCharacter,
+  performAttack: () => performAttack,
+  removeParticipant: () => removeParticipant,
+  reorderInitiative: () => reorderInitiative,
+  skipTurn: () => skipTurn,
+  spendMove: () => spendMove,
+  startEncounter: () => startEncounter,
+  syncPositionsFromOwlbear: () => syncPositionsFromOwlbear
+});
+function performAttack(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.performAttack,
+    { p_payload: payload },
+    settings
+  );
+}
+function moveCharacter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.moveCharacter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function syncPositionsFromOwlbear(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.syncPositionsFromOwlbear,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function startEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.startEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function addParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.addParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function removeParticipant(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.removeParticipant,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function reorderInitiative(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.reorderInitiative,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function skipTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.skipTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function forceNextTurn(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.forceNextTurn,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function endEncounter(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.endEncounter,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getActiveRuntime(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getActiveRuntime,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function markCharacterDead(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.markCharacterDead,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function convertActionToMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.convertActionToMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function spendMove(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.spendMove,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function executeAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.executeAction,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function getCombatLog(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.getCombatLog,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+function grantReactionAction(payload, settings) {
+  return callSupabaseRpc(
+    COMBAT_RPC_NAMES.grantReactionAction,
+    { p_payload: payload ?? {} },
+    settings
+  );
+}
+
 // api/inventoryApi.js
 var inventoryApi_exports = {};
 __export(inventoryApi_exports, {
@@ -4807,6 +4956,270 @@ function normalizeFireModeRpcResult(error) {
     ok: false,
     error: "RPC_EXCEPTION",
     message: String(error?.message ?? error ?? "Fire mode switch failed.")
+  };
+}
+
+// hud/combat/basicAttackPolicy.js
+var BASIC_ATTACK_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  inFlight: "Attack is resolving.",
+  noWeapon: "No active weapon.",
+  noTarget: "Select a target.",
+  targetNotLinked: "Target has no linked character.",
+  selfTarget: "Cannot target yourself.",
+  noZone: "Select a body zone.",
+  zoneUnresolved: "Target body zone data unavailable."
+});
+function blocked(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateBasicAttack(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    weaponId = null,
+    targetTokenId = null,
+    targetCharacterId = null,
+    bodyZoneId = null,
+    resolvedBodyPartId = null,
+    inFlight = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked(BASIC_ATTACK_BLOCK_REASON.noCharacter);
+  if (inFlight) return blocked(BASIC_ATTACK_BLOCK_REASON.inFlight);
+  if (!weaponId) return blocked(BASIC_ATTACK_BLOCK_REASON.noWeapon);
+  if (!targetTokenId && !targetCharacterId) return blocked(BASIC_ATTACK_BLOCK_REASON.noTarget);
+  if (!targetCharacterId) return blocked(BASIC_ATTACK_BLOCK_REASON.targetNotLinked);
+  if (String(targetCharacterId) === String(sourceCharacterId)) return blocked(BASIC_ATTACK_BLOCK_REASON.selfTarget);
+  if (!bodyZoneId) return blocked(BASIC_ATTACK_BLOCK_REASON.noZone);
+  if (!resolvedBodyPartId) return blocked(BASIC_ATTACK_BLOCK_REASON.zoneUnresolved);
+  return ALLOWED;
+}
+function buildAttackRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.weaponId ?? ""}|${ctx.targetCharacterId ?? ""}`;
+}
+function isAttackResultStale(requestCtx, currentCtx) {
+  return buildAttackRequestSignature(requestCtx) !== buildAttackRequestSignature(currentCtx);
+}
+
+// screens/resolveAttack/resolveAttackService.js
+var ValidationError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ValidationError";
+  }
+};
+var ERROR_MESSAGES = Object.freeze({
+  // characters / targets
+  CHARACTER_NOT_FOUND: "Attacker character was not found.",
+  TARGET_NOT_FOUND: "Target character was not found.",
+  INVALID_TARGET: "Invalid target for this attack.",
+  // body parts
+  BODY_PART_NOT_FOUND: "Target body part was not found or cannot be targeted.",
+  TARGET_BODY_PART_NOT_FOUND: "Target body part was not found.",
+  BODY_PART_DESTROYED: "That body part is already destroyed \u2014 choose another.",
+  // weapon model / profile
+  WEAPON_NOT_FOUND: "Weapon was not found for the attacker.",
+  INVALID_WEAPON_MODEL: "Weapon model linked to the weapon was not found.",
+  INVALID_PROFILE: "Selected weapon profile is invalid.",
+  PROFILE_NOT_FOUND: "Weapon profile was not found.",
+  NO_ACTIVE_PROFILE: "Weapon has no active profile.",
+  // fire mode
+  INVALID_FIRE_MODE: "Fire mode is missing or not allowed for this weapon.",
+  FIRE_MODE_NOT_ALLOWED: "This fire mode is not allowed for the weapon.",
+  FIRE_MODE_NOT_ALLOWED_FOR_ACTIVE_PROFILE: "This fire mode is not allowed for the active profile.",
+  // magazine / ammo
+  NO_MAGAZINE: "Weapon requires a loaded magazine.",
+  INVALID_MAGAZINE: "Loaded magazine is invalid or incompatible.",
+  MAGAZINE_EMPTY: "The loaded magazine is empty.",
+  NO_AMMO: "Not enough ammunition to fire.",
+  MAGAZINE_HAS_DIFFERENT_AMMO_TYPE: "Magazine ammo type does not match.",
+  CALIBER_MISMATCH: "Magazine caliber does not match the weapon.",
+  // features
+  WEAPON_FEATURE_NOT_AVAILABLE: "That weapon feature is not available right now.",
+  MISSING_RELOAD_ITEM: "Missing the item required to reload this feature.",
+  // abilities / resources
+  ABILITY_NOT_FOUND: "Ability was not found or is disabled.",
+  INVALID_ABILITY: "Invalid ability for this action.",
+  INVALID_ATTACK_TYPE: "This ability cannot be used as an attack.",
+  ABILITY_NOT_AVAILABLE_FOR_WEAPON_PROFILE: "This weapon ability is not available for the current weapon profile.",
+  ABILITY_ON_COOLDOWN: "Ability is on cooldown.",
+  NO_ENERGY: "Not enough energy for this ability.",
+  NOT_ENOUGH_RESOURCE: "Not enough resource to use this ability.",
+  RESOURCE_POOL_NOT_FOUND: "Resource pool was not found.",
+  WEAPON_ABILITY_SOURCE_NOT_AVAILABLE: "This weapon ability is no longer available on its source weapon.",
+  // ammo stock / magazine loading
+  AMMO_STOCK_NOT_FOUND: "Ammo stock was not found.",
+  OWNER_MISMATCH: "Magazine and ammo stock belong to different characters.",
+  MAGAZINE_FULL: "Magazine is already full.",
+  NOT_ENOUGH_AMMO_STOCK: "Not enough ammo in stock.",
+  NOT_ENOUGH_MAGAZINE_ROUNDS: "Magazine does not contain that many rounds.",
+  INVALID_QUANTITY: "Invalid quantity.",
+  MAGAZINE_INCOMPATIBLE: "Magazine is not compatible with this weapon profile.",
+  // consumable items / healing (use_character_item)
+  ITEM_NOT_FOUND: "Item was not found.",
+  ITEM_NOT_AVAILABLE: "Item is not available (none left).",
+  ITEM_OWNERSHIP_MISMATCH: "Item belongs to another character.",
+  ITEM_ACTION_NOT_SUPPORTED: "This item cannot be used this way.",
+  BODY_PART_TARGET_MISMATCH: "Body part does not belong to that character.",
+  NO_HEALABLE_DAMAGE: "Nothing to heal on that body part.",
+  // GM tools
+  CHARACTER_ID_REQUIRED: "A character must be selected.",
+  // equipment / armor
+  BODY_PART_NOT_ALLOWED: "This item can't be equipped to that body part.",
+  EQUIPMENT_ITEM_NOT_FOUND: "Equipment item was not found.",
+  ALREADY_EQUIPPED: "This item is already equipped.",
+  SLOT_OCCUPIED: "That body part already has equipment in this slot."
+});
+function describeError(code, fallback) {
+  if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  return fallback || "The attack could not be performed.";
+}
+function splitManualModifiers(modifiers = []) {
+  let bonus = 0;
+  let penalty = 0;
+  for (const m of modifiers) {
+    if (!m || m.auto || m.on === false) continue;
+    const value = Number(m.value) || 0;
+    if (value > 0) bonus += value;
+    else if (value < 0) penalty += -value;
+  }
+  return { manual_attack_bonus: bonus, manual_attack_penalty: penalty };
+}
+function requireId(value, message) {
+  const id = String(value || "").trim();
+  if (!id) throw new ValidationError(message);
+  return id;
+}
+function buildAttackPayload(ctx = {}) {
+  const mode2 = ctx.mode === "skill" ? "skill" : "weapon";
+  const payload = {
+    attacker_character_id: requireId(ctx.attackerCharacterId, "No attacker selected."),
+    target_character_id: requireId(ctx.targetCharacterId, "No target selected."),
+    target_body_part_id: requireId(ctx.targetBodyPartId, "No target body part selected."),
+    distance_m: Math.max(Number(ctx.distanceM) || 0, 0),
+    attack_context: splitManualModifiers(ctx.modifiers)
+  };
+  if (mode2 === "skill") {
+    payload.character_ability_id = requireId(ctx.abilityId, "No ability selected.");
+  } else {
+    payload.weapon_id = requireId(ctx.weaponId, "No weapon selected.");
+  }
+  for (const [key, value] of Object.entries({
+    room_id: ctx.roomId,
+    campaign_id: ctx.campaignId,
+    scene_id: ctx.sceneId,
+    encounter_id: ctx.encounterId,
+    actor_token_id: ctx.actorTokenId,
+    target_token_id: ctx.targetTokenId
+  })) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) payload[key] = trimmed;
+  }
+  return payload;
+}
+function firstDefined(...values) {
+  for (const v of values) if (v !== void 0 && v !== null) return v;
+  return null;
+}
+function asArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+function normalizeResult(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const attack = r.attack && typeof r.attack === "object" ? r.attack : {};
+  const defense = r.defense && typeof r.defense === "object" ? r.defense : {};
+  const damage = r.damage && typeof r.damage === "object" ? r.damage : {};
+  const bodyPart = r.body_part && typeof r.body_part === "object" ? r.body_part : {};
+  const magazine = r.magazine && typeof r.magazine === "object" ? r.magazine : {};
+  const resource = r.resource && typeof r.resource === "object" ? r.resource : {};
+  const targetState = r.target_state && typeof r.target_state === "object" ? r.target_state : {};
+  const weaponEffects = r.weapon_effects && typeof r.weapon_effects === "object" ? r.weapon_effects : {};
+  return {
+    ok: r.ok !== false,
+    hit: typeof r.hit === "boolean" ? r.hit : null,
+    auto: firstDefined(r.auto),
+    // 'crit' | 'fail' | null
+    attackType: firstDefined(r.attack_type),
+    attackRoll: firstDefined(attack.roll, r.attack_roll),
+    attackTotal: firstDefined(attack.total, r.attack_total),
+    defenseTotal: firstDefined(defense.total, r.defense_total),
+    damageLevel: firstDefined(damage.level, r.damage_level),
+    damageDiff: firstDefined(damage.diff, r.damage_diff),
+    criticalDelta: firstDefined(damage.critical_delta, r.critical_delta),
+    bodyCriticalDelta: firstDefined(damage.body_critical_delta, r.body_critical_delta),
+    targetBodyPartName: firstDefined(bodyPart.name, r.target_body_part_name),
+    bodyPart: Object.keys(bodyPart).length ? bodyPart : null,
+    ammoSpent: firstDefined(magazine.bullets_spent, r.bullets_spent),
+    ammoRemaining: firstDefined(magazine.remaining_rounds, r.remaining_magazine_rounds),
+    energySpent: firstDefined(resource.spent, resource.cost, resource.amount_spent),
+    energyRemaining: firstDefined(resource.remaining, resource.current_value),
+    feature: firstDefined(r.feature),
+    armor: firstDefined(bodyPart.effective_armor, r.effective_armor, r.armor),
+    armorPierceUsed: firstDefined(
+      damage.armor_pierce_used,
+      damage.total_armor_pierce,
+      r.armor_pierce_used,
+      weaponEffects.armor_pierce
+    ),
+    armorValueUsed: firstDefined(damage.armor_value_used, bodyPart.armor_value),
+    effectiveArmor: firstDefined(damage.effective_armor, bodyPart.effective_armor, r.effective_armor),
+    weaponEffects: Object.keys(weaponEffects).length ? weaponEffects : null,
+    pendingChecks: asArray(firstDefined(r.pending_checks, r.pending_saves, [])),
+    targetAlive: typeof targetState.is_alive === "boolean" ? targetState.is_alive : null,
+    targetConscious: typeof targetState.is_conscious === "boolean" ? targetState.is_conscious : null,
+    combatLogId: firstDefined(r.log_id, r.combat_log_id)
+  };
+}
+async function resolveAttack(ctx, deps) {
+  const payload = buildAttackPayload(ctx);
+  let raw;
+  try {
+    raw = await deps.performAttack(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      payload,
+      raw: error?.details ?? null,
+      normalized: null,
+      code: error?.code ?? null,
+      error: error?.message || "Network or RPC error."
+    };
+  }
+  if (!raw || raw.ok === false) {
+    const code = raw?.error ?? null;
+    return {
+      ok: false,
+      payload,
+      raw: raw ?? null,
+      normalized: raw ? normalizeResult(raw) : null,
+      code,
+      error: raw?.message || describeError(code)
+    };
+  }
+  return { ok: true, payload, raw, normalized: normalizeResult(raw), code: null, error: null };
+}
+
+// hud/combat/basicAttackPayload.js
+function buildBasicAttackCtx(input = {}) {
+  const room = input.roomContext ?? {};
+  return {
+    mode: "weapon",
+    attackerCharacterId: input.sourceCharacterId,
+    targetCharacterId: input.targetCharacterId,
+    targetBodyPartId: input.bodyPartId,
+    distanceM: input.distance ?? 0,
+    weaponId: input.weaponId,
+    // Basic Weapon Attack v1 wires no modifier UI to the payload — see the
+    // report's Modifiers section. An empty list matches
+    // splitManualModifiers([]) => { manual_attack_bonus: 0, manual_attack_penalty: 0 },
+    // i.e. "no manual modifier", never a fabricated bonus/penalty.
+    modifiers: [],
+    roomId: room.roomId,
+    campaignId: room.campaignId,
+    sceneId: room.sceneId,
+    encounterId: room.encounterId,
+    actorTokenId: room.actorTokenId,
+    targetTokenId: room.targetTokenId
   };
 }
 
@@ -5646,6 +6059,53 @@ function buildFireModeDebugInfo(hudSnapshot, ephemeral) {
     fireModeLastResult: ephemeral.fireModeRpcResult ?? null
   };
 }
+function buildBasicAttackEvalCtx(characterId, hudSnapshot, ephemeral) {
+  const weapon = hudSnapshot?.weapon?.primary ?? null;
+  const targeting = ephemeral.targeting ?? {};
+  return {
+    sourceCharacterId: characterId ?? null,
+    weaponId: weapon?.id ?? null,
+    targetTokenId: Array.isArray(targeting.selectedTargetIds) ? targeting.selectedTargetIds[0] ?? null : null,
+    targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+    bodyZoneId: targeting.selectedBodyPartId ?? null,
+    resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+    inFlight: !!ephemeral.basicAttackInFlight
+  };
+}
+function buildBasicAttackDebugInfo(characterId, hudSnapshot, ephemeral) {
+  const weapon = hudSnapshot?.weapon?.primary ?? null;
+  const evalCtx = buildBasicAttackEvalCtx(characterId, hudSnapshot, ephemeral);
+  const evalResult = evaluateBasicAttack(evalCtx);
+  let payload = null;
+  if (evalResult.uiAllowed) {
+    try {
+      payload = buildAttackPayload(buildBasicAttackCtx({
+        sourceCharacterId: evalCtx.sourceCharacterId,
+        weaponId: evalCtx.weaponId,
+        targetCharacterId: evalCtx.targetCharacterId,
+        bodyPartId: evalCtx.resolvedBodyPartId,
+        distance: ephemeral.targeting?.distance ?? 0
+      }));
+    } catch (_e) {
+      payload = null;
+    }
+  }
+  return {
+    sourceCharacterId: evalCtx.sourceCharacterId,
+    targetTokenId: evalCtx.targetTokenId,
+    targetCharacterId: evalCtx.targetCharacterId,
+    weaponId: evalCtx.weaponId,
+    profileId: weapon?.activeProfileId ?? null,
+    selectedFireModeId: weapon?.fireMode?.selectedId ?? null,
+    bodyZone: evalCtx.bodyZoneId,
+    distance: ephemeral.targeting?.distance ?? null,
+    uiAllowed: evalResult.uiAllowed,
+    uiBlockReason: evalResult.uiBlockReason,
+    payload,
+    inFlight: evalCtx.inFlight,
+    result: ephemeral.basicAttackResult ?? { ok: null, error: null, message: null }
+  };
+}
 function buildBroadcastPayload(state, ephemeral = {}) {
   const s = state ?? createInitialSelectionState(null);
   const ready = s.status === SELECTION_STATUS.ready && s.access?.canView === true;
@@ -5684,8 +6144,10 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     if (ephemeral.debugEnabled) {
       debug.reload = buildReloadDebugInfo(hudSnapshot, ephemeral);
       debug.fireMode = buildFireModeDebugInfo(hudSnapshot, ephemeral);
+      debug.basicAttack = buildBasicAttackDebugInfo(s.characterId, hudSnapshot, ephemeral);
     }
   }
+  const basicAttackEval = ready ? evaluateBasicAttack(buildBasicAttackEvalCtx(s.characterId, hudSnapshot, ephemeral)) : { uiAllowed: false, uiBlockReason: "No character loaded." };
   return {
     status: s.status,
     selectedItemId: s.selectedItemId ?? null,
@@ -5703,7 +6165,12 @@ function buildBroadcastPayload(state, ephemeral = {}) {
       preparedAction: ephemeral.preparedAction ?? null,
       targeting: ephemeral.targeting ?? null,
       commandStatus: ephemeral.commandStatus ?? null,
-      activeIntent
+      activeIntent,
+      basicAttack: {
+        inFlight: !!ephemeral.basicAttackInFlight,
+        uiAllowed: basicAttackEval.uiAllowed,
+        uiBlockReason: basicAttackEval.uiBlockReason
+      }
     },
     debug: ready ? debug : null,
     error: { code: s.error?.code ?? null, message: s.error?.message ?? null }
@@ -5839,7 +6306,15 @@ function setupSceneSelection(hooks = {}) {
     // comes fresh from armory (weapon.fireMode.selectedId), so switching
     // weapons away and back never carries a mode over from a different weapon.
     fireModeSelectorOpen: false,
-    fireModeRpcResult: null
+    fireModeRpcResult: null,
+    // Basic Weapon Attack v1: true only for the duration of an in-flight
+    // perform_attack call — blocks double-submit (see handleCommand's
+    // "execute" branch) and disables the Action button client-side.
+    basicAttackInFlight: false,
+    // Last outcome for ?debug=1 / the commandStatus toast — never a
+    // fabricated hit/miss/damage, only what buildBasicAttackDebugInfo()
+    // forwards from the real server response or exception.
+    basicAttackResult: null
   };
   let debugEnabled = false;
   try {
@@ -5903,6 +6378,7 @@ function setupSceneSelection(hooks = {}) {
       ephemeral.reloadRpcResult = null;
       ephemeral.fireModeSelectorOpen = false;
       ephemeral.fireModeRpcResult = null;
+      ephemeral.basicAttackResult = null;
     }
     function buildEphemeralForPayload() {
       const prepared = ephemeral.preparedAction;
@@ -5918,7 +6394,9 @@ function setupSceneSelection(hooks = {}) {
         debugEnabled,
         reloadRpcResult: ephemeral.reloadRpcResult,
         fireModeSelectorOpen: ephemeral.fireModeSelectorOpen,
-        fireModeRpcResult: ephemeral.fireModeRpcResult
+        fireModeRpcResult: ephemeral.fireModeRpcResult,
+        basicAttackInFlight: ephemeral.basicAttackInFlight,
+        basicAttackResult: ephemeral.basicAttackResult
       };
     }
     function publishState(state) {
@@ -5936,7 +6414,13 @@ function setupSceneSelection(hooks = {}) {
         mode: payload?.mode === "picking" ? "picking" : "none",
         selectedTargetIds: target?.tokenId ? [String(target.tokenId)] : [],
         selectedTargetName: target?.displayName ?? null,
+        // NOTE: selectedBodyPartId here is the WIRE ZONE CODE (e.g. "TORSO"),
+        // an existing, unchanged field used for display/highlight. The REAL
+        // per-character body-part uuid perform_attack needs is the separate
+        // resolvedBodyPartId field below — never conflate the two.
         selectedBodyPartId: target?.selectedZoneId ?? "torso",
+        selectedTargetCharacterId: target?.characterId ?? null,
+        resolvedBodyPartId: target?.resolvedBodyPartId ?? null,
         distance: Number.isFinite(Number(target?.distance?.value)) ? Number(target.distance.value) : null,
         error: payload?.error ?? null
       };
@@ -5982,6 +6466,70 @@ function setupSceneSelection(hooks = {}) {
             if (lastState) publishState(lastState);
           }
           return;
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "basic-attack") {
+        const baType = String(command.type ?? "");
+        if (baType !== "execute") return;
+        if (ephemeral.basicAttackInFlight) return;
+        const weapon = lastPayload.hudSnapshot?.weapon?.primary ?? null;
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          weaponId: weapon?.id ?? null,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          bodyZoneId: targeting.selectedBodyPartId ?? null,
+          resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+          inFlight: false
+        };
+        const evalResult = evaluateBasicAttack(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.basicAttackResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, weaponId: evalCtx.weaponId, targetCharacterId: evalCtx.targetCharacterId };
+        const ctx = buildBasicAttackCtx({
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          weaponId: evalCtx.weaponId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          bodyPartId: evalCtx.resolvedBodyPartId,
+          distance: targeting.distance ?? 0
+        });
+        ephemeral.basicAttackInFlight = true;
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveAttack(ctx, { performAttack: (payload) => performAttack(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Attack failed.") };
+        }
+        ephemeral.basicAttackInFlight = false;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          weaponId: lastPayload.hudSnapshot?.weapon?.primary?.id ?? null,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null
+        };
+        const stale = isAttackResultStale(requestCtx, currentCtx);
+        ephemeral.basicAttackResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Attack resolved." };
+          try {
+            lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "clear" }, { destination: "LOCAL" });
+          } catch (_e) {
+          }
+          await refetchCurrent();
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Attack failed." };
+          await refetchCurrent();
         }
         return;
       }
@@ -6156,6 +6704,29 @@ var ZONE_TO_SVG_PART = Object.freeze({
 var SVG_PART_TO_ZONE = Object.freeze(
   Object.fromEntries(Object.entries(ZONE_TO_SVG_PART).map(([zoneId, svgPart]) => [svgPart, zoneId]))
 );
+function svgPartToZoneId(svgPart) {
+  return SVG_PART_TO_ZONE[String(svgPart ?? "")] ?? null;
+}
+
+// hud/targeting/targetBodyZones.js
+function mapTargetBodyZones(bundle) {
+  const combat = bundle?.sections?.combat ?? bundle?.combat ?? null;
+  const bodyParts = Array.isArray(combat?.body_parts) ? combat.body_parts : [];
+  const out = [];
+  for (const bp of bodyParts) {
+    const bodyPartId = String(bp?.id ?? "").trim();
+    if (!bodyPartId) continue;
+    const zoneId = svgPartToZoneId(normalizePartId(bp));
+    if (!zoneId) continue;
+    const canBeTargeted = bp?.can_be_targeted === false ? false : !(bp?.disabled || bp?.destroyed);
+    out.push({ zoneId, bodyPartId, canBeTargeted });
+  }
+  return out;
+}
+function resolveBodyPartId(bodyZones, zoneId) {
+  if (!Array.isArray(bodyZones) || !zoneId) return null;
+  return bodyZones.find((z) => z.zoneId === zoneId)?.bodyPartId ?? null;
+}
 
 // hud/targeting/targetSelectionState.js
 var TARGETING_MODE = Object.freeze({
@@ -6220,7 +6791,14 @@ function applyResolvedTarget(state, candidate) {
       displayName: str2(candidate.displayName) ?? "Target",
       profileId,
       selectedZoneId: getDefaultZoneId(profileId),
-      distance: normalizeDistance(candidate.distance)
+      distance: normalizeDistance(candidate.distance),
+      // Basic Weapon Attack v1: the target's own body-part row ids (zoneId →
+      // uuid), needed to satisfy perform_attack's target_body_part_id
+      // contract. Fetched via the existing get_character_runtime_bundle RPC
+      // ("combat" section only — see targetBodyZones.js). NEVER broadcast as
+      // a raw list (see buildTargetingBroadcast below) — only the resolved id
+      // for the CURRENTLY selected zone ever leaves this module.
+      bodyZones: Array.isArray(candidate.bodyZones) ? candidate.bodyZones : []
     },
     error: noError()
   };
@@ -6295,7 +6873,10 @@ function buildTargetingBroadcast(state) {
       displayName: s.target.displayName,
       profileId: s.target.profileId,
       selectedZoneId: s.target.selectedZoneId,
-      distance: s.target.distance ?? null
+      distance: s.target.distance ?? null,
+      // Resolved fresh from bodyZones on every broadcast (never stale) —
+      // the raw bodyZones list itself is NOT shipped over the wire.
+      resolvedBodyPartId: resolveBodyPartId(s.target.bodyZones, s.target.selectedZoneId)
     } : null,
     error: { code: s.error?.code ?? null, message: s.error?.message ?? null }
   };
@@ -6473,6 +7054,7 @@ function createTargetSelectionAdapter(deps = {}) {
   const fetchSceneTokenLink = deps.fetchSceneTokenLink;
   const getTokenSummary = typeof deps.getTokenSummary === "function" ? deps.getTokenSummary : null;
   const getGrid = typeof deps.getGrid === "function" ? deps.getGrid : null;
+  const fetchTargetBodyZones = typeof deps.fetchTargetBodyZones === "function" ? deps.fetchTargetBodyZones : null;
   const getSourceContext = typeof deps.getSourceContext === "function" ? deps.getSourceContext : () => ({});
   const gate = createTargetGenerationGate();
   async function resolve(tokenId) {
@@ -6510,6 +7092,14 @@ function createTargetSelectionAdapter(deps = {}) {
     } catch (_e) {
       distance = null;
     }
+    let bodyZones = [];
+    if (fetchTargetBodyZones && link.characterId) {
+      try {
+        bodyZones = await fetchTargetBodyZones(link.characterId);
+      } catch (_e) {
+        bodyZones = [];
+      }
+    }
     return {
       ok: true,
       candidate: {
@@ -6517,7 +7107,8 @@ function createTargetSelectionAdapter(deps = {}) {
         characterId: link.characterId ?? null,
         displayName,
         profileId: DEFAULT_PROFILE_ID,
-        distance
+        distance,
+        bodyZones
       }
     };
   }
@@ -6643,6 +7234,14 @@ function setupTargetSelection(options = {}) {
         return { displayName: String(item.name ?? ""), position: item.position ?? null };
       },
       getGrid: () => getSceneGrid(),
+      // Basic Weapon Attack v1: resolve the target's OWN body-part zone→uuid
+      // map via the existing get_character_runtime_bundle RPC, "combat"
+      // section only (see targetBodyZones.js for exactly why and what is
+      // discarded). Best-effort — a failure just leaves bodyZones empty.
+      fetchTargetBodyZones: async (characterId) => {
+        const bundle = await getCharacterRuntimeBundle({ character_id: characterId, sections: ["combat"] }, settings);
+        return mapTargetBodyZones(bundle);
+      },
       getSourceContext: () => state.source ?? {}
     });
     cleanups2.push(await subscribePlayerChanges((p) => {
@@ -7540,155 +8139,6 @@ function reloadFeatureResource(payload, settings) {
   return callSupabaseRpc(
     FEATURE_RPC_NAMES.reloadFeatureResource,
     { p_payload: payload },
-    settings
-  );
-}
-
-// api/combatApi.js
-var combatApi_exports = {};
-__export(combatApi_exports, {
-  addParticipant: () => addParticipant,
-  convertActionToMove: () => convertActionToMove,
-  endEncounter: () => endEncounter,
-  endTurn: () => endTurn,
-  executeAction: () => executeAction,
-  forceNextTurn: () => forceNextTurn,
-  getActiveRuntime: () => getActiveRuntime,
-  getCombatLog: () => getCombatLog,
-  grantReactionAction: () => grantReactionAction,
-  markCharacterDead: () => markCharacterDead,
-  moveCharacter: () => moveCharacter,
-  performAttack: () => performAttack,
-  removeParticipant: () => removeParticipant,
-  reorderInitiative: () => reorderInitiative,
-  skipTurn: () => skipTurn,
-  spendMove: () => spendMove,
-  startEncounter: () => startEncounter,
-  syncPositionsFromOwlbear: () => syncPositionsFromOwlbear
-});
-function performAttack(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.performAttack,
-    { p_payload: payload },
-    settings
-  );
-}
-function moveCharacter(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.moveCharacter,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function syncPositionsFromOwlbear(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.syncPositionsFromOwlbear,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function startEncounter(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.startEncounter,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function addParticipant(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.addParticipant,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function removeParticipant(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.removeParticipant,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function reorderInitiative(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.reorderInitiative,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function endTurn(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.endTurn,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function skipTurn(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.skipTurn,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function forceNextTurn(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.forceNextTurn,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function endEncounter(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.endEncounter,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function getActiveRuntime(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.getActiveRuntime,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function markCharacterDead(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.markCharacterDead,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function convertActionToMove(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.convertActionToMove,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function spendMove(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.spendMove,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function executeAction(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.executeAction,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function getCombatLog(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.getCombatLog,
-    { p_payload: payload ?? {} },
-    settings
-  );
-}
-function grantReactionAction(payload, settings) {
-  return callSupabaseRpc(
-    COMBAT_RPC_NAMES.grantReactionAction,
-    { p_payload: payload ?? {} },
     settings
   );
 }

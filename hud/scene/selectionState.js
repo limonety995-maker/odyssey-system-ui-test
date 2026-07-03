@@ -10,6 +10,8 @@
 import { buildRuntimeDebugSummary, mapBundleToHudSnapshot } from "../runtime/runtimeBundleMapper.js";
 import { resolveReloadMagazineId } from "./reloadPolicy.js";
 import { resolveFireModeUpdatePath } from "./fireModePolicy.js";
+import { evaluateBasicAttack } from "../combat/basicAttackPolicy.js";
+import { buildBasicAttackCtx, buildAttackPayload } from "../combat/basicAttackPayload.js";
 
 /** Canonical selection statuses (string values are part of the wire contract). */
 export const SELECTION_STATUS = Object.freeze({
@@ -257,6 +259,71 @@ function buildFireModeDebugInfo(hudSnapshot, ephemeral) {
   };
 }
 
+/**
+ * The Basic Weapon Attack v1 evaluation context, shared by the live
+ * `ui.basicAttack` allow/reason (every module needs this to render the Action
+ * button correctly) and the `?debug=1` diagnostics below. Single source of
+ * truth — sceneSelectionController's "execute" command handler builds this
+ * SAME shape before calling evaluateBasicAttack() again for its own,
+ * independent server-side-of-the-iframe check.
+ */
+function buildBasicAttackEvalCtx(characterId, hudSnapshot, ephemeral) {
+  const weapon = hudSnapshot?.weapon?.primary ?? null;
+  const targeting = ephemeral.targeting ?? {};
+  return {
+    sourceCharacterId: characterId ?? null,
+    weaponId: weapon?.id ?? null,
+    targetTokenId: Array.isArray(targeting.selectedTargetIds) ? (targeting.selectedTargetIds[0] ?? null) : null,
+    targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+    bodyZoneId: targeting.selectedBodyPartId ?? null,
+    resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+    inFlight: !!ephemeral.basicAttackInFlight,
+  };
+}
+
+/**
+ * Compact, privacy-safe Basic Weapon Attack diagnostics for `?debug=1` only.
+ * Never includes the runtime bundle, armory, or any target-private data —
+ * `payload` is the SAME small object perform_attack would actually receive
+ * (built via the canonical resolveAttackService.buildAttackPayload(), not a
+ * HUD-only re-implementation), and `result` only ever reflects what the real
+ * server/RPC actually returned. PURE.
+ */
+function buildBasicAttackDebugInfo(characterId, hudSnapshot, ephemeral) {
+  const weapon = hudSnapshot?.weapon?.primary ?? null;
+  const evalCtx = buildBasicAttackEvalCtx(characterId, hudSnapshot, ephemeral);
+  const evalResult = evaluateBasicAttack(evalCtx);
+
+  let payload = null;
+  if (evalResult.uiAllowed) {
+    try {
+      payload = buildAttackPayload(buildBasicAttackCtx({
+        sourceCharacterId: evalCtx.sourceCharacterId,
+        weaponId: evalCtx.weaponId,
+        targetCharacterId: evalCtx.targetCharacterId,
+        bodyPartId: evalCtx.resolvedBodyPartId,
+        distance: ephemeral.targeting?.distance ?? 0,
+      }));
+    } catch (_e) { payload = null; }
+  }
+
+  return {
+    sourceCharacterId: evalCtx.sourceCharacterId,
+    targetTokenId: evalCtx.targetTokenId,
+    targetCharacterId: evalCtx.targetCharacterId,
+    weaponId: evalCtx.weaponId,
+    profileId: weapon?.activeProfileId ?? null,
+    selectedFireModeId: weapon?.fireMode?.selectedId ?? null,
+    bodyZone: evalCtx.bodyZoneId,
+    distance: ephemeral.targeting?.distance ?? null,
+    uiAllowed: evalResult.uiAllowed,
+    uiBlockReason: evalResult.uiBlockReason,
+    payload,
+    inFlight: evalCtx.inFlight,
+    result: ephemeral.basicAttackResult ?? { ok: null, error: null, message: null },
+  };
+}
+
 export function buildBroadcastPayload(state, ephemeral = {}) {
   const s = state ?? createInitialSelectionState(null);
   const ready = s.status === SELECTION_STATUS.ready && s.access?.canView === true;
@@ -300,8 +367,13 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
     if (ephemeral.debugEnabled) {
       debug.reload = buildReloadDebugInfo(hudSnapshot, ephemeral);
       debug.fireMode = buildFireModeDebugInfo(hudSnapshot, ephemeral);
+      debug.basicAttack = buildBasicAttackDebugInfo(s.characterId, hudSnapshot, ephemeral);
     }
   }
+
+  const basicAttackEval = ready
+    ? evaluateBasicAttack(buildBasicAttackEvalCtx(s.characterId, hudSnapshot, ephemeral))
+    : { uiAllowed: false, uiBlockReason: "No character loaded." };
 
   return {
     status: s.status,
@@ -321,6 +393,11 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
       targeting: ephemeral.targeting ?? null,
       commandStatus: ephemeral.commandStatus ?? null,
       activeIntent,
+      basicAttack: {
+        inFlight: !!ephemeral.basicAttackInFlight,
+        uiAllowed: basicAttackEval.uiAllowed,
+        uiBlockReason: basicAttackEval.uiBlockReason,
+      },
     },
     debug: ready ? debug : null,
     error: { code: s.error?.code ?? null, message: s.error?.message ?? null },

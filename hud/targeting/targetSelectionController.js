@@ -27,7 +27,8 @@ import {
   getSceneGrid,
 } from "../../bridge/obrBridge.js";
 import { loadRoomSupabaseSettings } from "../../bridge/settingsBridge.js";
-import { getSceneTokenLinks } from "../../api/characterPlacementApi.js";
+import { getSceneTokenLinks, getCharacterRuntimeBundle } from "../../api/characterPlacementApi.js";
+import { mapTargetBodyZones } from "./targetBodyZones.js";
 import {
   BC_HUD_TARGETING,
   BC_HUD_TARGETING_REQUEST,
@@ -171,6 +172,14 @@ export function setupTargetSelection(options = {}) {
         return { displayName: String(item.name ?? ""), position: item.position ?? null };
       },
       getGrid: () => getSceneGrid(),
+      // Basic Weapon Attack v1: resolve the target's OWN body-part zone→uuid
+      // map via the existing get_character_runtime_bundle RPC, "combat"
+      // section only (see targetBodyZones.js for exactly why and what is
+      // discarded). Best-effort — a failure just leaves bodyZones empty.
+      fetchTargetBodyZones: async (characterId) => {
+        const bundle = await getCharacterRuntimeBundle({ character_id: characterId, sections: ["combat"] }, settings);
+        return mapTargetBodyZones(bundle);
+      },
       getSourceContext: () => state.source ?? {},
     });
 
