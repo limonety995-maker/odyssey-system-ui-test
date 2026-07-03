@@ -4085,8 +4085,6 @@ var BC_HUD_COMMAND = "com.odyssey.combat-hud/command";
 var BC_HUD_TARGETING = "com.odyssey.combat-hud/targeting";
 var BC_HUD_TARGETING_REQUEST = "com.odyssey.combat-hud/targeting-request";
 var BC_HUD_TARGETING_COMMAND = "com.odyssey.combat-hud/targeting-command";
-var BC_HUD_DEBUG_LOG = "com.odyssey.combat-hud/debug-log";
-var BC_HUD_DEBUG_LOG_REQUEST = "com.odyssey.combat-hud/debug-log-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -6423,10 +6421,7 @@ function buildBroadcastPayload(state, ephemeral = {}) {
         inFlight: !!ephemeral.basicAttackInFlight,
         uiAllowed: basicAttackEval.uiAllowed,
         uiBlockReason: basicAttackEval.uiBlockReason
-      },
-      // Client-side gate for the Log Block's DEBUG button — the popover/UI
-      // must not exist at all outside ?debug=1 (see DebugLogPanel.js).
-      debugEnabled: !!ephemeral.debugEnabled
+      }
     },
     debug: ready ? debug : null,
     error: { code: s.error?.code ?? null, message: s.error?.message ?? null }
@@ -6583,8 +6578,7 @@ function setupSceneSelection(hooks = {}) {
   } catch (_e) {
     debugEnabled = false;
   }
-  initDebugLog(debugEnabled);
-  const cleanups2 = [];
+  const cleanups3 = [];
   function broadcast(payload) {
     try {
       lib_default.broadcast.sendMessage(BC_HUD_SELECTION, payload, { destination: "LOCAL" });
@@ -6921,6 +6915,7 @@ function setupSceneSelection(hooks = {}) {
       const { stale, state } = await adapter.resolveLatest(selectionIds);
       if (disposed || stale) return;
       if (state.status !== "ready") {
+        logDebugEvent("selection", "source-character-unavailable", { status: state.status ?? null, reason: state.error?.code ?? state.access?.reason ?? null }, false);
         resetEphemeralForCharacter(null);
       } else {
         const changed = resetEphemeralForCharacter(state.characterId ?? null);
@@ -6936,12 +6931,12 @@ function setupSceneSelection(hooks = {}) {
       }
     }
     await resolveAndPublish(player.selection);
-    cleanups2.push(await subscribePlayerChanges((p) => {
+    cleanups3.push(await subscribePlayerChanges((p) => {
       viewer = normalizeViewer({ playerId: p.id, role: p.role });
       if (shouldDeferSelection()) return;
       void resolveAndPublish(p.selection);
     }));
-    cleanups2.push(await subscribeSceneItems(() => {
+    cleanups3.push(await subscribeSceneItems(() => {
       if (sceneTimer) clearTimeout(sceneTimer);
       sceneTimer = setTimeout(() => {
         if (shouldDeferSelection()) return;
@@ -6951,10 +6946,10 @@ function setupSceneSelection(hooks = {}) {
         });
       }, SCENE_RERESOLVE_DEBOUNCE_MS);
     }));
-    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_SELECTION_REQUEST, () => {
+    cleanups3.push(lib_default.broadcast.onMessage(BC_HUD_SELECTION_REQUEST, () => {
       if (lastPayload) broadcast(lastPayload);
     }));
-    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
+    cleanups3.push(lib_default.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
       void handleCommand(event?.data).catch((error) => {
         logDebugEvent("routing", "unexpected-exception", {
           type: String(event?.data?.type ?? ""),
@@ -6977,7 +6972,7 @@ function setupSceneSelection(hooks = {}) {
       clearTimeout(sceneTimer);
       sceneTimer = null;
     }
-    for (const fn of cleanups2.splice(0)) {
+    for (const fn of cleanups3.splice(0)) {
       try {
         fn();
       } catch (_e) {
@@ -7445,7 +7440,7 @@ function setupTargetSelection(options = {}) {
   let adapter = null;
   let restoreInProgress = false;
   let fetchTargetBodyZonesFn = null;
-  const cleanups2 = [];
+  const cleanups3 = [];
   function broadcast() {
     const payload = buildTargetingBroadcast(state);
     try {
@@ -7571,7 +7566,7 @@ function setupTargetSelection(options = {}) {
       fetchTargetBodyZones: fetchTargetBodyZonesFn,
       getSourceContext: () => state.source ?? {}
     });
-    cleanups2.push(await subscribePlayerChanges((p) => {
+    cleanups3.push(await subscribePlayerChanges((p) => {
       if (disposed || restoreInProgress) return;
       if (state.mode !== TARGETING_MODE.picking) return;
       const ids = Array.isArray(p.selection) ? p.selection.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
@@ -7580,12 +7575,12 @@ function setupTargetSelection(options = {}) {
       if (tokenId === state.source?.tokenId) return;
       void resolveCandidate(tokenId);
     }));
-    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_TARGETING_REQUEST, () => broadcast()));
+    cleanups3.push(lib_default.broadcast.onMessage(BC_HUD_TARGETING_REQUEST, () => broadcast()));
     broadcast();
   }
   lib_default.onReady(() => {
     if (disposed) return;
-    cleanups2.push(lib_default.broadcast.onMessage(BC_HUD_TARGETING_COMMAND, (event) => {
+    cleanups3.push(lib_default.broadcast.onMessage(BC_HUD_TARGETING_COMMAND, (event) => {
       handleTargetingCommand(event?.data ?? {});
     }));
     void init().catch((error) => {
@@ -7595,7 +7590,7 @@ function setupTargetSelection(options = {}) {
   return {
     cleanup() {
       disposed = true;
-      for (const fn of cleanups2.splice(0)) {
+      for (const fn of cleanups3.splice(0)) {
         try {
           fn();
         } catch (_e) {
@@ -7657,7 +7652,6 @@ var LEGACY_HUD_POPOVER_IDS = Object.freeze([
 var GUN_WEAPON_SELECTOR_POPOVER_ID = "odyssey-hud-gun-weapon-selector";
 var GUN_MAGAZINE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-magazine-selector";
 var GUN_FIRE_MODE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-fire-mode-selector";
-var DEBUG_LOG_POPOVER_ID = "odyssey-hud-debug-log";
 var HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
 var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
 var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
@@ -7851,9 +7845,7 @@ var targetSelection = null;
 var gunWeaponSelectorOpen = false;
 var gunMagazineSelectorOpen = false;
 var gunFireModeSelectorOpen = false;
-var debugLogOpen = false;
 var lastActiveCharacterId = null;
-var isDebugMode = false;
 var lastSelectionPayload = null;
 var cleanups = [];
 var SECONDARY_SET2 = new Set(SECONDARY_MODULE_IDS);
@@ -8037,39 +8029,6 @@ async function closeAllCompanionSelectors() {
   } catch (_e) {
   }
 }
-function debugLogRect() {
-  if (!lastLayout.modules?.log) return null;
-  const logRect = moduleRect("log");
-  const width = 260;
-  const height = 240;
-  const gap = 4;
-  return {
-    left: Math.max(0, logRect.left + (logRect.width - width) / 2),
-    top: Math.max(0, logRect.top - height - gap),
-    width,
-    height
-  };
-}
-async function setDebugLogOpen(open) {
-  const next = Boolean(open) && isDebugMode;
-  if (next === debugLogOpen) return;
-  debugLogOpen = next;
-  if (mode !== "modules") return;
-  if (next) {
-    const rect = debugLogRect();
-    if (rect) {
-      try {
-        await lib_default.popover.open({ id: DEBUG_LOG_POPOVER_ID, url: pageUrl("debug-log"), ...paramsForRect(rect) });
-      } catch (_e) {
-      }
-    }
-  } else {
-    try {
-      await lib_default.popover.close(DEBUG_LOG_POPOVER_ID);
-    } catch (_e) {
-    }
-  }
-}
 function sendTargetingCommand(command) {
   try {
     lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, command, { destination: "LOCAL" });
@@ -8094,6 +8053,7 @@ async function reconcileSecondaryModules(prevStatus, nextStatus) {
     try {
       if (action === "open") await openModule(id);
       else await lib_default.popover.close(HUD_MODULE_POPOVER_IDS[id]);
+      logDebugEvent("popover", action === "open" ? "module-opened" : "module-closed", { moduleId: id });
     } catch (_e) {
     }
   }
@@ -8153,14 +8113,11 @@ async function applyMode() {
     gunWeaponSelectorOpen = false;
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
-    debugLogOpen = false;
     await lib_default.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {
-    });
-    await lib_default.popover.close(DEBUG_LOG_POPOVER_ID).catch(() => {
     });
     await closeEditorPopover();
     await closeAllModules();
@@ -8169,14 +8126,11 @@ async function applyMode() {
     gunWeaponSelectorOpen = false;
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
-    debugLogOpen = false;
     await lib_default.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {
-    });
-    await lib_default.popover.close(DEBUG_LOG_POPOVER_ID).catch(() => {
     });
     await closePill();
     await closeAllModules();
@@ -8212,29 +8166,11 @@ function setupCombatHudOverlay() {
   started = true;
   lib_default.onReady(async () => {
     try {
-      try {
-        isDebugMode = new URL(baseHref()).searchParams.get("debug") === "1";
-      } catch (_e) {
-        isDebugMode = false;
-      }
-      initDebugLog(isDebugMode);
       await readViewport();
       await closeLegacyPopovers();
       mode = isCollapsed() ? "collapsed" : "modules";
       await applyMode();
       startViewportPoll();
-      cleanups.push(subscribeDebugLog((entries3) => {
-        try {
-          lib_default.broadcast.sendMessage(BC_HUD_DEBUG_LOG, { entries: entries3 }, { destination: "LOCAL" });
-        } catch (_e) {
-        }
-      }));
-      cleanups.push(lib_default.broadcast.onMessage(BC_HUD_DEBUG_LOG_REQUEST, () => {
-        try {
-          lib_default.broadcast.sendMessage(BC_HUD_DEBUG_LOG, { entries: getDebugLogEntries() }, { destination: "LOCAL" });
-        } catch (_e) {
-        }
-      }));
       targetSelection = setupTargetSelection({
         onTargetingState: (payload) => {
           try {
@@ -8275,7 +8211,6 @@ function setupCombatHudOverlay() {
             gunWeaponSelectorOpen = false;
             gunMagazineSelectorOpen = false;
             gunFireModeSelectorOpen = false;
-            debugLogOpen = false;
           }
           await applyMode();
         }
@@ -8286,13 +8221,6 @@ function setupCombatHudOverlay() {
           const fmType = String(data.type ?? "");
           if (fmType === "toggle-selector") await setGunFireModeSelectorOpen(!gunFireModeSelectorOpen);
           else if (fmType === "select" || fmType === "close-selector") await setGunFireModeSelectorOpen(false);
-          return;
-        }
-        if (data?.scope === "combat-hud" && data?.feature === "debug-log") {
-          const dlType = String(data.type ?? "");
-          if (!isDebugMode) return;
-          if (dlType === "toggle") await setDebugLogOpen(!debugLogOpen);
-          else if (dlType === "clear") clearDebugLog();
           return;
         }
         const type = String(data.type ?? "");
@@ -9751,11 +9679,177 @@ function setupTacticalMoveTool({ runtime }) {
   };
 }
 
+// hud/debug/debugConsoleConstants.js
+var BC_DEBUG_CONSOLE_ENTRIES = "com.odyssey.debug-console/entries";
+var BC_DEBUG_CONSOLE_REQUEST = "com.odyssey.debug-console/request";
+var BC_DEBUG_CONSOLE_COMMAND = "com.odyssey.debug-console/command";
+
+// hud/debug/debugConsoleLayout.js
+var DEBUG_CONSOLE_POPOVER_ID = "odyssey-hud-debug-console";
+var DEBUG_LAUNCHER_POPOVER_ID = "odyssey-hud-debug-launcher";
+var MARGIN = 12;
+var CONSOLE_WIDTH = 400;
+var CONSOLE_HEIGHT = 460;
+var LAUNCHER_WIDTH = 118;
+var LAUNCHER_HEIGHT = 36;
+function topRightRect(vw, width, height, margin = MARGIN) {
+  const w = Math.max(0, Number(vw) || 0);
+  return {
+    left: Math.max(0, w - width - margin),
+    top: margin,
+    width,
+    height
+  };
+}
+function consoleRect(vw) {
+  return topRightRect(vw, CONSOLE_WIDTH, CONSOLE_HEIGHT);
+}
+function launcherRect(vw) {
+  return topRightRect(vw, LAUNCHER_WIDTH, LAUNCHER_HEIGHT);
+}
+
+// hud/debug/debugConsoleController.js
+var DEBUG_CONSOLE_HTML = "debug-console.html";
+var VIEWPORT_POLL_MS2 = 800;
+var started2 = false;
+var consoleOpen = true;
+var lastVW2 = 0;
+var lastVH2 = 0;
+var pollTimer2 = null;
+var unsubscribeLog = null;
+var cleanups2 = [];
+function baseHref2() {
+  return typeof window !== "undefined" ? window.location.href : "";
+}
+function pageUrl2(variant) {
+  try {
+    const url = new URL(DEBUG_CONSOLE_HTML, baseHref2());
+    url.searchParams.set("variant", variant);
+    return url.toString();
+  } catch {
+    return `${DEBUG_CONSOLE_HTML}?variant=${variant}`;
+  }
+}
+function paramsForRect2(rect) {
+  return {
+    width: Math.max(1, rect.width),
+    height: Math.max(1, rect.height),
+    anchorReference: "POSITION",
+    anchorPosition: { left: rect.left, top: rect.top },
+    anchorOrigin: { horizontal: "LEFT", vertical: "TOP" },
+    transformOrigin: { horizontal: "LEFT", vertical: "TOP" },
+    hidePaper: true,
+    disableClickAway: true,
+    marginThreshold: 0
+  };
+}
+async function readViewport2() {
+  const [vw, vh] = await Promise.all([lib_default.viewport.getWidth(), lib_default.viewport.getHeight()]);
+  lastVW2 = vw;
+  lastVH2 = vh;
+}
+async function openConsolePopover() {
+  await lib_default.popover.open({
+    id: DEBUG_CONSOLE_POPOVER_ID,
+    url: pageUrl2("console"),
+    ...paramsForRect2(consoleRect(lastVW2))
+  });
+}
+async function openLauncherPopover() {
+  await lib_default.popover.open({
+    id: DEBUG_LAUNCHER_POPOVER_ID,
+    url: pageUrl2("launcher"),
+    ...paramsForRect2(launcherRect(lastVW2))
+  });
+}
+async function closeConsolePopover() {
+  try {
+    await lib_default.popover.close(DEBUG_CONSOLE_POPOVER_ID);
+  } catch (_e) {
+  }
+}
+async function closeLauncherPopover() {
+  try {
+    await lib_default.popover.close(DEBUG_LAUNCHER_POPOVER_ID);
+  } catch (_e) {
+  }
+}
+async function applyConsoleState() {
+  if (consoleOpen) {
+    await closeLauncherPopover();
+    await openConsolePopover();
+  } else {
+    await closeConsolePopover();
+    await openLauncherPopover();
+  }
+}
+function broadcastEntries() {
+  try {
+    lib_default.broadcast.sendMessage(BC_DEBUG_CONSOLE_ENTRIES, { entries: getDebugLogEntries() }, { destination: "LOCAL" });
+  } catch (_e) {
+  }
+}
+function startViewportPoll2() {
+  if (pollTimer2) return;
+  pollTimer2 = setInterval(async () => {
+    try {
+      const vw = await lib_default.viewport.getWidth();
+      const vh = await lib_default.viewport.getHeight();
+      if (vw === lastVW2 && vh === lastVH2) return;
+      lastVW2 = vw;
+      lastVH2 = vh;
+      await applyConsoleState();
+    } catch (_e) {
+    }
+  }, VIEWPORT_POLL_MS2);
+  cleanups2.push(() => {
+    if (pollTimer2) {
+      clearInterval(pollTimer2);
+      pollTimer2 = null;
+    }
+  });
+}
+function startDebugConsole() {
+  if (started2) return;
+  if (typeof lib_default === "undefined" || lib_default.isAvailable === false) return;
+  started2 = true;
+  lib_default.onReady(async () => {
+    try {
+      initDebugLog(true);
+      logDebugEvent("hud", "initialized", {});
+      await readViewport2();
+      consoleOpen = true;
+      await applyConsoleState();
+      startViewportPoll2();
+      unsubscribeLog = subscribeDebugLog(() => broadcastEntries());
+      cleanups2.push(lib_default.broadcast.onMessage(BC_DEBUG_CONSOLE_REQUEST, () => broadcastEntries()));
+      cleanups2.push(lib_default.broadcast.onMessage(BC_DEBUG_CONSOLE_COMMAND, async (event) => {
+        const type = String(event?.data?.type ?? "");
+        if (type === "close") {
+          consoleOpen = false;
+          logDebugEvent("hud", "popover-closed", { popover: "debug-console" });
+          await applyConsoleState();
+        } else if (type === "reopen") {
+          consoleOpen = true;
+          logDebugEvent("hud", "popover-opened", { popover: "debug-console" });
+          await applyConsoleState();
+        } else if (type === "clear") {
+          clearDebugLog();
+        }
+      }));
+    } catch (error) {
+      console.error("[debugConsole] setup failed", error);
+      started2 = false;
+    }
+  });
+}
+
 // background.js
 async function bootstrapBackgroundShell() {
   const runtime = createOdysseyRuntime();
   setupCombatHudOverlay();
   setupTacticalMoveTool({ runtime });
+  startDebugConsole();
   await waitForObrReady();
   const [player, roomContext, settings] = await Promise.all([
     getPlayerInfo(),

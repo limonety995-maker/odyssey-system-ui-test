@@ -39,8 +39,8 @@ export const LEGACY_HUD_POPOVER_IDS = Object.freeze([
 export const GUN_WEAPON_SELECTOR_POPOVER_ID = "odyssey-hud-gun-weapon-selector";
 export const GUN_MAGAZINE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-magazine-selector";
 export const GUN_FIRE_MODE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-fire-mode-selector";
-/** Temporary, ?debug=1-only companion popover — see hud/debug/debugLogStore.js. */
-export const DEBUG_LOG_POPOVER_ID = "odyssey-hud-debug-log";
+// The temporary Debug Console (hud/debug/*) owns its own popover ids —
+// intentionally NOT declared here, so it stays fully independent/deletable.
 export const HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
 export const HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
 

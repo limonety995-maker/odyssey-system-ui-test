@@ -20,10 +20,7 @@ import moduleStyles from "../components/combatHudModule.css";
 
 import { mountCombatHudModule } from "../components/CombatHudModule.js";
 import { mountCombatHudLayoutEditor } from "../components/CombatHudLayoutEditor.js";
-import {
-  BC_HUD_COMMAND, BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST,
-  BC_HUD_DEBUG_LOG, BC_HUD_DEBUG_LOG_REQUEST, parseHudUiState,
-} from "./overlayConstants.js";
+import { BC_HUD_COMMAND, BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, parseHudUiState } from "./overlayConstants.js";
 import {
   HUD_MODULE_IDS,
   BC_HUD_LAYOUT,
@@ -35,7 +32,6 @@ import { ICON_MARK } from "../components/hudIcons.js";
 import { renderWeaponSelectorPanel } from "../components/WeaponSelectorPanel.js";
 import { renderMagazineSelectorPanel } from "../components/MagazineSelectorPanel.js";
 import { renderFireModeSelectorPanel } from "../components/FireModeSelectorPanel.js";
-import { renderDebugLogPanel } from "../components/DebugLogPanel.js";
 import { buildCompanionSelectorState } from "../scene/selectionView.js";
 
 const COMPANION_DEBUG = (() => {
@@ -235,42 +231,6 @@ function start() {
       } catch (_e) { /* standalone */ }
     }
     renderCompanion();
-    return;
-  }
-
-  // --- Debug Log companion popover (Phase 3D.1, ?debug=1 only) ---
-  // Independent of BC_HUD_SELECTION entirely — it shows HUD ACTION events, not
-  // character data, so it only needs the debug-log broadcast channel.
-  if (moduleParam === "debug-log") {
-    let entries = [];
-
-    function renderDebugLog() {
-      root.innerHTML = "";
-      const host = document.createElement("div");
-      host.className = "odyssey-hud ohud-module";
-      host.setAttribute("data-module", "debug-log");
-      host.innerHTML = renderDebugLogPanel(entries);
-      root.appendChild(host);
-    }
-
-    root.addEventListener("click", (e) => {
-      const target = e.target.closest("[data-action]");
-      if (!target || !available) return;
-      if (target.getAttribute("data-action") === "clear-debug-log") {
-        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "debug-log", type: "clear" });
-      }
-    });
-
-    if (available) {
-      try {
-        OBR.broadcast.onMessage(BC_HUD_DEBUG_LOG, (event) => {
-          entries = Array.isArray(event?.data?.entries) ? event.data.entries : [];
-          renderDebugLog();
-        });
-        send(BC_HUD_DEBUG_LOG_REQUEST, {});
-      } catch (_e) { /* standalone */ }
-    }
-    renderDebugLog();
     return;
   }
 

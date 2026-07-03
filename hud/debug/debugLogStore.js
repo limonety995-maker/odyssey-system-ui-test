@@ -1,4 +1,4 @@
-// Combat HUD — temporary in-memory Debug Log (Phase 3D.1, `?debug=1` only).
+// Combat HUD — temporary in-memory Debug Log sink.
 //
 // This is NOT the user-facing Combat Log (hud/log/combatResultLogPolicy.js)
 // and NOT a permanent HUD module. It exists purely to help diagnose HUD
@@ -6,14 +6,15 @@
 // memory for the current page lifetime:
 //   - no Supabase persistence, no localStorage, no OBR metadata, no build files;
 //   - gone on page reload;
-//   - every call is a genuine no-op unless initDebugLog(true) ran first, so
-//     production builds never collect or hold a single entry through this path.
+//   - every call is a genuine no-op unless initDebugLog(true) ran first.
 //
 // Runs as a plain singleton module in the BACKGROUND page's JS realm (shared
 // by sceneSelectionController.js, targetSelectionController.js, and
 // combatHudOverlayController.js — all instantiated once per session there).
-// The companion popover iframe (DebugLogPanel.js) lives in a SEPARATE realm
-// and receives entries only via broadcast — see combatHudOverlayController.js.
+// The temporary Debug Console (hud/debug/debugConsoleController.js) is the
+// ONLY thing that enables this store (initDebugLog(true)) and the only thing
+// that displays it — it lives in a SEPARATE popover realm and receives
+// entries only via its own broadcast channel.
 
 const MAX_ENTRIES = 200;
 

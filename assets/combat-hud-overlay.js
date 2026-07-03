@@ -5129,8 +5129,6 @@ var BC_HUD_UI_STATE = "com.odyssey.combat-hud/ui-state";
 var BC_HUD_SELECTION = "com.odyssey.combat-hud/selection";
 var BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
 var BC_HUD_COMMAND = "com.odyssey.combat-hud/command";
-var BC_HUD_DEBUG_LOG = "com.odyssey.combat-hud/debug-log";
-var BC_HUD_DEBUG_LOG_REQUEST = "com.odyssey.combat-hud/debug-log-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -6046,11 +6044,9 @@ function selectRecentLogEntries(state) {
 function renderBattleLogPanel(state) {
   const entries = selectRecentLogEntries(state);
   const list = entries.length ? `<ul class="ohud-log-list">${entries.map(entryRow).join("")}</ul>` : `<div class="ohud-log-empty">No combat log yet.</div>`;
-  const debugButton = state?.ui?.debugEnabled ? `<button type="button" class="ohud-log-debug-btn" data-action="toggle-debug-log" aria-label="Open debug log" title="Debug log (?debug=1)">DEBUG</button>` : "";
   return `<section class="ohud-panel ohud-log-panel" data-block="log">
     <div class="ohud-panel-head">
       <span class="ohud-panel-label">Battle Log</span>
-      ${debugButton}
       <button type="button" class="ohud-icon-btn" data-action="toggle-log" aria-label="Close log">${ICON_CARET_DOWN}</button>
     </div>
     ${list}
@@ -6435,7 +6431,6 @@ function buildSyntheticState(payload) {
       fireModeSelectorOpen: !!payload.ui?.fireModeSelectorOpen,
       activeIntent: payload.ui?.activeIntent ?? { kind: "weapon-attack", weaponId: null },
       basicAttack: payload.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." },
-      debugEnabled: !!payload.ui?.debugEnabled,
       targeting: {
         mode: targeting.mode ?? "none",
         selectedTargetIds: Array.isArray(targeting.selectedTargetIds) ? targeting.selectedTargetIds : [],
@@ -6757,12 +6752,6 @@ function mountCombatHudModule(options) {
         break;
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
-        break;
-      case "toggle-debug-log":
-        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "debug-log", type: "toggle" });
-        break;
-      case "clear-debug-log":
-        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "debug-log", type: "clear" });
         break;
       default:
         break;
@@ -7197,40 +7186,6 @@ function mountCombatHudLayoutEditor(options) {
   };
 }
 
-// hud/components/DebugLogPanel.js
-function formatTime(ts) {
-  try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString(void 0, { hour12: false });
-  } catch (_e) {
-    return "";
-  }
-}
-function formatDetails(details2) {
-  if (!details2 || typeof details2 !== "object") return "";
-  const parts = Object.entries(details2).filter(([, v]) => v !== void 0).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
-  return parts.join(" ");
-}
-function entryRow2(e) {
-  const details2 = formatDetails(e.details);
-  return `<li class="${cls("ohud-debuglog-row", e.success === false ? "is-fail" : "is-ok")}">
-    <span class="ohud-debuglog-time">${esc(formatTime(e.timestamp))}</span>
-    <span class="ohud-debuglog-cat">${esc(e.category)}</span>
-    <span class="ohud-debuglog-action">${esc(e.action)}</span>
-    ${details2 ? `<span class="ohud-debuglog-details" title="${esc(details2)}">${esc(details2)}</span>` : ""}
-  </li>`;
-}
-function renderDebugLogPanel(entries) {
-  const list = Array.isArray(entries) ? entries : [];
-  const body = list.length ? `<ul class="ohud-debuglog-list">${list.map(entryRow2).join("")}</ul>` : `<div class="ohud-debuglog-empty">No debug events yet.</div>`;
-  return panel({
-    key: "debug-log",
-    label: "Debug Log",
-    headerRightHtml: `<button type="button" class="ohud-debuglog-clear" data-action="clear-debug-log" aria-label="Clear debug log" title="Clear">Clear</button>`,
-    bodyHtml: body
-  });
-}
-
 // hud/overlay/combatHudOverlayPage.js
 var COMPANION_DEBUG = (() => {
   try {
@@ -7404,36 +7359,6 @@ function start() {
       }
     }
     renderCompanion();
-    return;
-  }
-  if (moduleParam === "debug-log") {
-    let renderDebugLog = function() {
-      root.innerHTML = "";
-      const host = document.createElement("div");
-      host.className = "odyssey-hud ohud-module";
-      host.setAttribute("data-module", "debug-log");
-      host.innerHTML = renderDebugLogPanel(entries);
-      root.appendChild(host);
-    };
-    let entries = [];
-    root.addEventListener("click", (e) => {
-      const target = e.target.closest("[data-action]");
-      if (!target || !available) return;
-      if (target.getAttribute("data-action") === "clear-debug-log") {
-        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "debug-log", type: "clear" });
-      }
-    });
-    if (available) {
-      try {
-        lib_default.broadcast.onMessage(BC_HUD_DEBUG_LOG, (event) => {
-          entries = Array.isArray(event?.data?.entries) ? event.data.entries : [];
-          renderDebugLog();
-        });
-        send(BC_HUD_DEBUG_LOG_REQUEST, {});
-      } catch (_e) {
-      }
-    }
-    renderDebugLog();
     return;
   }
   mountCombatHudLayoutEditor({ root, uiState, layout: readStoredLayout(window.localStorage), integration: {} });

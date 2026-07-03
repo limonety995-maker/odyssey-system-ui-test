@@ -58,15 +58,9 @@ export function renderBattleLogPanel(state) {
   const list = entries.length
     ? `<ul class="ohud-log-list">${entries.map(entryRow).join("")}</ul>`
     : `<div class="ohud-log-empty">No combat log yet.</div>`;
-  // Phase 3D.1: the DEBUG button (and the companion popover it opens) exist
-  // ONLY under ?debug=1 — in normal play this button is not rendered at all.
-  const debugButton = state?.ui?.debugEnabled
-    ? `<button type="button" class="ohud-log-debug-btn" data-action="toggle-debug-log" aria-label="Open debug log" title="Debug log (?debug=1)">DEBUG</button>`
-    : "";
   return `<section class="ohud-panel ohud-log-panel" data-block="log">
     <div class="ohud-panel-head">
       <span class="ohud-panel-label">Battle Log</span>
-      ${debugButton}
       <button type="button" class="ohud-icon-btn" data-action="toggle-log" aria-label="Close log">${ICON_CARET_DOWN}</button>
     </div>
     ${list}

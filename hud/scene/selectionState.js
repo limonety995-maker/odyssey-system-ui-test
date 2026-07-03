@@ -404,9 +404,6 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         uiAllowed: basicAttackEval.uiAllowed,
         uiBlockReason: basicAttackEval.uiBlockReason,
       },
-      // Client-side gate for the Log Block's DEBUG button — the popover/UI
-      // must not exist at all outside ?debug=1 (see DebugLogPanel.js).
-      debugEnabled: !!ephemeral.debugEnabled,
     },
     debug: ready ? debug : null,
     error: { code: s.error?.code ?? null, message: s.error?.message ?? null },

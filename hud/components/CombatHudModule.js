@@ -270,12 +270,6 @@ export function mountCombatHudModule(options) {
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
         break;
-      case "toggle-debug-log":
-        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "debug-log", type: "toggle" });
-        break;
-      case "clear-debug-log":
-        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "debug-log", type: "clear" });
-        break;
       default: break;
     }
   }

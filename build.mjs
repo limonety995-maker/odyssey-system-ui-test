@@ -42,3 +42,9 @@ await build({
   entryPoints: ["hud/overlay/combatHudOverlayPage.js"],
   outfile: "assets/combat-hud-overlay.js",
 });
+
+await build({
+  ...shared,
+  entryPoints: ["hud/debug/debugConsolePage.js"],
+  outfile: "assets/debug-console.js",
+});

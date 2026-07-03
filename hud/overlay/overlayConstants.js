@@ -55,14 +55,10 @@ export const BC_HUD_TARGETING_REQUEST = "com.odyssey.combat-hud/targeting-reques
 /** LOCAL broadcast: controller command channel for target picking lifecycle. */
 export const BC_HUD_TARGETING_COMMAND = "com.odyssey.combat-hud/targeting-command";
 
-/** LOCAL broadcast: background (debugLogStore) → the debug-log companion
- *  popover iframe, carrying the current (?debug=1-only) entries list. Never
- *  sent/subscribed when debug is off. */
-export const BC_HUD_DEBUG_LOG = "com.odyssey.combat-hud/debug-log";
-
-/** LOCAL broadcast: a freshly-mounted debug-log companion iframe → background,
- *  asking it to replay the current entries. */
-export const BC_HUD_DEBUG_LOG_REQUEST = "com.odyssey.combat-hud/debug-log-request";
+// NOTE: the temporary Debug Console (hud/debug/*) intentionally does NOT use
+// this shared overlay-constants file — it defines its own, fully separate
+// broadcast channels so it stays trivially deletable later without touching
+// any file the real HUD depends on. See hud/debug/debugConsoleController.js.
 
 /* ----------------- HUD geometry (Phase 2.1) ----------------- */
 //

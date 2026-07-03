@@ -37,7 +37,7 @@ import {
   buildFireModeLogEntry,
 } from "../log/combatResultLogPolicy.js";
 import { getZoneLabel, DEFAULT_PROFILE_ID } from "../targeting/targetProfiles.js";
-import { initDebugLog, logDebugEvent } from "../debug/debugLogStore.js";
+import { logDebugEvent } from "../debug/debugLogStore.js";
 import { BC_HUD_COMMAND, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_TARGETING_COMMAND } from "../overlay/overlayConstants.js";
 import { createSceneSelectionAdapter } from "./sceneSelectionAdapter.js";
 import { buildCanonicalArmory } from "../runtime/runtimeBundleMapper.js";
@@ -101,9 +101,11 @@ export function setupSceneSelection(hooks = {}) {
     // forwards from the real server response or exception.
     basicAttackResult: null,
   };
+  // ephemeral.debugEnabled gates the reload/fireMode/basicAttack debug sub-objects
+  // in selectionState.js (an unrelated diagnostics feature) — kept independent of
+  // the Debug Console, which is always enabled via startDebugConsole().
   let debugEnabled = false;
   try { debugEnabled = new URLSearchParams(window.location.search).get("debug") === "1"; } catch (_e) { debugEnabled = false; }
-  initDebugLog(debugEnabled);
   /** @type {Array<() => void>} */
   const cleanups = [];
 
@@ -539,6 +541,7 @@ export function setupSceneSelection(hooks = {}) {
       const { stale, state } = await adapter.resolveLatest(selectionIds);
       if (disposed || stale) return; // only the freshest selection updates the HUD
       if (state.status !== "ready") {
+        logDebugEvent("selection", "source-character-unavailable", { status: state.status ?? null, reason: state.error?.code ?? state.access?.reason ?? null }, false);
         resetEphemeralForCharacter(null);
       } else {
         const changed = resetEphemeralForCharacter(state.characterId ?? null);
