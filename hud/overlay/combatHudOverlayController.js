@@ -45,6 +45,7 @@ import {
   LEGACY_HUD_POPOVER_IDS,
   GUN_WEAPON_SELECTOR_POPOVER_ID,
   GUN_MAGAZINE_SELECTOR_POPOVER_ID,
+  GUN_FIRE_MODE_SELECTOR_POPOVER_ID,
   HUD_EDITOR_POPOVER_ID,
   HUD_PILL_POPOVER_ID,
   DEFAULT_HUD_LAYOUT_V2,
@@ -79,6 +80,7 @@ let sceneCleanup = null;
 let targetSelection = null;
 let gunWeaponSelectorOpen = false;
 let gunMagazineSelectorOpen = false;
+let gunFireModeSelectorOpen = false;
 let lastActiveCharacterId = null;
 /** Latest full trimmed selection payload (the same one module iframes get),
  *  kept ONLY to size the magazine-selector companion popover to its content
@@ -191,6 +193,20 @@ function magazineSelectorRect() {
   return companionPopoverRectAboveGun(COMPANION_SELECTOR_WIDTH, height);
 }
 
+/** Row count backing the currently-open fire-mode selector (Fire Mode v1) —
+ *  from the SAME trimmed payload, no separate fetch. */
+function visibleFireModeCount() {
+  const fireMode = lastSelectionPayload?.hudSnapshot?.weapon?.primary?.fireMode ?? null;
+  return Array.isArray(fireMode?.available) ? fireMode.available.length : 0;
+}
+
+/** Content-sized fire-mode companion popover rect (same policy as the
+ *  magazine selector). */
+function fireModeSelectorRect() {
+  const height = computeCompanionSelectorHeight(visibleFireModeCount());
+  return companionPopoverRectAboveGun(COMPANION_SELECTOR_WIDTH, height);
+}
+
 async function setGunWeaponSelectorOpen(open) {
   const next = Boolean(open);
   if (next === gunWeaponSelectorOpen) return;
@@ -233,9 +249,33 @@ async function setGunMagazineSelectorOpen(open) {
   }
 }
 
-async function closeBothCompanions() {
+async function setGunFireModeSelectorOpen(open) {
+  const next = Boolean(open);
+  if (next === gunFireModeSelectorOpen) return;
+  gunFireModeSelectorOpen = next;
+  if (mode !== "modules") return;
+  if (next) {
+    const rect = fireModeSelectorRect();
+    if (rect) {
+      try {
+        await OBR.popover.open({
+          id: GUN_FIRE_MODE_SELECTOR_POPOVER_ID,
+          url: pageUrl("gun-fire-mode-selector"),
+          ...paramsForRect(rect),
+        });
+      } catch (_e) { /* best effort */ }
+    }
+  } else {
+    try { await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID); } catch (_e) { /* ignore */ }
+  }
+}
+
+/** Close every Gun companion popover (weapon/magazine/fire-mode selectors).
+ *  Used on character change, invalid selection, collapse, and editor mode. */
+async function closeAllCompanionSelectors() {
   try { await setGunWeaponSelectorOpen(false); } catch (_e) { /* best effort */ }
   try { await setGunMagazineSelectorOpen(false); } catch (_e) { /* best effort */ }
+  try { await setGunFireModeSelectorOpen(false); } catch (_e) { /* best effort */ }
 }
 
 function sendTargetingCommand(command) {
@@ -318,16 +358,20 @@ async function applyMode() {
   if (mode === "collapsed") {
     gunWeaponSelectorOpen = false;
     gunMagazineSelectorOpen = false;
+    gunFireModeSelectorOpen = false;
     await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
+    await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
     await closeEditorPopover();
     await closeAllModules();
     await openPill();
   } else if (mode === "editor") {
     gunWeaponSelectorOpen = false;
     gunMagazineSelectorOpen = false;
+    gunFireModeSelectorOpen = false;
     await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
+    await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
     await closePill();
     await closeAllModules();
     await openEditor();
@@ -383,7 +427,7 @@ export function setupCombatHudOverlay() {
             const nextCharId = payload?.characterId ?? null;
             if (characterChangeClosesCompanions(lastActiveCharacterId, nextCharId)) {
               lastActiveCharacterId = nextCharId;
-              await closeBothCompanions();
+              await closeAllCompanionSelectors();
             }
           } catch (_e) { /* companion lifecycle is best effort */ }
           const prev = lastSelectionStatus;
@@ -402,6 +446,7 @@ export function setupCombatHudOverlay() {
           if (isCollapsed()) {
             gunWeaponSelectorOpen = false;
             gunMagazineSelectorOpen = false;
+            gunFireModeSelectorOpen = false;
           }
           await applyMode();
         }
@@ -409,9 +454,28 @@ export function setupCombatHudOverlay() {
 
       // Transient module commands that affect companion-popover lifecycle.
       cleanups.push(OBR.broadcast.onMessage(BC_HUD_COMMAND, async (event) => {
-        const type = String(event?.data?.type ?? "");
+        const data = event?.data ?? {};
+        // Fire Mode v1: namespaced commands are routed on scope+feature FIRST,
+        // never on the flat `type` alone — this popover-lifecycle handling
+        // must never be confused with weapon/magazine/reload/target/skill
+        // commands regardless of what `type` string a future command reuses.
+        if (data?.scope === "combat-hud" && data?.feature === "fire-mode") {
+          const fmType = String(data.type ?? "");
+          if (fmType === "toggle-selector") await setGunFireModeSelectorOpen(!gunFireModeSelectorOpen);
+          else if (fmType === "select" || fmType === "close-selector") await setGunFireModeSelectorOpen(false);
+          return;
+        }
+
+        const type = String(data.type ?? "");
         if (type === "toggle-weapon-selector") await setGunWeaponSelectorOpen(!gunWeaponSelectorOpen);
-        else if (type === "close-weapon-selector" || type === "select-weapon") await setGunWeaponSelectorOpen(false);
+        else if (type === "close-weapon-selector") await setGunWeaponSelectorOpen(false);
+        else if (type === "select-weapon") {
+          // The weapon actually changed — its fire modes belong to a
+          // different active profile, so any open fire-mode selector must
+          // close (its rows would otherwise describe the PREVIOUS weapon).
+          await setGunWeaponSelectorOpen(false);
+          await setGunFireModeSelectorOpen(false);
+        }
         else if (type === "toggle-magazine-selector") await setGunMagazineSelectorOpen(!gunMagazineSelectorOpen);
         else if (type === "select-reload-mag") await setGunMagazineSelectorOpen(false);
         else if (type === "reload") {
@@ -422,7 +486,7 @@ export function setupCombatHudOverlay() {
         if (type === "pick-target") sendTargetingCommand({ type: "pick" });
         else if (type === "cancel-target") sendTargetingCommand({ type: "cancel" });
         else if (type === "clear-target") sendTargetingCommand({ type: "clear" });
-        else if (type === "select-target-zone") sendTargetingCommand({ type: "selectZone", zoneId: event?.data?.zoneId });
+        else if (type === "select-target-zone") sendTargetingCommand({ type: "selectZone", zoneId: data.zoneId });
       }));
 
       // Arrange-HUD editor open/close.
@@ -463,6 +527,7 @@ export async function teardownCombatHudOverlay() {
   lastSelectionStatus = SELECTION_STATUS.loading;
   gunWeaponSelectorOpen = false;
   gunMagazineSelectorOpen = false;
+  gunFireModeSelectorOpen = false;
   lastActiveCharacterId = null;
   lastSelectionPayload = null;
   mode = "modules";
@@ -471,5 +536,6 @@ export async function teardownCombatHudOverlay() {
   await closeAllModules();
   await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
   await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
+  await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
   await closeLegacyPopovers();
 }

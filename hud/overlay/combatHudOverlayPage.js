@@ -31,6 +31,7 @@ import {
 import { ICON_MARK } from "../components/hudIcons.js";
 import { renderWeaponSelectorPanel } from "../components/WeaponSelectorPanel.js";
 import { renderMagazineSelectorPanel } from "../components/MagazineSelectorPanel.js";
+import { renderFireModeSelectorPanel } from "../components/FireModeSelectorPanel.js";
 import { buildCompanionSelectorState } from "../scene/selectionView.js";
 
 const COMPANION_DEBUG = (() => {
@@ -155,10 +156,11 @@ function start() {
     return;
   }
 
-  // --- Companion popover modules (gun-weapon-selector / gun-magazine-selector) ---
+  // --- Companion popover modules (weapon / magazine / fire-mode selectors) ---
   // These are ephemeral companion popovers opened by the overlay controller.
-  // They subscribe to live scene-selection and render the weapon/magazine selector.
-  if (moduleParam === "gun-weapon-selector" || moduleParam === "gun-magazine-selector") {
+  // They subscribe to live scene-selection and render the weapon/magazine/
+  // fire-mode selector.
+  if (moduleParam === "gun-weapon-selector" || moduleParam === "gun-magazine-selector" || moduleParam === "gun-fire-mode-selector") {
     // The companion shares the controller-owned live snapshot — it does NOT make
     // its own armory request. The raw BC_HUD_SELECTION payload is normalized
     // through the SAME synthetic-state path the Gun module uses, so the selector
@@ -176,16 +178,21 @@ function start() {
       const selState = buildCompanionSelectorState(rawPayload);
       const html = moduleParam === "gun-weapon-selector"
         ? renderWeaponSelectorPanel(selState)
-        : renderMagazineSelectorPanel(selState);
+        : moduleParam === "gun-magazine-selector"
+          ? renderMagazineSelectorPanel(selState)
+          : renderFireModeSelectorPanel(selState);
       host.innerHTML = html;
       root.appendChild(host);
 
       if (COMPANION_DEBUG) {
         const avail = selState?.snapshot?.weapon?.available;
+        const commandRoute = moduleParam === "gun-weapon-selector" ? "gun-selector"
+          : moduleParam === "gun-magazine-selector" ? "magazine-selector"
+          : "fire-mode-selector";
         // eslint-disable-next-line no-console
         console.info("[combatHud/companion:debug]", {
           module: moduleParam,
-          commandRoute: moduleParam === "gun-weapon-selector" ? "gun-selector" : "magazine-selector",
+          commandRoute,
           selectorIframeReady: !!selState,
           selectorRenderWeaponAvailableCount: Array.isArray(avail) ? avail.length : null,
           selectedWeaponId: rawPayload?.ui?.selectedWeaponId ?? null,
@@ -193,9 +200,11 @@ function start() {
       }
     }
 
-    // Forward weapon/magazine selection clicks as HUD commands. The scene
-    // controller owns the resulting state (selectedWeaponId / reload mag) and
-    // re-publishes the snapshot; the overlay controller closes this companion.
+    // Forward weapon/magazine/fire-mode selection clicks as HUD commands. The
+    // scene controller owns the resulting state (selectedWeaponId / reload mag
+    // / fire mode switch) and re-publishes the snapshot; the overlay controller
+    // closes this companion. Fire-mode uses the namespaced envelope (scope +
+    // feature) so its routing can never collide with the flat-`type` commands.
     root.addEventListener("click", (e) => {
       const target = e.target.closest("[data-action]");
       if (!target || !available) return;
@@ -204,6 +213,11 @@ function start() {
         send(BC_HUD_COMMAND, { type: "select-weapon", weaponId: target.getAttribute("data-weapon-id") });
       } else if (action === "select-reload-mag") {
         send(BC_HUD_COMMAND, { type: "select-reload-mag", magazineId: target.getAttribute("data-magazine-id") });
+      } else if (action === "select-fire-mode") {
+        send(BC_HUD_COMMAND, {
+          scope: "combat-hud", feature: "fire-mode", type: "select",
+          fireModeId: target.getAttribute("data-fire-mode-id"),
+        });
       }
     });
 

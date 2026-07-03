@@ -176,39 +176,52 @@
  * CONTENT by the controller (see hudPopoverLifecycle.computeCompanionSelectorHeight)
  * — this list must NEVER be absolutely positioned to a corner (that was the bug:
  * rows collapsed into an illegible 76px pill stack inside a large empty popover). */
-.ohud-reserve-list {
+/* The fire-mode companion popover (Fire Mode v1) shares this exact row
+ * language — same content-sized-popover contract, same full-width row shape. */
+.ohud-reserve-list,
+.ohud-firemode-list {
   display: flex; flex-direction: column; gap: 4px;
   max-height: 220px;
   overflow-y: auto; overflow-x: hidden;
 }
 .ohud-reserve-list.is-loading,
-.ohud-reserve-list.is-empty {
+.ohud-reserve-list.is-empty,
+.ohud-firemode-list.is-loading,
+.ohud-firemode-list.is-empty {
   display: flex; align-items: center; justify-content: center;
   min-height: 18px; color: var(--odyssey-hud-muted); font-size: 9px; text-align: center;
 }
-.ohud-reserve-mag {
+.ohud-reserve-mag,
+.ohud-firemode-option {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   width: 100%; height: 22px; flex: 0 0 auto; padding: 0 8px;
   border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
   background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
   font-size: 9px; white-space: nowrap;
 }
-.ohud-reserve-mag-label {
+.ohud-reserve-mag-label,
+.ohud-firemode-option-name {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-.ohud-reserve-mag-rounds {
+.ohud-reserve-mag-rounds,
+.ohud-firemode-option-code {
   flex: 0 0 auto; font-variant-numeric: tabular-nums; font-family: "SFMono-Regular", Consolas, monospace;
   color: var(--odyssey-hud-muted);
 }
-.ohud-reserve-mag.is-selected {
+.ohud-reserve-mag.is-selected,
+.ohud-firemode-option.is-selected {
   border-color: var(--odyssey-cyan);
   background: rgba(80, 220, 255, 0.1);
 }
-.ohud-reserve-mag.is-selected .ohud-reserve-mag-rounds { color: var(--odyssey-cyan); }
+.ohud-reserve-mag.is-selected .ohud-reserve-mag-rounds,
+.ohud-firemode-option.is-selected .ohud-firemode-option-code { color: var(--odyssey-cyan); }
 .ohud-reserve-mag:hover,
 .ohud-reserve-mag:focus-visible,
+.ohud-firemode-option:hover,
+.ohud-firemode-option:focus-visible,
 .ohud-weapon-option:hover { border-color: var(--odyssey-purple); }
-.ohud-reserve-mag:focus-visible { outline: none; }
+.ohud-reserve-mag:focus-visible,
+.ohud-firemode-option:focus-visible { outline: none; }
 
 .ohud-mag-selector-btn {
   position: absolute; right: 6px; top: 6px;

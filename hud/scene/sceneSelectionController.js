@@ -22,9 +22,10 @@ import {
 } from "../../bridge/obrBridge.js";
 import { loadRoomSupabaseSettings, hasSupabaseSettings } from "../../bridge/settingsBridge.js";
 import { getSceneTokenLinks, getCharacterRuntimeBundle } from "../../api/characterPlacementApi.js";
-import { loadWeaponProfileMagazine, getCharacterArmory } from "../../api/weaponApi.js";
+import { loadWeaponProfileMagazine, getCharacterArmory, switchWeaponFireMode } from "../../api/weaponApi.js";
 import { getCharacterInventory } from "../../api/inventoryApi.js";
 import { resolveReloadMagazineId, normalizeReloadRpcResult } from "./reloadPolicy.js";
+import { normalizeFireModeRpcResult } from "./fireModePolicy.js";
 import { BC_HUD_COMMAND, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST } from "../overlay/overlayConstants.js";
 import { createSceneSelectionAdapter } from "./sceneSelectionAdapter.js";
 import { buildCanonicalArmory } from "../runtime/runtimeBundleMapper.js";
@@ -62,6 +63,14 @@ export function setupSceneSelection(hooks = {}) {
     // call, so ?debug=1 can show the server's actual verdict — see
     // buildReloadDebugInfo() in selectionState.js.
     reloadRpcResult: null,
+    // Fire Mode v1: companion-popover open flag (ephemeral, like
+    // weaponSelectorOpen) + the last switch_weapon_fire_mode outcome for
+    // ?debug=1 — see buildFireModeDebugInfo() in selectionState.js. There is
+    // NO ephemeral "selected fire mode id" override: the current mode always
+    // comes fresh from armory (weapon.fireMode.selectedId), so switching
+    // weapons away and back never carries a mode over from a different weapon.
+    fireModeSelectorOpen: false,
+    fireModeRpcResult: null,
   };
   let debugEnabled = false;
   try { debugEnabled = new URLSearchParams(window.location.search).get("debug") === "1"; } catch (_e) { debugEnabled = false; }
@@ -129,6 +138,8 @@ export function setupSceneSelection(hooks = {}) {
       ephemeral.targeting = { mode: "none", selectedTargetIds: [], selectedBodyPartId: "torso" };
       ephemeral.commandStatus = null;
       ephemeral.reloadRpcResult = null;
+      ephemeral.fireModeSelectorOpen = false;
+      ephemeral.fireModeRpcResult = null;
     }
 
     function buildEphemeralForPayload() {
@@ -146,6 +157,8 @@ export function setupSceneSelection(hooks = {}) {
         activeIntent,
         debugEnabled,
         reloadRpcResult: ephemeral.reloadRpcResult,
+        fireModeSelectorOpen: ephemeral.fireModeSelectorOpen,
+        fireModeRpcResult: ephemeral.fireModeRpcResult,
       };
     }
 
@@ -176,6 +189,62 @@ export function setupSceneSelection(hooks = {}) {
     async function handleCommand(command) {
       if (!command || typeof command !== "object") return;
       if (!lastPayload || lastPayload.status !== "ready") return;
+
+      // Fire Mode v1: namespaced commands ({scope:"combat-hud", feature:"fire-mode"})
+      // are routed BEFORE the flat-`type` switch below, on scope+feature (not just
+      // `type`), so they can never collide with weapon/magazine/reload/target/
+      // skill commands regardless of what `type` string they happen to reuse.
+      if (command?.scope === "combat-hud" && command?.feature === "fire-mode") {
+        const fmType = String(command.type ?? "");
+        if (fmType === "toggle-selector") {
+          ephemeral.fireModeSelectorOpen = !ephemeral.fireModeSelectorOpen;
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (fmType === "close-selector") {
+          ephemeral.fireModeSelectorOpen = false;
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (fmType === "select") {
+          const weapon = lastPayload.hudSnapshot?.weapon?.primary ?? null;
+          const weaponId = weapon?.id ?? null;
+          const profileId = weapon?.activeProfileId ?? null;
+          const fireModeId = String(command.fireModeId ?? "").trim() || null;
+          ephemeral.fireModeSelectorOpen = false;
+          ephemeral.commandStatus = null;
+          if (!weaponId || !profileId || !fireModeId) {
+            ephemeral.commandStatus = { type: "error", message: "Fire mode switch unavailable: missing weapon, profile, or mode." };
+            ephemeral.fireModeRpcResult = { ok: false, error: "MISSING_FIELDS", message: "weaponId/profileId/fireModeId missing before RPC call." };
+            if (lastState) publishState(lastState);
+            return;
+          }
+          try {
+            await switchWeaponFireMode(ephemeral.characterId, weaponId, fireModeId, settings);
+            // Success: switch_weapon_fire_mode persists selected_fire_mode_id
+            // server-side (keyed by weapon+profile) and returns the fresh
+            // armory — an authoritative refresh (not a local override) is the
+            // only way the Gun HUD's new mode can be trusted. No local
+            // "selectedFireModeId" ephemeral is kept: the mode always comes
+            // straight from armory for whichever weapon is active.
+            ephemeral.fireModeRpcResult = normalizeFireModeRpcResult(null);
+            ephemeral.commandStatus = { type: "ok", message: "Fire mode changed." };
+            await refetchCurrent();
+          } catch (error) {
+            // switch_weapon_fire_mode RAISEs an exception (not {ok:false}) on
+            // an invalid weapon or a mode not allowed for the active profile —
+            // the real server message must reach the player, never a silent
+            // local "success".
+            const normalized = normalizeFireModeRpcResult(error);
+            ephemeral.fireModeRpcResult = normalized;
+            ephemeral.commandStatus = { type: "error", message: normalized.message || "Fire mode switch failed." };
+            if (lastState) publishState(lastState);
+          }
+          return;
+        }
+        return; // unknown fire-mode command → ignore, never falls through below
+      }
+
       const type = String(command.type ?? "");
       ephemeral.commandStatus = null;
       if (type === "select-weapon") {
@@ -187,6 +256,10 @@ export function setupSceneSelection(hooks = {}) {
         ephemeral.selectedReloadMagazineId = null;
         ephemeral.reloadRpcResult = null;
         ephemeral.weaponSelectorOpen = false;
+        // A new weapon has its own active profile / fire mode — never carry
+        // the previous weapon's selector state or last RPC result forward.
+        ephemeral.fireModeSelectorOpen = false;
+        ephemeral.fireModeRpcResult = null;
         if (lastState) publishState(lastState);
         return;
       }

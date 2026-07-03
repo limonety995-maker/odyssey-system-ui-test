@@ -190,11 +190,22 @@
 .ohud-gun-silhouette svg { width: 100%; height: 100%; }
 .ohud-firemode {
   position: absolute; right: 6px; bottom: 5px; display: inline-flex; align-items: center; gap: 4px;
-  padding: 1px 6px 1px 2px; border-radius: 10px;
+  padding: 1px 6px 1px 2px; border-radius: 10px; max-width: calc(100% - 12px);
   background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);
+  color: inherit; font: inherit;
 }
-.ohud-firemode-knob { width: 9px; height: 9px; border-radius: 50%; background: var(--odyssey-hud-muted); }
-.ohud-firemode-letter { font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-firemode-knob { width: 9px; height: 9px; border-radius: 50%; background: var(--odyssey-hud-muted); flex: 0 0 auto; }
+.ohud-firemode-letter {
+  font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text); letter-spacing: 0.4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Interactive variant (2+ fire modes) — opens the fire-mode companion popover.
+ * A single mode stays the plain read-only span above; no modes → not rendered
+ * at all (see GunBlock.js renderFireModeControl). */
+.ohud-firemode.is-selectable { cursor: pointer; }
+.ohud-firemode.is-selectable:hover { border-color: var(--odyssey-purple); }
+.ohud-firemode-caret { display: inline-flex; width: 8px; height: 8px; color: var(--odyssey-hud-muted); flex: 0 0 auto; }
+.ohud-firemode-caret svg { width: 100%; height: 100%; }
 .ohud-gun-secondary { position: absolute; left: 6px; bottom: 5px; font-size: 8px; font-weight: 700; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border); border-radius: 6px; padding: 0 5px; }
 
 .ohud-gun-side { display: grid; grid-template-rows: 1fr 1fr; gap: 6px; min-width: 0; }

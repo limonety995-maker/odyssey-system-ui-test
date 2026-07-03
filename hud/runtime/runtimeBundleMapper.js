@@ -349,6 +349,54 @@ function readCurrentFireMode(w) {
   return str(w.current_fire_mode);
 }
 
+/** One canonical fire-mode option { id, code, name } — null when the raw
+ *  entry has no id (an id is required to call switch_weapon_fire_mode). */
+function readFireModeOption(m) {
+  if (!m || typeof m !== "object") return null;
+  const id = str(m.id);
+  if (!id) return null;
+  const code = str(m.code);
+  return { id, code, name: str(m.name) ?? code ?? id };
+}
+
+/**
+ * Fire-mode view model for the interactive Gun HUD control. PURE, ids
+ * preserved (unlike readFireModes()/readCurrentFireMode() above, which only
+ * keep display strings for the read-only tooltip and are left untouched for
+ * backward compatibility with existing callers/tests).
+ *
+ * Fallback order per spec: weapon.available_fire_modes → active_profile's;
+ * weapon.selected_fire_mode → active_profile's. Never fabricates a mode name
+ * (AUTO/SEMI/BURST) that isn't present in the data.
+ *
+ * @returns {{
+ *   selectedId:(string|null), selectedCode:(string|null), selectedName:(string|null),
+ *   available: Array<{id:string, code:(string|null), name:string}>,
+ *   isApplicable: boolean, isSelectable: boolean,
+ * }}
+ */
+function readFireMode(w) {
+  const rawAvailable = Array.isArray(w.available_fire_modes) && w.available_fire_modes.length
+    ? w.available_fire_modes
+    : (Array.isArray(w.active_profile?.available_fire_modes) ? w.active_profile.available_fire_modes : []);
+  const available = rawAvailable.map(readFireModeOption).filter(Boolean);
+
+  const rawSelected = w.selected_fire_mode ?? w.active_profile?.selected_fire_mode ?? null;
+  const selected = readFireModeOption(rawSelected);
+
+  const isApplicable = available.length > 0;
+  return {
+    selectedId: selected?.id ?? null,
+    selectedCode: selected?.code ?? null,
+    selectedName: selected?.name ?? null,
+    available,
+    isApplicable,
+    // A single available mode is shown read-only (no selector); 2+ makes it
+    // interactive — see GunBlock.js / spec section B.
+    isSelectable: isApplicable && available.length > 1,
+  };
+}
+
 /** Map weapon class → one of weaponSvg()'s known silhouettes (pistol|rifle). */
 function weaponSvgRef(w) {
   const cls = String(
@@ -421,6 +469,7 @@ export function mapWeapon(armory, selectedWeaponId = null) {
     svgRef:         weaponSvgRef(w),
     fireModes,
     currentFireMode,
+    fireMode: readFireMode(w),
     usesMagazine,
     usesConsumable,
     requiresAmmo,

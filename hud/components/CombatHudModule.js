@@ -21,6 +21,7 @@ import { renderCombatControlBlock } from "./CombatControlBlock.js";
 import { renderBattleLogPanel } from "./BattleLogBlock.js";
 import { renderWeaponSelectorPanel } from "./WeaponSelectorPanel.js";
 import { renderMagazineSelectorPanel } from "./MagazineSelectorPanel.js";
+import { renderFireModeSelectorPanel } from "./FireModeSelectorPanel.js";
 import { renderEmptyState, renderErrorState, renderLoadingState } from "./EmptyHudState.js";
 import { renderSelectionModule } from "../scene/selectionView.js";
 import { normalizeSelectionPayload } from "../scene/selectionState.js";
@@ -42,6 +43,7 @@ const BLOCK_RENDERERS = {
   log: renderBattleLogPanel,
   "gun-weapon-selector": renderWeaponSelectorPanel,
   "gun-magazine-selector": renderMagazineSelectorPanel,
+  "gun-fire-mode-selector": renderFireModeSelectorPanel,
 };
 
 /**
@@ -251,6 +253,15 @@ export function mountCombatHudModule(options) {
       case "select-reload-mag":
         integration.onCommand && integration.onCommand({ type: "select-reload-mag", magazineId: t.getAttribute("data-magazine-id") });
         break;
+      case "toggle-fire-mode-selector":
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "fire-mode", type: "toggle-selector" });
+        break;
+      case "select-fire-mode":
+        integration.onCommand && integration.onCommand({
+          scope: "combat-hud", feature: "fire-mode", type: "select",
+          fireModeId: t.getAttribute("data-fire-mode-id"),
+        });
+        break;
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
         break;
@@ -261,6 +272,7 @@ export function mountCombatHudModule(options) {
   function onKeyDown(e) {
     if (e.key === "Escape" && moduleId === "gun") {
       integration.onCommand && integration.onCommand({ type: "close-weapon-selector" });
+      integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "fire-mode", type: "close-selector" });
     }
   }
   el.addEventListener("keydown", onKeyDown);

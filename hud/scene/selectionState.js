@@ -9,6 +9,7 @@
 
 import { buildRuntimeDebugSummary, mapBundleToHudSnapshot } from "../runtime/runtimeBundleMapper.js";
 import { resolveReloadMagazineId } from "./reloadPolicy.js";
+import { resolveFireModeUpdatePath } from "./fireModePolicy.js";
 
 /** Canonical selection statuses (string values are part of the wire contract). */
 export const SELECTION_STATUS = Object.freeze({
@@ -236,6 +237,26 @@ function buildReloadDebugInfo(hudSnapshot, ephemeral) {
   };
 }
 
+/**
+ * Compact, privacy-safe fire-mode diagnostics for `?debug=1` only (Fire Mode
+ * v1). Never includes the armory/inventory bundle — only ids/booleans. PURE.
+ */
+function buildFireModeDebugInfo(hudSnapshot, ephemeral) {
+  const weapon = hudSnapshot?.weapon?.primary ?? null;
+  const fireMode = weapon?.fireMode ?? null;
+  return {
+    selectedWeaponId: weapon?.id ?? null,
+    activeProfileId: weapon?.activeProfileId ?? null,
+    fireModeApplicable: !!fireMode?.isApplicable,
+    selectedFireModeId: fireMode?.selectedId ?? null,
+    selectedFireModeCode: fireMode?.selectedCode ?? null,
+    availableFireModeIds: Array.isArray(fireMode?.available) ? fireMode.available.map((m) => m.id) : [],
+    fireModeSelectorOpen: !!ephemeral.fireModeSelectorOpen,
+    fireModeUpdatePath: resolveFireModeUpdatePath(weapon),
+    fireModeLastResult: ephemeral.fireModeRpcResult ?? null,
+  };
+}
+
 export function buildBroadcastPayload(state, ephemeral = {}) {
   const s = state ?? createInitialSelectionState(null);
   const ready = s.status === SELECTION_STATUS.ready && s.access?.canView === true;
@@ -278,6 +299,7 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
     };
     if (ephemeral.debugEnabled) {
       debug.reload = buildReloadDebugInfo(hudSnapshot, ephemeral);
+      debug.fireMode = buildFireModeDebugInfo(hudSnapshot, ephemeral);
     }
   }
 
@@ -294,6 +316,7 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
       selectedWeaponId: ephemeral.selectedWeaponId ?? null,
       selectedReloadMagazineId: ephemeral.selectedReloadMagazineId ?? null,
       weaponSelectorOpen: !!ephemeral.weaponSelectorOpen,
+      fireModeSelectorOpen: !!ephemeral.fireModeSelectorOpen,
       preparedAction: ephemeral.preparedAction ?? null,
       targeting: ephemeral.targeting ?? null,
       commandStatus: ephemeral.commandStatus ?? null,

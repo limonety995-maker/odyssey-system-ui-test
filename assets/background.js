@@ -4796,6 +4796,20 @@ function normalizeReloadRpcResult(result) {
   };
 }
 
+// hud/scene/fireModePolicy.js
+function resolveFireModeUpdatePath(weapon) {
+  if (!weapon?.id || !weapon?.activeProfileId) return "unavailable";
+  return "server";
+}
+function normalizeFireModeRpcResult(error) {
+  if (!error) return { ok: true, error: null, message: null };
+  return {
+    ok: false,
+    error: "RPC_EXCEPTION",
+    message: String(error?.message ?? error ?? "Fire mode switch failed.")
+  };
+}
+
 // hud/models/combatHudContracts.js
 var HUD_STATUS = Object.freeze({
   idle: "idle",
@@ -5095,6 +5109,30 @@ function readCurrentFireMode(w) {
   if (fm && typeof fm === "object") return str(fm.name) ?? str(fm.code);
   return str(w.current_fire_mode);
 }
+function readFireModeOption(m) {
+  if (!m || typeof m !== "object") return null;
+  const id = str(m.id);
+  if (!id) return null;
+  const code = str(m.code);
+  return { id, code, name: str(m.name) ?? code ?? id };
+}
+function readFireMode(w) {
+  const rawAvailable = Array.isArray(w.available_fire_modes) && w.available_fire_modes.length ? w.available_fire_modes : Array.isArray(w.active_profile?.available_fire_modes) ? w.active_profile.available_fire_modes : [];
+  const available = rawAvailable.map(readFireModeOption).filter(Boolean);
+  const rawSelected = w.selected_fire_mode ?? w.active_profile?.selected_fire_mode ?? null;
+  const selected = readFireModeOption(rawSelected);
+  const isApplicable = available.length > 0;
+  return {
+    selectedId: selected?.id ?? null,
+    selectedCode: selected?.code ?? null,
+    selectedName: selected?.name ?? null,
+    available,
+    isApplicable,
+    // A single available mode is shown read-only (no selector); 2+ makes it
+    // interactive — see GunBlock.js / spec section B.
+    isSelectable: isApplicable && available.length > 1
+  };
+}
 function weaponSvgRef(w) {
   const cls = String(
     w.model?.weapon_class_name ?? w.model?.weapon_class ?? w.weapon_type_key ?? w.weapon_type ?? ""
@@ -5136,6 +5174,7 @@ function mapWeapon(armory, selectedWeaponId = null) {
     svgRef: weaponSvgRef(w),
     fireModes,
     currentFireMode,
+    fireMode: readFireMode(w),
     usesMagazine,
     usesConsumable,
     requiresAmmo,
@@ -5592,6 +5631,21 @@ function buildReloadDebugInfo(hudSnapshot, ephemeral) {
     reloadRpcResult: ephemeral.reloadRpcResult ?? null
   };
 }
+function buildFireModeDebugInfo(hudSnapshot, ephemeral) {
+  const weapon = hudSnapshot?.weapon?.primary ?? null;
+  const fireMode = weapon?.fireMode ?? null;
+  return {
+    selectedWeaponId: weapon?.id ?? null,
+    activeProfileId: weapon?.activeProfileId ?? null,
+    fireModeApplicable: !!fireMode?.isApplicable,
+    selectedFireModeId: fireMode?.selectedId ?? null,
+    selectedFireModeCode: fireMode?.selectedCode ?? null,
+    availableFireModeIds: Array.isArray(fireMode?.available) ? fireMode.available.map((m) => m.id) : [],
+    fireModeSelectorOpen: !!ephemeral.fireModeSelectorOpen,
+    fireModeUpdatePath: resolveFireModeUpdatePath(weapon),
+    fireModeLastResult: ephemeral.fireModeRpcResult ?? null
+  };
+}
 function buildBroadcastPayload(state, ephemeral = {}) {
   const s = state ?? createInitialSelectionState(null);
   const ready = s.status === SELECTION_STATUS.ready && s.access?.canView === true;
@@ -5629,6 +5683,7 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     };
     if (ephemeral.debugEnabled) {
       debug.reload = buildReloadDebugInfo(hudSnapshot, ephemeral);
+      debug.fireMode = buildFireModeDebugInfo(hudSnapshot, ephemeral);
     }
   }
   return {
@@ -5644,6 +5699,7 @@ function buildBroadcastPayload(state, ephemeral = {}) {
       selectedWeaponId: ephemeral.selectedWeaponId ?? null,
       selectedReloadMagazineId: ephemeral.selectedReloadMagazineId ?? null,
       weaponSelectorOpen: !!ephemeral.weaponSelectorOpen,
+      fireModeSelectorOpen: !!ephemeral.fireModeSelectorOpen,
       preparedAction: ephemeral.preparedAction ?? null,
       targeting: ephemeral.targeting ?? null,
       commandStatus: ephemeral.commandStatus ?? null,
@@ -5775,7 +5831,15 @@ function setupSceneSelection(hooks = {}) {
     // Raw { ok, error, message } from the last loadWeaponProfileMagazine RPC
     // call, so ?debug=1 can show the server's actual verdict — see
     // buildReloadDebugInfo() in selectionState.js.
-    reloadRpcResult: null
+    reloadRpcResult: null,
+    // Fire Mode v1: companion-popover open flag (ephemeral, like
+    // weaponSelectorOpen) + the last switch_weapon_fire_mode outcome for
+    // ?debug=1 — see buildFireModeDebugInfo() in selectionState.js. There is
+    // NO ephemeral "selected fire mode id" override: the current mode always
+    // comes fresh from armory (weapon.fireMode.selectedId), so switching
+    // weapons away and back never carries a mode over from a different weapon.
+    fireModeSelectorOpen: false,
+    fireModeRpcResult: null
   };
   let debugEnabled = false;
   try {
@@ -5837,6 +5901,8 @@ function setupSceneSelection(hooks = {}) {
       ephemeral.targeting = { mode: "none", selectedTargetIds: [], selectedBodyPartId: "torso" };
       ephemeral.commandStatus = null;
       ephemeral.reloadRpcResult = null;
+      ephemeral.fireModeSelectorOpen = false;
+      ephemeral.fireModeRpcResult = null;
     }
     function buildEphemeralForPayload() {
       const prepared = ephemeral.preparedAction;
@@ -5850,7 +5916,9 @@ function setupSceneSelection(hooks = {}) {
         commandStatus: ephemeral.commandStatus,
         activeIntent,
         debugEnabled,
-        reloadRpcResult: ephemeral.reloadRpcResult
+        reloadRpcResult: ephemeral.reloadRpcResult,
+        fireModeSelectorOpen: ephemeral.fireModeSelectorOpen,
+        fireModeRpcResult: ephemeral.fireModeRpcResult
       };
     }
     function publishState(state) {
@@ -5877,6 +5945,46 @@ function setupSceneSelection(hooks = {}) {
     async function handleCommand(command) {
       if (!command || typeof command !== "object") return;
       if (!lastPayload || lastPayload.status !== "ready") return;
+      if (command?.scope === "combat-hud" && command?.feature === "fire-mode") {
+        const fmType = String(command.type ?? "");
+        if (fmType === "toggle-selector") {
+          ephemeral.fireModeSelectorOpen = !ephemeral.fireModeSelectorOpen;
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (fmType === "close-selector") {
+          ephemeral.fireModeSelectorOpen = false;
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (fmType === "select") {
+          const weapon = lastPayload.hudSnapshot?.weapon?.primary ?? null;
+          const weaponId = weapon?.id ?? null;
+          const profileId = weapon?.activeProfileId ?? null;
+          const fireModeId = String(command.fireModeId ?? "").trim() || null;
+          ephemeral.fireModeSelectorOpen = false;
+          ephemeral.commandStatus = null;
+          if (!weaponId || !profileId || !fireModeId) {
+            ephemeral.commandStatus = { type: "error", message: "Fire mode switch unavailable: missing weapon, profile, or mode." };
+            ephemeral.fireModeRpcResult = { ok: false, error: "MISSING_FIELDS", message: "weaponId/profileId/fireModeId missing before RPC call." };
+            if (lastState) publishState(lastState);
+            return;
+          }
+          try {
+            await switchWeaponFireMode(ephemeral.characterId, weaponId, fireModeId, settings);
+            ephemeral.fireModeRpcResult = normalizeFireModeRpcResult(null);
+            ephemeral.commandStatus = { type: "ok", message: "Fire mode changed." };
+            await refetchCurrent();
+          } catch (error) {
+            const normalized = normalizeFireModeRpcResult(error);
+            ephemeral.fireModeRpcResult = normalized;
+            ephemeral.commandStatus = { type: "error", message: normalized.message || "Fire mode switch failed." };
+            if (lastState) publishState(lastState);
+          }
+          return;
+        }
+        return;
+      }
       const type = String(command.type ?? "");
       ephemeral.commandStatus = null;
       if (type === "select-weapon") {
@@ -5884,6 +5992,8 @@ function setupSceneSelection(hooks = {}) {
         ephemeral.selectedReloadMagazineId = null;
         ephemeral.reloadRpcResult = null;
         ephemeral.weaponSelectorOpen = false;
+        ephemeral.fireModeSelectorOpen = false;
+        ephemeral.fireModeRpcResult = null;
         if (lastState) publishState(lastState);
         return;
       }
@@ -6620,6 +6730,7 @@ var LEGACY_HUD_POPOVER_IDS = Object.freeze([
 ]);
 var GUN_WEAPON_SELECTOR_POPOVER_ID = "odyssey-hud-gun-weapon-selector";
 var GUN_MAGAZINE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-magazine-selector";
+var GUN_FIRE_MODE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-fire-mode-selector";
 var HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
 var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
 var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
@@ -6812,6 +6923,7 @@ var sceneCleanup = null;
 var targetSelection = null;
 var gunWeaponSelectorOpen = false;
 var gunMagazineSelectorOpen = false;
+var gunFireModeSelectorOpen = false;
 var lastActiveCharacterId = null;
 var lastSelectionPayload = null;
 var cleanups = [];
@@ -6902,6 +7014,14 @@ function magazineSelectorRect() {
   const height = computeCompanionSelectorHeight(visibleReserveMagazineCount());
   return companionPopoverRectAboveGun(COMPANION_SELECTOR_WIDTH, height);
 }
+function visibleFireModeCount() {
+  const fireMode = lastSelectionPayload?.hudSnapshot?.weapon?.primary?.fireMode ?? null;
+  return Array.isArray(fireMode?.available) ? fireMode.available.length : 0;
+}
+function fireModeSelectorRect() {
+  const height = computeCompanionSelectorHeight(visibleFireModeCount());
+  return companionPopoverRectAboveGun(COMPANION_SELECTOR_WIDTH, height);
+}
 async function setGunWeaponSelectorOpen(open) {
   const next = Boolean(open);
   if (next === gunWeaponSelectorOpen) return;
@@ -6950,13 +7070,41 @@ async function setGunMagazineSelectorOpen(open) {
     }
   }
 }
-async function closeBothCompanions() {
+async function setGunFireModeSelectorOpen(open) {
+  const next = Boolean(open);
+  if (next === gunFireModeSelectorOpen) return;
+  gunFireModeSelectorOpen = next;
+  if (mode !== "modules") return;
+  if (next) {
+    const rect = fireModeSelectorRect();
+    if (rect) {
+      try {
+        await lib_default.popover.open({
+          id: GUN_FIRE_MODE_SELECTOR_POPOVER_ID,
+          url: pageUrl("gun-fire-mode-selector"),
+          ...paramsForRect(rect)
+        });
+      } catch (_e) {
+      }
+    }
+  } else {
+    try {
+      await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID);
+    } catch (_e) {
+    }
+  }
+}
+async function closeAllCompanionSelectors() {
   try {
     await setGunWeaponSelectorOpen(false);
   } catch (_e) {
   }
   try {
     await setGunMagazineSelectorOpen(false);
+  } catch (_e) {
+  }
+  try {
+    await setGunFireModeSelectorOpen(false);
   } catch (_e) {
   }
 }
@@ -7042,9 +7190,12 @@ async function applyMode() {
   if (mode === "collapsed") {
     gunWeaponSelectorOpen = false;
     gunMagazineSelectorOpen = false;
+    gunFireModeSelectorOpen = false;
     await lib_default.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {
+    });
+    await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {
     });
     await closeEditorPopover();
     await closeAllModules();
@@ -7052,9 +7203,12 @@ async function applyMode() {
   } else if (mode === "editor") {
     gunWeaponSelectorOpen = false;
     gunMagazineSelectorOpen = false;
+    gunFireModeSelectorOpen = false;
     await lib_default.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {
+    });
+    await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {
     });
     await closePill();
     await closeAllModules();
@@ -7115,7 +7269,7 @@ function setupCombatHudOverlay() {
             const nextCharId = payload?.characterId ?? null;
             if (characterChangeClosesCompanions(lastActiveCharacterId, nextCharId)) {
               lastActiveCharacterId = nextCharId;
-              await closeBothCompanions();
+              await closeAllCompanionSelectors();
             }
           } catch (_e) {
           }
@@ -7133,15 +7287,26 @@ function setupCombatHudOverlay() {
           if (isCollapsed()) {
             gunWeaponSelectorOpen = false;
             gunMagazineSelectorOpen = false;
+            gunFireModeSelectorOpen = false;
           }
           await applyMode();
         }
       }));
       cleanups.push(lib_default.broadcast.onMessage(BC_HUD_COMMAND, async (event) => {
-        const type = String(event?.data?.type ?? "");
+        const data = event?.data ?? {};
+        if (data?.scope === "combat-hud" && data?.feature === "fire-mode") {
+          const fmType = String(data.type ?? "");
+          if (fmType === "toggle-selector") await setGunFireModeSelectorOpen(!gunFireModeSelectorOpen);
+          else if (fmType === "select" || fmType === "close-selector") await setGunFireModeSelectorOpen(false);
+          return;
+        }
+        const type = String(data.type ?? "");
         if (type === "toggle-weapon-selector") await setGunWeaponSelectorOpen(!gunWeaponSelectorOpen);
-        else if (type === "close-weapon-selector" || type === "select-weapon") await setGunWeaponSelectorOpen(false);
-        else if (type === "toggle-magazine-selector") await setGunMagazineSelectorOpen(!gunMagazineSelectorOpen);
+        else if (type === "close-weapon-selector") await setGunWeaponSelectorOpen(false);
+        else if (type === "select-weapon") {
+          await setGunWeaponSelectorOpen(false);
+          await setGunFireModeSelectorOpen(false);
+        } else if (type === "toggle-magazine-selector") await setGunMagazineSelectorOpen(!gunMagazineSelectorOpen);
         else if (type === "select-reload-mag") await setGunMagazineSelectorOpen(false);
         else if (type === "reload") {
           await setGunWeaponSelectorOpen(false);
@@ -7150,7 +7315,7 @@ function setupCombatHudOverlay() {
         if (type === "pick-target") sendTargetingCommand({ type: "pick" });
         else if (type === "cancel-target") sendTargetingCommand({ type: "cancel" });
         else if (type === "clear-target") sendTargetingCommand({ type: "clear" });
-        else if (type === "select-target-zone") sendTargetingCommand({ type: "selectZone", zoneId: event?.data?.zoneId });
+        else if (type === "select-target-zone") sendTargetingCommand({ type: "selectZone", zoneId: data.zoneId });
       }));
       cleanups.push(lib_default.broadcast.onMessage(BC_HUD_EDITOR, async (event) => {
         const open = Boolean(event?.data && event.data.open);

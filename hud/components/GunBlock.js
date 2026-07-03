@@ -9,14 +9,27 @@ import { weaponSvg, ICON_MAGAZINE, ICON_CARET_DOWN, ICON_RELOAD } from "./hudIco
 import { panel } from "./HudPanel.js";
 import { esc, tipAttr, cls } from "./hudDom.js";
 
-function fireModeLetter(mode) {
-  if (!mode) return "—";
-  const m = String(mode).toLowerCase();
-  if (m.startsWith("semi")) return "S";
-  if (m.startsWith("burst")) return "B";
-  if (m.startsWith("auto")) return "A";
-  if (m.startsWith("full")) return "F";
-  return String(mode).charAt(0).toUpperCase();
+// Fire Mode v1 — the small fire-mode badge in the weapon-main card:
+//   - no modes / not applicable (melee, cold weapons) → render nothing at all;
+//   - exactly one mode → plain read-only label (no click, no selector);
+//   - 2+ modes → interactive button opening the fire-mode companion popover.
+// Never fabricates AUTO/SEMI/BURST — only real data from weapon.fireMode
+// (see hud/runtime/runtimeBundleMapper.js readFireMode()).
+function renderFireModeControl(weapon) {
+  const fm = weapon.fireMode;
+  if (!fm || !fm.isApplicable) return "";
+  const label = (fm.selectedCode || fm.selectedName || "").toUpperCase();
+  const tip = tipAttr("Fire mode", [esc(fm.selectedName || fm.selectedCode || "")]);
+
+  if (!fm.isSelectable) {
+    return `<span class="ohud-firemode is-readonly"${tip}>
+      <span class="ohud-firemode-knob"></span><span class="ohud-firemode-letter">${esc(label)}</span>
+    </span>`;
+  }
+
+  return `<button type="button" class="ohud-firemode is-selectable" data-action="toggle-fire-mode-selector" aria-label="Choose fire mode"${tip}>
+    <span class="ohud-firemode-knob"></span><span class="ohud-firemode-letter">${esc(label)}</span><span class="ohud-firemode-caret" aria-hidden="true">${ICON_CARET_DOWN}</span>
+  </button>`;
 }
 
 function emptyGun() {
@@ -40,19 +53,13 @@ export function renderGunBlock(state) {
   const canReload = Boolean(weapon.canReload) && reserve.length > 0;
   const isEmpty = weapon.requiresAmmo && ammoCur <= 0;
   const disabled = Boolean(weapon.disabledReason) || (isEmpty && !canReload);
-  const fm = fireModeLetter(weapon.currentFireMode);
-
-  const fireModeTip = tipAttr("Fire mode", [
-    `Current: ${weapon.currentFireMode ?? "—"}`,
-    weapon.fireModes?.length ? `Available: ${weapon.fireModes.join(", ")}` : "",
-  ]);
 
   const mainCard = `
     <div class="ohud-gun-main"${tipAttr(weapon.name, [weapon.currentFireMode ? `Mode: ${weapon.currentFireMode}` : ""])}>
       <span class="ohud-gun-name">${esc(weapon.name)}</span>
       <button type="button" class="ohud-gun-caret" data-action="toggle-weapon-selector" aria-label="Choose weapon" title="Select a different weapon">${ICON_CARET_DOWN}</button>
       <span class="ohud-gun-silhouette">${weaponSvg(weapon.svgRef)}</span>
-      <span class="ohud-firemode is-readonly"${fireModeTip}><span class="ohud-firemode-knob"></span><span class="ohud-firemode-letter">${esc(fm)}</span></span>
+      ${renderFireModeControl(weapon)}
       ${secondary ? `<span class="ohud-gun-secondary"${tipAttr("Secondary weapon", [esc(secondary.name || "")])}>2nd</span>` : ""}
     </div>`;
 
