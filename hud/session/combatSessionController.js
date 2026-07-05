@@ -121,6 +121,9 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
       logDebugEvent("session", kind, { ok, error: ok ? null : result?.error ?? null, ...extraDetails }, ok);
       if (ok && result && typeof result === "object" && result.encounter !== undefined) {
         applyRuntime(result, { origin: kind }); // mutation RPCs return the fresh runtime
+        if (result?.partial_refresh_required === true) {
+          void refresh(`${kind}-post`);
+        }
       } else {
         await refresh(kind);
       }

@@ -121,7 +121,10 @@ test("3. one character with two token links yields ONE candidate (newest active 
 
 test("4. initiative = d20 + REAL Reaction; a missing Reaction attribute is a clear server error, never a silent 0", () => {
   assert.ok(sql90.includes("floor(random() * 20 + 1)::integer"));
-  assert.ok(sql90.includes("v_roll + coalesce(v_reaction, 0)"));
+  assert.ok(
+    sql90.includes("candidate.roll_value + candidate.reaction_value")
+    || sql90.includes("v_roll + coalesce(v_reaction, 0)"),
+  );
   assert.ok(sql90.includes("odyssey_get_character_reaction_value_strict"));
   assert.ok(sql90.includes("REACTION_UNAVAILABLE"), "start returns a typed error when reaction is absent");
   assert.ok(sql90.includes("has no Reaction attribute"), "human-readable message names the character");

@@ -667,7 +667,10 @@ export function setupSceneSelection(hooks = {}) {
       const { stale, state } = await adapter.resolveLatest(selectionIds);
       if (disposed || stale) return; // only the freshest selection updates the HUD
       if (state.status !== "ready") {
-        logDebugEvent("selection", "source-character-unavailable", { status: state.status ?? null, reason: state.error?.code ?? state.access?.reason ?? null }, false);
+        const unavailableReason = state.error?.code ?? state.access?.reason ?? null;
+        if (state.status !== "no-selection" && unavailableReason !== "NO_TOKEN_SELECTED") {
+          logDebugEvent("selection", "source-character-unavailable", { status: state.status ?? null, reason: unavailableReason }, false);
+        }
         resetEphemeralForCharacter(null);
       } else {
         const changed = resetEphemeralForCharacter(state.characterId ?? null);

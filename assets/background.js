@@ -5907,6 +5907,9 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
       logDebugEvent("session", kind, { ok, error: ok ? null : result?.error ?? null, ...extraDetails }, ok);
       if (ok && result && typeof result === "object" && result.encounter !== void 0) {
         applyRuntime(result, { origin: kind });
+        if (result?.partial_refresh_required === true) {
+          void refresh(`${kind}-post`);
+        }
       } else {
         await refresh(kind);
       }
@@ -7511,7 +7514,10 @@ function setupSceneSelection(hooks = {}) {
       const { stale, state } = await adapter.resolveLatest(selectionIds);
       if (disposed || stale) return;
       if (state.status !== "ready") {
-        logDebugEvent("selection", "source-character-unavailable", { status: state.status ?? null, reason: state.error?.code ?? state.access?.reason ?? null }, false);
+        const unavailableReason = state.error?.code ?? state.access?.reason ?? null;
+        if (state.status !== "no-selection" && unavailableReason !== "NO_TOKEN_SELECTED") {
+          logDebugEvent("selection", "source-character-unavailable", { status: state.status ?? null, reason: unavailableReason }, false);
+        }
         resetEphemeralForCharacter(null);
       } else {
         const changed = resetEphemeralForCharacter(state.characterId ?? null);
@@ -9789,7 +9795,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.31d";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.31e";
 function createToolIcon() {
   return MOVE_TOOL_ICON_URL;
 }

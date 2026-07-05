@@ -23,7 +23,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.31d";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.31e";
 
 function createToolIcon() {
   return MOVE_TOOL_ICON_URL;

@@ -146,10 +146,10 @@ declare
   v_excluded_character_ids jsonb := coalesce(p_payload->'excluded_character_ids', '[]'::jsonb);
   v_existing public.odyssey_combat_encounters;
   v_encounter_id uuid := null;
-  v_entry record;
-  v_roll integer := 0;
-  v_reaction integer := null;
+  v_candidates jsonb := '[]'::jsonb;
   v_candidate_count integer := 0;
+  v_missing_reaction_character_id uuid := null;
+  v_missing_reaction_display_name text := '';
 begin
   if not v_actor_is_gm then
     return jsonb_build_object(
@@ -184,11 +184,36 @@ begin
   -- (newest active link wins — the safe dedupe rule for multi-link characters)
   -- and every candidate must have a REAL Reaction attribute. Returning an
   -- error here leaves no half-created encounter behind.
-  for v_entry in
+  select
+    coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'token_id', candidate.token_id,
+          'token_name', candidate.token_name,
+          'character_id', candidate.character_id,
+          'character_bucket', candidate.character_bucket,
+          'reaction_value', candidate.reaction_value
+        )
+        order by candidate.character_id
+      ),
+      '[]'::jsonb
+    ),
+    count(*),
+    (
+      array_agg(candidate.character_id order by candidate.character_id)
+      filter (where candidate.reaction_value is null)
+    )[1]
+  into
+    v_candidates,
+    v_candidate_count,
+    v_missing_reaction_character_id
+  from (
     select distinct on (t.character_id)
       t.token_id,
+      t.token_name,
       t.character_id,
-      c.character_bucket
+      c.character_bucket,
+      public.odyssey_get_character_reaction_value_strict(t.character_id) as reaction_value
     from public.odyssey_token_links t
     join public.odyssey_characters c on c.id = t.character_id
     where t.campaign_id = v_campaign_id
@@ -203,24 +228,24 @@ begin
         where public.odyssey_try_parse_uuid(excluded.character_id) = t.character_id
       )
     order by t.character_id, t.updated_at desc, t.created_at desc, t.id desc
-  loop
-    v_candidate_count := v_candidate_count + 1;
-    if public.odyssey_get_character_reaction_value_strict(v_entry.character_id) is null then
-      return jsonb_build_object(
-        'ok', false,
-        'error', 'REACTION_UNAVAILABLE',
-        'message', public.odyssey_character_display_name(v_entry.character_id)
-          || ' has no Reaction attribute in effective stats; combat cannot start.',
-        'character_id', v_entry.character_id
-      );
-    end if;
-  end loop;
+  ) candidate;
 
   if v_candidate_count = 0 then
     return jsonb_build_object(
       'ok', false,
       'error', 'NO_PARTICIPANTS',
       'message', 'No linked, eligible characters remain for this scene.'
+    );
+  end if;
+
+  if v_missing_reaction_character_id is not null then
+    v_missing_reaction_display_name := public.odyssey_character_display_name(v_missing_reaction_character_id);
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'REACTION_UNAVAILABLE',
+      'message', v_missing_reaction_display_name
+        || ' has no Reaction attribute in effective stats; combat cannot start.',
+      'character_id', v_missing_reaction_character_id
     );
   end if;
 
@@ -248,80 +273,68 @@ begin
   )
   returning id into v_encounter_id;
 
-  for v_entry in
-    select distinct on (t.character_id)
-      t.token_id,
-      t.token_name,
-      t.character_id,
-      c.character_bucket
-    from public.odyssey_token_links t
-    join public.odyssey_characters c on c.id = t.character_id
-    where t.campaign_id = v_campaign_id
-      and t.room_id = v_room_id
-      and t.scene_id = v_scene_id
-      and t.is_active = true
-      and coalesce(c.is_deleted, false) = false
-      and c.character_bucket in ('player', 'npc_active')
-      and not exists (
-        select 1
-        from jsonb_array_elements_text(v_excluded_character_ids) as excluded(character_id)
-        where public.odyssey_try_parse_uuid(excluded.character_id) = t.character_id
-      )
-    order by t.character_id, t.updated_at desc, t.created_at desc, t.id desc
-  loop
-    v_roll := floor(random() * 20 + 1)::integer;
-    v_reaction := public.odyssey_get_character_reaction_value_strict(v_entry.character_id);
-
-    insert into public.odyssey_initiative_entries (
-      encounter_id,
-      character_id,
-      initiative_value,
-      reaction_value,
-      roll_value,
-      bonus_value,
-      order_index,
-      has_acted,
-      is_active,
-      action_max,
-      action_current,
-      move_max,
-      move_current,
-      reaction_action_max,
-      reaction_action_current,
-      action_converted_to_move,
-      hide_from_initiative_ui,
-      joined_round,
-      movement_version,
-      turn_version
+  insert into public.odyssey_initiative_entries (
+    encounter_id,
+    character_id,
+    initiative_value,
+    reaction_value,
+    roll_value,
+    bonus_value,
+    order_index,
+    has_acted,
+    is_active,
+    action_max,
+    action_current,
+    move_max,
+    move_current,
+    reaction_action_max,
+    reaction_action_current,
+    action_converted_to_move,
+    hide_from_initiative_ui,
+    joined_round,
+    movement_version,
+    turn_version
+  )
+  select
+    v_encounter_id,
+    candidate.character_id,
+    candidate.roll_value + candidate.reaction_value,
+    candidate.reaction_value,
+    candidate.roll_value,
+    0,
+    0,
+    false,
+    true,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    false,
+    exists (
+      select 1
+      from jsonb_array_elements_text(v_hidden_token_ids) as hidden(token_id)
+      where hidden.token_id = candidate.token_id
+    ),
+    1,
+    0,
+    0
+  from (
+    select
+      entry.token_id,
+      entry.character_id,
+      coalesce(entry.reaction_value, 0) as reaction_value,
+      floor(random() * 20 + 1)::integer as roll_value
+    from jsonb_to_recordset(v_candidates) as entry(
+      token_id text,
+      token_name text,
+      character_id uuid,
+      character_bucket text,
+      reaction_value integer
     )
-    values (
-      v_encounter_id,
-      v_entry.character_id,
-      v_roll + coalesce(v_reaction, 0),
-      coalesce(v_reaction, 0),
-      v_roll,
-      0,
-      0,
-      false,
-      true,
-      1,
-      1,
-      1,
-      1,
-      0,
-      0,
-      false,
-      exists (
-        select 1
-        from jsonb_array_elements_text(v_hidden_token_ids) as hidden(token_id)
-        where hidden.token_id = v_entry.token_id
-      ),
-      1,
-      0,
-      0
-    )
-    on conflict on constraint odyssey_initiative_entries_encounter_character_key do nothing;
-  end loop;
+  ) candidate
+  on conflict on constraint odyssey_initiative_entries_encounter_character_key do nothing;
 
   -- Full ties (total + class + raw d20 all equal) reroll server-side among
   -- ONLY the tied entries, then rank: total desc → player over NPC → raw d20
