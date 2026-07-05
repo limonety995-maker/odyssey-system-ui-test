@@ -11,7 +11,6 @@ export const MOVE_TOOL_COMMANDS = Object.freeze({
   ActivateSelected: "ACTIVATE_SELECTED",
   Cancel: "CANCEL",
   RequestStatus: "REQUEST_STATUS",
-  SetGmOverride: "SET_GM_OVERRIDE",
 });
 
 export const MOVE_TOOL_EVENTS = Object.freeze({

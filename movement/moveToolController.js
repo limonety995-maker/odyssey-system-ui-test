@@ -19,8 +19,8 @@ import { loadRoomSupabaseSettings, hasSupabaseSettings } from "../bridge/setting
 import { COMBAT_MOVEMENT_METADATA_KEY } from "../constants/metadataKeys.js";
 import { BC_HUD_SESSION } from "../hud/overlay/overlayConstants.js";
 import {
+  buildStraightSquarePath,
   cellToScene,
-  computeDistanceCells,
   normalizeTacticalGridSettings,
   sceneToCell,
 } from "./gridMath.js";
@@ -50,7 +50,6 @@ const POSITION_EPSILON = 0.01;
 const PREVIEW_POSITION_EPSILON = 0.5;
 const INTERNAL_MOVEMENT_SOURCES = new Set([
   "combat-movement",
-  "combat-gm-reposition",
   "combat-movement-revert",
 ]);
 
@@ -97,6 +96,10 @@ function sameScenePosition(a, b, epsilon = PREVIEW_POSITION_EPSILON) {
     && Math.abs((Number(a.y) || 0) - (Number(b.y) || 0)) <= epsilon;
 }
 
+function getCellKey(cell) {
+  return `${Number(cell?.q ?? cell?.cell_q ?? 0) || 0}:${Number(cell?.r ?? cell?.cell_r ?? 0) || 0}`;
+}
+
 function createInitialState() {
   return {
     player: null,
@@ -122,7 +125,6 @@ function createInitialState() {
     pending: false,
     dragActive: false,
     toolRegistered: false,
-    gmOverrideEnabled: false,
     previousToolId: "",
     previousModeId: "",
     autoToolClaimed: false,
@@ -156,8 +158,7 @@ function buildStatus(state, extras = {}) {
     stateVersion: Number(state.stateVersion ?? 0) || 0,
     movementVersion: Number(participant?.movement_version ?? 0) || 0,
     tacticalGrid: state.grid,
-    gridReady: !!state.grid,
-    gmOverrideEnabled: state.gmOverrideEnabled,
+    gridReady: state.grid?.gridType === "square",
     currentTurn: permission.currentTurn === true,
     measureOnly: permission.measureOnly === true,
     canCommit: permission.canCommit === true,
@@ -176,6 +177,22 @@ function buildStatus(state, extras = {}) {
           cell_r: preview.cell.r,
           scene_x: preview.scene.x,
           scene_y: preview.scene.y,
+          path: Array.isArray(preview.path)
+            ? preview.path.map((cell) => ({
+                cell_q: Number(cell?.q ?? 0) || 0,
+                cell_r: Number(cell?.r ?? 0) || 0,
+              }))
+            : [],
+          blocked: preview.blocked === true,
+          blockedCell: preview.blockedCell
+            ? {
+                cell_q: Number(preview.blockedCell.q ?? 0) || 0,
+                cell_r: Number(preview.blockedCell.r ?? 0) || 0,
+              }
+            : null,
+          blockedTokenId: String(preview.blockedTokenId ?? "").trim(),
+          blockedCharacterId: String(preview.blockedCharacterId ?? "").trim(),
+          blockReason: String(preview.blockReason ?? "").trim(),
           distanceCells: preview.distanceCells,
           moveCostM: preview.moveCostM,
           moveLimitM: preview.moveLimitM,
@@ -622,6 +639,50 @@ export function setupTacticalMoveTool({ runtime }) {
     });
   }
 
+  function getOccupiedRouteBlock(path) {
+    if (!Array.isArray(path) || path.length <= 1) {
+      return null;
+    }
+
+    const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
+    const selectedCharacterId = String(state.selectedParticipant?.character_id ?? "").trim();
+    const occupiedByCell = new Map();
+
+    for (const [tokenId, authoritative] of state.authoritativeByTokenId.entries()) {
+      const normalizedTokenId = String(tokenId ?? "").trim();
+      const characterId = String(authoritative?.characterId ?? "").trim();
+      if (!normalizedTokenId) continue;
+      if (normalizedTokenId === selectedTokenId) continue;
+      if (characterId && characterId === selectedCharacterId) continue;
+      occupiedByCell.set(
+        getCellKey({
+          q: authoritative?.cell_q,
+          r: authoritative?.cell_r,
+        }),
+        {
+          tokenId: normalizedTokenId,
+          characterId,
+        },
+      );
+    }
+
+    for (const stepCell of path.slice(1)) {
+      const occupant = occupiedByCell.get(getCellKey(stepCell));
+      if (!occupant) continue;
+      return {
+        blockedCell: {
+          q: Number(stepCell?.q ?? 0) || 0,
+          r: Number(stepCell?.r ?? 0) || 0,
+        },
+        blockedTokenId: occupant.tokenId,
+        blockedCharacterId: occupant.characterId,
+        blockReason: "occupied",
+      };
+    }
+
+    return null;
+  }
+
   function buildPreviewFromScenePosition(scenePosition, tokenIdOverride = "") {
     const grid = state.grid;
     const participant = state.selectedParticipant;
@@ -636,6 +697,14 @@ export function setupTacticalMoveTool({ runtime }) {
         "info",
         "Combat preview unavailable",
         buildPreviewDiagnosticDetails({ tokenId, reason: "missing-grid" }),
+      );
+      return null;
+    }
+    if (grid.gridType !== "square") {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "square-grid-required" }),
       );
       return null;
     }
@@ -694,9 +763,11 @@ export function setupTacticalMoveTool({ runtime }) {
       return null;
     }
 
-    const distanceCells = computeDistanceCells(grid, origin.cell, cell);
+    const path = buildStraightSquarePath(origin.cell, cell);
+    const distanceCells = Math.max(path.length - 1, 0);
     const moveCostM = distanceCells * Math.max(Number(grid.metersPerCell ?? 1) || 1, 1);
     const moveLimitM = Number(participant.move_current ?? 0) || 0;
+    const blockedRoute = getOccupiedRouteBlock(path);
 
     const preview = {
       cell,
@@ -704,11 +775,17 @@ export function setupTacticalMoveTool({ runtime }) {
         x: Number(snappedScene.x) || 0,
         y: Number(snappedScene.y) || 0,
       },
+      path,
+      blocked: !!blockedRoute,
+      blockedCell: blockedRoute?.blockedCell ?? null,
+      blockedTokenId: String(blockedRoute?.blockedTokenId ?? "").trim(),
+      blockedCharacterId: String(blockedRoute?.blockedCharacterId ?? "").trim(),
+      blockReason: String(blockedRoute?.blockReason ?? "").trim(),
       distanceCells,
       moveCostM,
       moveLimitM,
       remainingMoveM: moveLimitM - moveCostM,
-      inRange: moveCostM <= moveLimitM,
+      inRange: !blockedRoute && moveCostM <= moveLimitM,
     };
 
     addDiagnosticEntry(
@@ -917,12 +994,11 @@ export function setupTacticalMoveTool({ runtime }) {
       player: state.player,
       participant,
       viewerControlledCharacterIds: state.viewerControlledCharacterIds,
-      gmOverrideEnabled: state.gmOverrideEnabled,
     });
 
     const nextCharacterId = String(participant.character_id ?? "").trim();
     const selectionChanged = previousCharacterId !== nextCharacterId;
-    const gridReady = !!state.grid;
+    const gridReady = state.grid?.gridType === "square";
 
     if (selectionChanged || !gridReady) {
       await clearPreview({ reason: `${reason}-selection-updated`, silent: true });
@@ -1037,11 +1113,14 @@ export function setupTacticalMoveTool({ runtime }) {
       return null;
     }
 
-    const distanceCells = computeDistanceCells(state.grid, origin.cell, preview.cell);
+    const path = Array.isArray(preview.path) && preview.path.length
+      ? preview.path
+      : buildStraightSquarePath(origin.cell, preview.cell);
+    const distanceCells = Math.max(path.length - 1, 0);
     const moveCostM = distanceCells * Math.max(Number(state.grid.metersPerCell ?? 1) || 1, 1);
     const moveLimitM = Number(state.selectedParticipant.move_current ?? 0) || 0;
 
-    if (distanceCells <= 0 || moveCostM > moveLimitM) {
+    if (distanceCells <= 0 || preview.blocked || moveCostM > moveLimitM) {
       return null;
     }
 
@@ -1080,9 +1159,6 @@ export function setupTacticalMoveTool({ runtime }) {
       updateRuntimeCache(result.runtime);
     }
     await applyMoveResultToScene(result, source);
-    if (state.gmOverrideEnabled && source === "combat-gm-reposition") {
-      state.gmOverrideEnabled = false;
-    }
     await clearPreview({ reason: `${source}-applied`, silent: true });
     state.pending = false;
     await syncSelectionState(`${source}-applied`, { runtimeResponse: result?.runtime ?? state.runtime });
@@ -1239,6 +1315,16 @@ export function setupTacticalMoveTool({ runtime }) {
       return;
     }
 
+    if (preview.blocked) {
+      await clearPreview({ reason: "move-path-blocked", silent: true });
+      await publishStatus({
+        reason: "move-path-blocked",
+        error: "Path blocked.",
+      });
+      await notify("Path blocked.", "WARNING");
+      return;
+    }
+
     if (!preview.inRange) {
       await clearPreview({ reason: "move-too-far", silent: true });
       await publishStatus({ reason: "move-too-far" });
@@ -1266,41 +1352,6 @@ export function setupTacticalMoveTool({ runtime }) {
     };
 
     try {
-      if (state.gmOverrideEnabled && state.player?.role === "GM") {
-        let result = await combatApi.gmRepositionCharacter(
-          {
-            ...payloadBase,
-            consume_movement: false,
-          },
-          state.settings,
-        );
-        if (result?.ok === false && result?.error === "STALE_MOVEMENT_STATE" && result?.runtime) {
-          updateRuntimeCache(result.runtime);
-          const retryResult = await tryRetryStaleMovement({
-            preview,
-            payloadBase: {
-              ...payloadBase,
-              consume_movement: false,
-            },
-            invokeMutation: (retryPayload, settings) => combatApi.gmRepositionCharacter(retryPayload, settings),
-            source: "combat-gm-reposition",
-          });
-          if (retryResult) {
-            result = retryResult;
-          }
-        }
-        if (!result || result.ok === false) {
-          await failMutation(result, "Unable to reposition combatant.");
-          return;
-        }
-        await finalizeMutationSuccess(
-          result,
-          "combat-gm-reposition",
-          `${state.selectedParticipant.display_name || "Combatant"} repositioned.`,
-        );
-        return;
-      }
-
       let result = await combatApi.moveCharacter(payloadBase, state.settings);
       if (result?.ok === false && result?.error === "STALE_MOVEMENT_STATE" && result?.runtime) {
         updateRuntimeCache(result.runtime);
@@ -1321,7 +1372,7 @@ export function setupTacticalMoveTool({ runtime }) {
       await finalizeMutationSuccess(
         result,
         "combat-movement",
-        `Moved ${preview.moveCostM} m · ${Math.max(preview.remainingMoveM, 0)} m remaining.`,
+        `Moved ${preview.moveCostM} m - ${Math.max(preview.remainingMoveM, 0)} m remaining.`,
       );
     } catch (error) {
       const normalized = normalizeError(error, "Unable to move combatant.");
@@ -1367,6 +1418,16 @@ export function setupTacticalMoveTool({ runtime }) {
         await notify(message, "WARNING");
         return;
       }
+    }
+
+    if (state.grid?.gridType !== "square") {
+      const message = "Tactical Move v1 supports only square grids.";
+      await publishStatus({
+        error: message,
+        gridReady: false,
+      });
+      await notify(message, "WARNING");
+      return;
     }
 
     addDiagnosticEntry(
@@ -1495,22 +1556,6 @@ export function setupTacticalMoveTool({ runtime }) {
         await clearPreview({ reason: "broadcast-cancel", silent: true });
         await publishStatus({ reason: "broadcast-cancel" });
         break;
-      case MOVE_TOOL_COMMANDS.SetGmOverride:
-        if (String(state.player?.role ?? "").toUpperCase() !== "GM") {
-          return;
-        }
-        state.gmOverrideEnabled = !!message.payload?.enabled;
-        state.permission = resolveCombatMovementPermission({
-          player: state.player,
-          participant: state.selectedParticipant,
-          viewerControlledCharacterIds: state.viewerControlledCharacterIds,
-          gmOverrideEnabled: state.gmOverrideEnabled,
-        });
-        if (!state.gmOverrideEnabled) {
-          await clearPreview({ reason: "gm-override-disabled", silent: true });
-        }
-        await publishStatus({ reason: "gm-override-changed" });
-        break;
       case MOVE_TOOL_COMMANDS.ActivateSelected:
         await refreshRuntimeAndSelection("legacy-activate-selected");
         break;
@@ -1530,7 +1575,6 @@ export function setupTacticalMoveTool({ runtime }) {
 
     if (!exists) {
       clearRuntimeCache();
-      state.gmOverrideEnabled = false;
       await clearPreview({ reason: "encounter-ended", silent: true });
       await restorePreviousTool("encounter-ended");
       await publishStatus({ reason: "encounter-ended" });
@@ -1646,7 +1690,6 @@ export function setupTacticalMoveTool({ runtime }) {
       if (state.runtimeRefreshTimer) {
         clearTimeout(state.runtimeRefreshTimer);
       }
-      state.gmOverrideEnabled = false;
       await clearPreview({ reason: "dispose", silent: true });
       try { await OBR.tool.removeMode(TACTICAL_MOVE_MODE_ID); } catch {}
       try { await OBR.tool.remove(TACTICAL_MOVE_TOOL_ID); } catch {}

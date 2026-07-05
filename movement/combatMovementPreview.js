@@ -75,11 +75,21 @@ function getPreviewLabelPosition(originScene, targetScene) {
 
 export function buildPreviewLabel(preview) {
   if (!preview) return "";
+  if (preview.blocked) {
+    return `${preview.moveCostM} m / ${preview.moveLimitM} m - Path blocked`;
+  }
+  if (!preview.inRange) {
+    return `${preview.moveCostM} m / ${preview.moveLimitM} m - Too far`;
+  }
   return `${preview.moveCostM} m / ${preview.moveLimitM} m`;
 }
 
 export function buildPreviewItems({ preview, originScene, selectedToken }) {
-  const lineColor = preview?.inRange ? "#71f79f" : "#ff7c6d";
+  const lineColor = preview?.blocked
+    ? "#ffb347"
+    : preview?.inRange
+      ? "#71f79f"
+      : "#ff7c6d";
   const textColor = "#ffffff";
   const labelPosition = getPreviewLabelPosition(originScene, preview.scene);
 
@@ -115,7 +125,7 @@ export function buildPreviewItems({ preview, originScene, selectedToken }) {
     .textAlignVertical("MIDDLE")
     .fillColor(textColor)
     .fillOpacity(1)
-    .strokeColor("#08111f")
+    .strokeColor(preview?.blocked ? "#5a3200" : "#08111f")
     .strokeOpacity(1)
     .strokeWidth(6)
     .build();

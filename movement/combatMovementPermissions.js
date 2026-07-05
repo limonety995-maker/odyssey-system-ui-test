@@ -6,7 +6,6 @@ export function resolveCombatMovementPermission({
   player,
   participant,
   viewerControlledCharacterIds,
-  gmOverrideEnabled = false,
 }) {
   const controlledIds = viewerControlledCharacterIds instanceof Set
     ? viewerControlledCharacterIds
@@ -44,18 +43,6 @@ export function resolveCombatMovementPermission({
       controlAllowed: false,
       gmOverrideActive: false,
       message: "You cannot control this combatant.",
-    };
-  }
-
-  if (playerIsGm && gmOverrideEnabled) {
-    return {
-      canPreview: true,
-      canCommit: true,
-      measureOnly: false,
-      currentTurn,
-      controlAllowed: true,
-      gmOverrideActive: true,
-      message: "",
     };
   }
 

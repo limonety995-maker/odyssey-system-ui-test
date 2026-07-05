@@ -34636,8 +34636,7 @@ var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
 var MOVE_TOOL_COMMANDS = Object.freeze({
   ActivateSelected: "ACTIVATE_SELECTED",
   Cancel: "CANCEL",
-  RequestStatus: "REQUEST_STATUS",
-  SetGmOverride: "SET_GM_OVERRIDE"
+  RequestStatus: "REQUEST_STATUS"
 });
 var MOVE_TOOL_EVENTS = Object.freeze({
   Status: "STATUS",
@@ -36169,14 +36168,17 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     const isCurrentTurn = !!participant.is_current_turn;
     const moveCurrent = Number(participant.move_current ?? 0) || 0;
     const moveMax = Number(participant.move_max ?? 0) || 0;
-    const gridReady = !!state.tacticalSnapshot?.grid;
+    const gridType = String(
+      toolStatus?.tacticalGrid?.gridType ?? state.tacticalSnapshot?.grid?.grid_type ?? ""
+    ).trim().toLowerCase();
+    const gridReady = gridType === "square";
+    const hasSyncedGrid = !!state.tacticalSnapshot?.grid;
     const autoSyncInFlight = !!state.autoTacticalSyncInFlight;
     const preview = toolStatus?.preview ?? null;
     const tokenLine = selectedToken ? `${esc2(selectedToken.name || "Selected token")} \xB7 ${esc2(selectedToken.id.slice(0, 8))}` : "Select this character's token in Owlbear to move it.";
-    const gmOverrideEnabled = !!toolStatus?.gmOverrideEnabled;
     const measureOnly = !!toolStatus?.measureOnly;
     const canCommit = !!toolStatus?.canCommit;
-    const moveHint = !selectedToken ? "Select this character's token in Owlbear to use combat movement." : !gridReady ? isGM() ? "Tactical grid is syncing automatically." : "Tactical grid is not synced yet." : gmOverrideEnabled ? "GM override is active. Drag this token on the map to reposition it without spending MOVE." : canCommit ? "Drag this token on the map to preview and confirm combat movement." : measureOnly ? "Drag this token on the map to measure distance. Drop will not spend MOVE." : "Movement is locked for this token right now.";
+    const moveHint = !selectedToken ? "Select this character's token in Owlbear to use combat movement." : !gridReady && hasSyncedGrid ? "Tactical Move v1 currently supports only square grids." : !gridReady ? isGM() ? "Tactical grid is syncing automatically." : "Tactical grid is not synced yet." : canCommit ? "Drag this token on the map to preview and confirm combat movement." : measureOnly ? "Drag this token on the map to measure distance. Drop will not spend MOVE." : "Movement is locked for this token right now.";
     return `
       <div class="cp-section-title">Tactical move</div>
       <div class="cp-card">
@@ -36185,17 +36187,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
           <span class="cp-row" style="gap:6px">
             <span class="cp-pill ${isCurrentTurn ? "good" : ""}">${isCurrentTurn ? "Current turn" : "Waiting turn"}</span>
             ${gridReady ? `<span class="cp-pill">grid synced</span>` : `<span class="cp-pill bad">grid not synced</span>`}
-            ${gmOverrideEnabled ? `<span class="cp-pill good">GM override</span>` : ""}
           </span>
         </div>
         <div class="cp-muted" style="margin-top:6px">${tokenLine}</div>
         <div class="cp-muted" style="margin-top:6px">${esc2(moveHint)}</div>
-        ${preview ? `<div class="cp-muted" style="margin-top:6px">Preview: ${preview.moveCostM} m, remaining ${preview.remainingMoveM} m${preview.inRange ? "" : " - out of range"}</div>` : ""}
+        ${preview ? `<div class="cp-muted" style="margin-top:6px">Preview: ${preview.moveCostM} m, remaining ${preview.remainingMoveM} m${preview.blocked ? " - path blocked" : preview.inRange ? "" : " - too far"}</div>` : ""}
         ${toolStatus?.error ? `<div class="cp-muted" style="margin-top:6px;color:#ff9b9b">${esc2(toolStatus.error)}</div>` : ""}
         ${isGM() && autoSyncInFlight ? `<div class="cp-muted" style="margin-top:6px">Syncing token position...</div>` : ""}
-        <div class="button-row" style="margin-top:8px">
-          ${isGM() ? `<button type="button" class="${gmOverrideEnabled ? "" : "secondary"}" data-ref="toggleGmMoveOverride" ${state.busy ? "disabled" : ""}>${gmOverrideEnabled ? "Disable GM override" : "Enable GM override"}</button>` : ""}
-        </div>
       </div>
     `;
   }
@@ -36889,13 +36887,6 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
     });
     $("endCombat")?.addEventListener("click", () => {
       endCombatForScene().catch(() => {
-      });
-    });
-    $("toggleGmMoveOverride")?.addEventListener("click", async () => {
-      await sendMoveToolCommand(
-        MOVE_TOOL_COMMANDS.SetGmOverride,
-        { enabled: !(state.moveToolStatus?.gmOverrideEnabled === true) }
-      ).catch(() => {
       });
     });
     $("devRole")?.addEventListener("change", async (e) => {

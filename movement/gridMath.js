@@ -211,6 +211,29 @@ export function snapSquarePointerToCellCenter(grid, pointerPosition) {
   };
 }
 
+export function buildStraightSquarePath(fromCell, toCell) {
+  if (!fromCell || !toCell) return [];
+
+  let q = Number(fromCell.q ?? fromCell.cell_q ?? 0) || 0;
+  let r = Number(fromCell.r ?? fromCell.cell_r ?? 0) || 0;
+  const targetQ = Number(toCell.q ?? toCell.cell_q ?? 0) || 0;
+  const targetR = Number(toCell.r ?? toCell.cell_r ?? 0) || 0;
+
+  const path = [{ q, r }];
+
+  while (q !== targetQ || r !== targetR) {
+    if (q < targetQ) q += 1;
+    else if (q > targetQ) q -= 1;
+
+    if (r < targetR) r += 1;
+    else if (r > targetR) r -= 1;
+
+    path.push({ q, r });
+  }
+
+  return path;
+}
+
 export function computeDistanceCells(grid, fromCell, toCell) {
   const settings = normalizeTacticalGridSettings(grid);
   if (!settings || !fromCell || !toCell) return 0;
