@@ -42,11 +42,16 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.36";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.37";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
 const POSITION_EPSILON = 0.01;
+const INTERNAL_MOVEMENT_SOURCES = new Set([
+  "combat-movement",
+  "combat-gm-reposition",
+  "combat-movement-revert",
+]);
 
 function createToolIcon() {
   return MOVE_TOOL_ICON_URL;
@@ -63,6 +68,14 @@ function nowIso() {
 function createRequestId() {
   return globalThis.crypto?.randomUUID?.()
     ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatPreviewDiagnostics(details = {}) {
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return String(details?.reason ?? "preview-diagnostic");
+  }
 }
 
 function positionsMatch(a, b) {
@@ -416,18 +429,37 @@ export function setupTacticalMoveTool({ runtime }) {
       originScene,
       selectedToken: state.selectedToken,
     });
-    const addItems = [items.line, items.label];
-    if (items.ghost) addItems.push(items.ghost);
+
+    if (items.ghostError) {
+      const normalized = normalizeError(items.ghostError, "Unable to build movement preview ghost.");
+      addDiagnosticEntry(
+        "warn",
+        "Combat preview ghost build failed",
+        formatPreviewDiagnostics({
+          ...items.ghostDebugInfo,
+          tokenId: String(state.selectedToken?.id ?? "").trim(),
+          message: normalized.message,
+        }),
+      );
+    }
 
     try {
       if (!state.previewCreated) {
-        await OBR.scene.local.addItems(addItems);
+        await OBR.scene.local.addItems([items.line, items.label]);
         state.previewCreated = true;
-        state.previewGhostCreated = !!items.ghost;
+        addDiagnosticEntry(
+          "info",
+          "Combat preview core created",
+          buildPreviewDiagnosticDetails({
+            tokenId: state.selectedToken?.id,
+            cell: preview.cell,
+            scene: preview.scene,
+            distanceCells: preview.distanceCells,
+            moveCostM: preview.moveCostM,
+          }),
+        );
       } else {
-        const updateIds = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID];
-        if (items.ghost && state.previewGhostCreated) updateIds.push(PREVIEW_GHOST_ID);
-        await OBR.scene.local.updateItems(updateIds, (sceneItems) => {
+        await OBR.scene.local.updateItems([PREVIEW_LINE_ID, PREVIEW_LABEL_ID], (sceneItems) => {
           for (const item of sceneItems) {
             if (item.id === PREVIEW_LINE_ID && item.type === "LINE") {
               item.startPosition = items.line.startPosition;
@@ -439,21 +471,68 @@ export function setupTacticalMoveTool({ runtime }) {
               item.text = items.label.text;
               item.style = items.label.style;
             }
-            if (item.id === PREVIEW_GHOST_ID && item.type === "IMAGE" && items.ghost) {
+          }
+        });
+      }
+    } catch (error) {
+      state.previewCreated = false;
+      const normalized = normalizeError(error, "Unable to update core movement preview.");
+      addDiagnosticEntry("warn", "Combat preview core update failed", normalized.message);
+      await publishStatus();
+      return;
+    }
+
+    if (!items.ghost) {
+      if (state.previewGhostCreated) {
+        try {
+          await OBR.scene.local.deleteItems([PREVIEW_GHOST_ID]);
+        } catch {
+          // ignore ghost cleanup failures
+        }
+      }
+      state.previewGhostCreated = false;
+      await publishStatus();
+      return;
+    }
+
+    try {
+      if (!state.previewGhostCreated) {
+        await OBR.scene.local.addItems([items.ghost]);
+        state.previewGhostCreated = true;
+        addDiagnosticEntry(
+          "info",
+          "Combat preview ghost added",
+          buildPreviewDiagnosticDetails({
+            tokenId: state.selectedToken?.id,
+            cell: preview.cell,
+            scene: preview.scene,
+            distanceCells: preview.distanceCells,
+            moveCostM: preview.moveCostM,
+          }),
+        );
+      } else {
+        await OBR.scene.local.updateItems([PREVIEW_GHOST_ID], (sceneItems) => {
+          for (const item of sceneItems) {
+            if (item.id === PREVIEW_GHOST_ID && item.type === "IMAGE") {
               item.position = items.ghost.position;
               item.rotation = items.ghost.rotation;
               item.scale = items.ghost.scale;
             }
           }
         });
-        if (items.ghost && !state.previewGhostCreated) {
-          await OBR.scene.local.addItems([items.ghost]);
-          state.previewGhostCreated = true;
-        }
       }
     } catch (error) {
-      const normalized = normalizeError(error, "Unable to update movement preview.");
-      addDiagnosticEntry("warn", "Combat movement preview failed", normalized.message);
+      state.previewGhostCreated = false;
+      const normalized = normalizeError(error, "Unable to add movement preview ghost.");
+      addDiagnosticEntry(
+        "warn",
+        "Combat preview ghost add failed",
+        formatPreviewDiagnostics({
+          ...items.ghostDebugInfo,
+          tokenId: String(state.selectedToken?.id ?? "").trim(),
+          message: normalized.message,
+        }),
+      );
     }
 
     await publishStatus();
@@ -474,13 +553,64 @@ export function setupTacticalMoveTool({ runtime }) {
     };
   }
 
+  function buildPreviewDiagnosticDetails({
+    tokenId = "",
+    cell = null,
+    scene = null,
+    distanceCells = null,
+    moveCostM = null,
+    reason = "",
+  } = {}) {
+    return formatPreviewDiagnostics({
+      tokenId: String(tokenId ?? state.selectedToken?.id ?? "").trim(),
+      cellQ: Number(cell?.q ?? 0) || 0,
+      cellR: Number(cell?.r ?? 0) || 0,
+      sceneX: Number(scene?.x ?? 0) || 0,
+      sceneY: Number(scene?.y ?? 0) || 0,
+      distanceCells: Number(distanceCells ?? 0) || 0,
+      moveCostM: Number(moveCostM ?? 0) || 0,
+      reason: String(reason ?? "").trim(),
+    });
+  }
+
   async function buildPreviewFromPointer(pointerPosition) {
     const grid = state.grid;
     const participant = state.selectedParticipant;
-    if (!grid || !participant?.position || !pointerPosition) return null;
+    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    if (!grid) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-grid" }),
+      );
+      return null;
+    }
+    if (!participant?.position) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-participant-position" }),
+      );
+      return null;
+    }
+    if (!pointerPosition) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-pointer-position" }),
+      );
+      return null;
+    }
 
     const origin = getSelectedParticipantOrigin();
-    if (!origin) return null;
+    if (!origin) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-participant-position" }),
+      );
+      return null;
+    }
 
     const snappedScene = await snapScenePosition(
       pointerPosition,
@@ -489,16 +619,43 @@ export function setupTacticalMoveTool({ runtime }) {
       true,
     );
 
-    if (!snappedScene) return null;
+    if (!snappedScene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "snap-returned-null" }),
+      );
+      return null;
+    }
+
+    addDiagnosticEntry(
+      "info",
+      "Combat preview position snapped",
+      buildPreviewDiagnosticDetails({
+        tokenId,
+        scene: snappedScene,
+      }),
+    );
 
     const cell = sceneToCell(grid, snappedScene);
-    if (!cell) return null;
+    if (!cell) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({
+          tokenId,
+          scene: snappedScene,
+          reason: "cell-conversion-failed",
+        }),
+      );
+      return null;
+    }
 
     const distanceCells = computeDistanceCells(grid, origin.cell, cell);
     const moveCostM = distanceCells * Math.max(Number(grid.metersPerCell ?? 1) || 1, 1);
     const moveLimitM = Number(participant.move_current ?? 0) || 0;
 
-    return {
+    const preview = {
       cell,
       scene: {
         x: Number(snappedScene.x) || 0,
@@ -510,6 +667,20 @@ export function setupTacticalMoveTool({ runtime }) {
       remainingMoveM: moveLimitM - moveCostM,
       inRange: moveCostM <= moveLimitM,
     };
+
+    addDiagnosticEntry(
+      "info",
+      "Combat preview built",
+      buildPreviewDiagnosticDetails({
+        tokenId,
+        cell,
+        scene: preview.scene,
+        distanceCells,
+        moveCostM,
+      }),
+    );
+
+    return preview;
   }
 
   async function capturePreviousTool() {
@@ -686,6 +857,78 @@ export function setupTacticalMoveTool({ runtime }) {
     );
   }
 
+  async function tryRetryStaleMovement({
+    preview,
+    payloadBase,
+    invokeMutation,
+    source = "combat-movement",
+  }) {
+    const runtimeResponse = state.runtime;
+    if (!runtimeResponse?.encounter?.id) {
+      return null;
+    }
+
+    await syncSelectionState(`${source}-stale-reload`, { runtimeResponse });
+
+    if (!state.selectedParticipant || !state.permission?.canCommit || !state.grid) {
+      return null;
+    }
+
+    if (String(state.encounterId ?? "").trim() !== String(payloadBase.encounter_id ?? "").trim()) {
+      return null;
+    }
+
+    if (String(state.selectedParticipant.character_id ?? "").trim() !== String(payloadBase.character_id ?? "").trim()) {
+      return null;
+    }
+
+    if (!participantHasAuthoritativePosition(state.selectedParticipant)) {
+      return null;
+    }
+
+    const origin = getSelectedParticipantOrigin();
+    if (!origin) {
+      return null;
+    }
+
+    const distanceCells = computeDistanceCells(state.grid, origin.cell, preview.cell);
+    const moveCostM = distanceCells * Math.max(Number(state.grid.metersPerCell ?? 1) || 1, 1);
+    const moveLimitM = Number(state.selectedParticipant.move_current ?? 0) || 0;
+
+    if (distanceCells <= 0 || moveCostM > moveLimitM) {
+      return null;
+    }
+
+    const retryPayload = {
+      ...payloadBase,
+      token_id: String(state.selectedParticipant.token_id ?? state.selectedToken?.id ?? "").trim(),
+      expected_state_version: Number(state.stateVersion ?? 0) || 0,
+      expected_movement_version: Number(state.selectedParticipant.movement_version ?? 0) || 0,
+      destination: {
+        cell_q: preview.cell.q,
+        cell_r: preview.cell.r,
+        scene_x: preview.scene.x,
+        scene_y: preview.scene.y,
+      },
+    };
+
+    addDiagnosticEntry(
+      "info",
+      "Combat movement stale retry",
+      formatPreviewDiagnostics({
+        tokenId: retryPayload.token_id,
+        cellQ: preview.cell.q,
+        cellR: preview.cell.r,
+        sceneX: preview.scene.x,
+        sceneY: preview.scene.y,
+        distanceCells,
+        moveCostM,
+      }),
+    );
+
+    return invokeMutation(retryPayload, state.settings);
+  }
+
   async function finalizeMutationSuccess(result, source, successMessage) {
     if (result?.runtime) {
       updateRuntimeCache(result.runtime);
@@ -701,13 +944,6 @@ export function setupTacticalMoveTool({ runtime }) {
       ...buildStatus(state, { applied: true, source }),
       runtime: result?.runtime ?? null,
     });
-    if (String(state.player?.role ?? "").toUpperCase() === "GM") {
-      void runAutoTacticalSync({
-        onlyCharacterId: String(state.selectedParticipant?.character_id ?? "").trim(),
-        runtimeResponse: result?.runtime ?? state.runtime,
-        reason: `${source}-post-apply`,
-      });
-    }
     await notify(successMessage, "SUCCESS");
   }
 
@@ -885,13 +1121,28 @@ export function setupTacticalMoveTool({ runtime }) {
 
     try {
       if (state.gmOverrideEnabled && state.player?.role === "GM") {
-        const result = await combatApi.gmRepositionCharacter(
+        let result = await combatApi.gmRepositionCharacter(
           {
             ...payloadBase,
             consume_movement: false,
           },
           state.settings,
         );
+        if (result?.ok === false && result?.error === "STALE_MOVEMENT_STATE" && result?.runtime) {
+          updateRuntimeCache(result.runtime);
+          const retryResult = await tryRetryStaleMovement({
+            preview,
+            payloadBase: {
+              ...payloadBase,
+              consume_movement: false,
+            },
+            invokeMutation: (retryPayload, settings) => combatApi.gmRepositionCharacter(retryPayload, settings),
+            source: "combat-gm-reposition",
+          });
+          if (retryResult) {
+            result = retryResult;
+          }
+        }
         if (!result || result.ok === false) {
           await failMutation(result, "Unable to reposition combatant.");
           return;
@@ -904,7 +1155,19 @@ export function setupTacticalMoveTool({ runtime }) {
         return;
       }
 
-      const result = await combatApi.moveCharacter(payloadBase, state.settings);
+      let result = await combatApi.moveCharacter(payloadBase, state.settings);
+      if (result?.ok === false && result?.error === "STALE_MOVEMENT_STATE" && result?.runtime) {
+        updateRuntimeCache(result.runtime);
+        const retryResult = await tryRetryStaleMovement({
+          preview,
+          payloadBase,
+          invokeMutation: (retryPayload, settings) => combatApi.moveCharacter(retryPayload, settings),
+          source: "combat-movement",
+        });
+        if (retryResult) {
+          result = retryResult;
+        }
+      }
       if (!result || result.ok === false) {
         await failMutation(result, "Unable to move combatant.");
         return;
@@ -960,6 +1223,14 @@ export function setupTacticalMoveTool({ runtime }) {
       }
     }
 
+    addDiagnosticEntry(
+      "info",
+      "Combat drag started",
+      formatPreviewDiagnostics({
+        tokenId: selectedTokenId,
+      }),
+    );
+
     state.dragActive = true;
     state.previewRequestVersion += 1;
     const requestVersion = state.previewRequestVersion;
@@ -986,6 +1257,13 @@ export function setupTacticalMoveTool({ runtime }) {
 
   async function handleToolDragEnd(_context, event) {
     if (!state.dragActive) return;
+    addDiagnosticEntry(
+      "info",
+      "Combat drag ended",
+      formatPreviewDiagnostics({
+        tokenId: String(state.selectedToken?.id ?? "").trim(),
+      }),
+    );
     state.previewRequestVersion += 1;
     const requestVersion = state.previewRequestVersion;
     const preview = await buildPreviewFromPointer(event.pointerPosition);
@@ -1036,6 +1314,10 @@ export function setupTacticalMoveTool({ runtime }) {
 
       const marker = extractMovementMarker(item);
       if (marker && isFreshMarker(marker)) {
+        if (INTERNAL_MOVEMENT_SOURCES.has(marker.source)) {
+          scheduleRuntimeRefresh("internal-movement-marker");
+          continue;
+        }
         if (String(state.player?.role ?? "").toUpperCase() === "GM") {
           const markerKey = marker.requestId || marker.updatedAt;
           if (state.autoSyncedMarkerByTokenId.get(tokenId) !== markerKey) {

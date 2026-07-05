@@ -10085,20 +10085,25 @@ function ensureVector2(value, fallback = { x: 1, y: 1 }) {
     y: Number(value?.y ?? fallback.y ?? 1) || 1
   };
 }
-function ensureImageGrid(value) {
-  const grid = value && typeof value === "object" ? value : {};
-  return {
-    dpi: Math.max(1, Number(grid.dpi ?? 1) || 1),
-    offset: ensureVector2(grid.offset, { x: 0, y: 0 })
-  };
-}
 function isImageToken(item) {
   return String(item?.type ?? "").trim().toUpperCase() === "IMAGE" && item?.image && typeof item.image === "object" && typeof item.image.url === "string" && item.image.url.trim() !== "";
+}
+function buildGhostDebugInfo(sourceToken) {
+  return {
+    type: String(sourceToken?.type ?? "").trim().toUpperCase(),
+    hasImage: !!(sourceToken?.image && typeof sourceToken.image === "object"),
+    hasImageUrl: typeof sourceToken?.image?.url === "string" && sourceToken.image.url.trim() !== "",
+    hasGrid: !!(sourceToken?.grid && typeof sourceToken.grid === "object"),
+    hasPosition: !!(sourceToken?.position && typeof sourceToken.position === "object")
+  };
 }
 function buildGhostToken(sourceToken, position) {
   if (!isImageToken(sourceToken) || !position) return null;
   const token = ensureObject(sourceToken);
-  const ghost = buildImage(token.image, ensureImageGrid(token.grid)).id(PREVIEW_GHOST_ID).name("Combat Movement Ghost").layer("CHARACTER").locked(true).disableHit(true).disableAutoZIndex(true).position({
+  if (!token.grid || typeof token.grid !== "object") {
+    return null;
+  }
+  const ghost = buildImage(token.image, token.grid).id(PREVIEW_GHOST_ID).name("Combat Movement Ghost").layer("CHARACTER").locked(true).disableHit(true).disableAutoZIndex(true).position({
     x: Number(position.x) || 0,
     y: Number(position.y) || 0
   }).rotation(Number(token.rotation ?? 0) || 0).scale(ensureVector2(token.scale)).visible(true).metadata({});
@@ -10132,11 +10137,18 @@ function buildPreviewItems({ preview, originScene, selectedToken }) {
   const line = buildLine().id(PREVIEW_LINE_ID).name("Combat Movement Preview").layer("POINTER").locked(true).disableHit(true).startPosition(originScene).endPosition(preview.scene).strokeColor(lineColor).strokeOpacity(0.98).strokeWidth(6).strokeDash([12, 8]).disableAutoZIndex(true).build();
   const label = buildText().id(PREVIEW_LABEL_ID).name("Combat Movement Label").layer("TEXT").locked(true).disableHit(true).position({ x: preview.scene.x + 12, y: preview.scene.y - 22 }).plainText(buildPreviewLabel(preview)).fontSize(18).fontWeight(700).padding(10).textAlign("LEFT").textAlignVertical("MIDDLE").fillColor(textColor).fillOpacity(1).strokeColor("#08111f").strokeOpacity(0.92).strokeWidth(5).build();
   let ghost = null;
-  ghost = buildGhostToken(selectedToken, preview.scene);
+  let ghostError = null;
+  try {
+    ghost = buildGhostToken(selectedToken, preview.scene);
+  } catch (error) {
+    ghostError = error;
+  }
   return {
     line,
     label,
-    ghost
+    ghost,
+    ghostError,
+    ghostDebugInfo: buildGhostDebugInfo(selectedToken)
   };
 }
 
@@ -10256,10 +10268,15 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.36";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.37";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
+var INTERNAL_MOVEMENT_SOURCES = /* @__PURE__ */ new Set([
+  "combat-movement",
+  "combat-gm-reposition",
+  "combat-movement-revert"
+]);
 function createToolIcon() {
   return MOVE_TOOL_ICON_URL;
 }
@@ -10271,6 +10288,13 @@ function nowIso() {
 }
 function createRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+function formatPreviewDiagnostics(details2 = {}) {
+  try {
+    return JSON.stringify(details2);
+  } catch {
+    return String(details2?.reason ?? "preview-diagnostic");
+  }
 }
 function positionsMatch(a, b) {
   if (!a || !b) return false;
@@ -10573,17 +10597,35 @@ function setupTacticalMoveTool({ runtime }) {
       originScene,
       selectedToken: state.selectedToken
     });
-    const addItems = [items.line, items.label];
-    if (items.ghost) addItems.push(items.ghost);
+    if (items.ghostError) {
+      const normalized = normalizeError(items.ghostError, "Unable to build movement preview ghost.");
+      addDiagnosticEntry(
+        "warn",
+        "Combat preview ghost build failed",
+        formatPreviewDiagnostics({
+          ...items.ghostDebugInfo,
+          tokenId: String(state.selectedToken?.id ?? "").trim(),
+          message: normalized.message
+        })
+      );
+    }
     try {
       if (!state.previewCreated) {
-        await lib_default.scene.local.addItems(addItems);
+        await lib_default.scene.local.addItems([items.line, items.label]);
         state.previewCreated = true;
-        state.previewGhostCreated = !!items.ghost;
+        addDiagnosticEntry(
+          "info",
+          "Combat preview core created",
+          buildPreviewDiagnosticDetails({
+            tokenId: state.selectedToken?.id,
+            cell: preview.cell,
+            scene: preview.scene,
+            distanceCells: preview.distanceCells,
+            moveCostM: preview.moveCostM
+          })
+        );
       } else {
-        const updateIds = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID];
-        if (items.ghost && state.previewGhostCreated) updateIds.push(PREVIEW_GHOST_ID);
-        await lib_default.scene.local.updateItems(updateIds, (sceneItems) => {
+        await lib_default.scene.local.updateItems([PREVIEW_LINE_ID, PREVIEW_LABEL_ID], (sceneItems) => {
           for (const item of sceneItems) {
             if (item.id === PREVIEW_LINE_ID && item.type === "LINE") {
               item.startPosition = items.line.startPosition;
@@ -10595,21 +10637,65 @@ function setupTacticalMoveTool({ runtime }) {
               item.text = items.label.text;
               item.style = items.label.style;
             }
-            if (item.id === PREVIEW_GHOST_ID && item.type === "IMAGE" && items.ghost) {
+          }
+        });
+      }
+    } catch (error) {
+      state.previewCreated = false;
+      const normalized = normalizeError(error, "Unable to update core movement preview.");
+      addDiagnosticEntry("warn", "Combat preview core update failed", normalized.message);
+      await publishStatus();
+      return;
+    }
+    if (!items.ghost) {
+      if (state.previewGhostCreated) {
+        try {
+          await lib_default.scene.local.deleteItems([PREVIEW_GHOST_ID]);
+        } catch {
+        }
+      }
+      state.previewGhostCreated = false;
+      await publishStatus();
+      return;
+    }
+    try {
+      if (!state.previewGhostCreated) {
+        await lib_default.scene.local.addItems([items.ghost]);
+        state.previewGhostCreated = true;
+        addDiagnosticEntry(
+          "info",
+          "Combat preview ghost added",
+          buildPreviewDiagnosticDetails({
+            tokenId: state.selectedToken?.id,
+            cell: preview.cell,
+            scene: preview.scene,
+            distanceCells: preview.distanceCells,
+            moveCostM: preview.moveCostM
+          })
+        );
+      } else {
+        await lib_default.scene.local.updateItems([PREVIEW_GHOST_ID], (sceneItems) => {
+          for (const item of sceneItems) {
+            if (item.id === PREVIEW_GHOST_ID && item.type === "IMAGE") {
               item.position = items.ghost.position;
               item.rotation = items.ghost.rotation;
               item.scale = items.ghost.scale;
             }
           }
         });
-        if (items.ghost && !state.previewGhostCreated) {
-          await lib_default.scene.local.addItems([items.ghost]);
-          state.previewGhostCreated = true;
-        }
       }
     } catch (error) {
-      const normalized = normalizeError(error, "Unable to update movement preview.");
-      addDiagnosticEntry("warn", "Combat movement preview failed", normalized.message);
+      state.previewGhostCreated = false;
+      const normalized = normalizeError(error, "Unable to add movement preview ghost.");
+      addDiagnosticEntry(
+        "warn",
+        "Combat preview ghost add failed",
+        formatPreviewDiagnostics({
+          ...items.ghostDebugInfo,
+          tokenId: String(state.selectedToken?.id ?? "").trim(),
+          message: normalized.message
+        })
+      );
     }
     await publishStatus();
   }
@@ -10627,25 +10713,101 @@ function setupTacticalMoveTool({ runtime }) {
       }
     };
   }
+  function buildPreviewDiagnosticDetails({
+    tokenId = "",
+    cell = null,
+    scene = null,
+    distanceCells = null,
+    moveCostM = null,
+    reason = ""
+  } = {}) {
+    return formatPreviewDiagnostics({
+      tokenId: String(tokenId ?? state.selectedToken?.id ?? "").trim(),
+      cellQ: Number(cell?.q ?? 0) || 0,
+      cellR: Number(cell?.r ?? 0) || 0,
+      sceneX: Number(scene?.x ?? 0) || 0,
+      sceneY: Number(scene?.y ?? 0) || 0,
+      distanceCells: Number(distanceCells ?? 0) || 0,
+      moveCostM: Number(moveCostM ?? 0) || 0,
+      reason: String(reason ?? "").trim()
+    });
+  }
   async function buildPreviewFromPointer(pointerPosition) {
     const grid = state.grid;
     const participant = state.selectedParticipant;
-    if (!grid || !participant?.position || !pointerPosition) return null;
+    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    if (!grid) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-grid" })
+      );
+      return null;
+    }
+    if (!participant?.position) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-participant-position" })
+      );
+      return null;
+    }
+    if (!pointerPosition) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-pointer-position" })
+      );
+      return null;
+    }
     const origin = getSelectedParticipantOrigin();
-    if (!origin) return null;
+    if (!origin) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-participant-position" })
+      );
+      return null;
+    }
     const snappedScene = await snapScenePosition(
       pointerPosition,
       1,
       false,
       true
     );
-    if (!snappedScene) return null;
+    if (!snappedScene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "snap-returned-null" })
+      );
+      return null;
+    }
+    addDiagnosticEntry(
+      "info",
+      "Combat preview position snapped",
+      buildPreviewDiagnosticDetails({
+        tokenId,
+        scene: snappedScene
+      })
+    );
     const cell = sceneToCell(grid, snappedScene);
-    if (!cell) return null;
+    if (!cell) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({
+          tokenId,
+          scene: snappedScene,
+          reason: "cell-conversion-failed"
+        })
+      );
+      return null;
+    }
     const distanceCells = computeDistanceCells(grid, origin.cell, cell);
     const moveCostM = distanceCells * Math.max(Number(grid.metersPerCell ?? 1) || 1, 1);
     const moveLimitM = Number(participant.move_current ?? 0) || 0;
-    return {
+    const preview = {
       cell,
       scene: {
         x: Number(snappedScene.x) || 0,
@@ -10657,6 +10819,18 @@ function setupTacticalMoveTool({ runtime }) {
       remainingMoveM: moveLimitM - moveCostM,
       inRange: moveCostM <= moveLimitM
     };
+    addDiagnosticEntry(
+      "info",
+      "Combat preview built",
+      buildPreviewDiagnosticDetails({
+        tokenId,
+        cell,
+        scene: preview.scene,
+        distanceCells,
+        moveCostM
+      })
+    );
+    return preview;
   }
   async function capturePreviousTool() {
     if (state.autoToolClaimed) return;
@@ -10811,6 +10985,66 @@ function setupTacticalMoveTool({ runtime }) {
       source
     );
   }
+  async function tryRetryStaleMovement({
+    preview,
+    payloadBase,
+    invokeMutation,
+    source = "combat-movement"
+  }) {
+    const runtimeResponse = state.runtime;
+    if (!runtimeResponse?.encounter?.id) {
+      return null;
+    }
+    await syncSelectionState(`${source}-stale-reload`, { runtimeResponse });
+    if (!state.selectedParticipant || !state.permission?.canCommit || !state.grid) {
+      return null;
+    }
+    if (String(state.encounterId ?? "").trim() !== String(payloadBase.encounter_id ?? "").trim()) {
+      return null;
+    }
+    if (String(state.selectedParticipant.character_id ?? "").trim() !== String(payloadBase.character_id ?? "").trim()) {
+      return null;
+    }
+    if (!participantHasAuthoritativePosition(state.selectedParticipant)) {
+      return null;
+    }
+    const origin = getSelectedParticipantOrigin();
+    if (!origin) {
+      return null;
+    }
+    const distanceCells = computeDistanceCells(state.grid, origin.cell, preview.cell);
+    const moveCostM = distanceCells * Math.max(Number(state.grid.metersPerCell ?? 1) || 1, 1);
+    const moveLimitM = Number(state.selectedParticipant.move_current ?? 0) || 0;
+    if (distanceCells <= 0 || moveCostM > moveLimitM) {
+      return null;
+    }
+    const retryPayload = {
+      ...payloadBase,
+      token_id: String(state.selectedParticipant.token_id ?? state.selectedToken?.id ?? "").trim(),
+      expected_state_version: Number(state.stateVersion ?? 0) || 0,
+      expected_movement_version: Number(state.selectedParticipant.movement_version ?? 0) || 0,
+      destination: {
+        cell_q: preview.cell.q,
+        cell_r: preview.cell.r,
+        scene_x: preview.scene.x,
+        scene_y: preview.scene.y
+      }
+    };
+    addDiagnosticEntry(
+      "info",
+      "Combat movement stale retry",
+      formatPreviewDiagnostics({
+        tokenId: retryPayload.token_id,
+        cellQ: preview.cell.q,
+        cellR: preview.cell.r,
+        sceneX: preview.scene.x,
+        sceneY: preview.scene.y,
+        distanceCells,
+        moveCostM
+      })
+    );
+    return invokeMutation(retryPayload, state.settings);
+  }
   async function finalizeMutationSuccess(result, source, successMessage) {
     if (result?.runtime) {
       updateRuntimeCache(result.runtime);
@@ -10826,13 +11060,6 @@ function setupTacticalMoveTool({ runtime }) {
       ...buildStatus(state, { applied: true, source }),
       runtime: result?.runtime ?? null
     });
-    if (String(state.player?.role ?? "").toUpperCase() === "GM") {
-      void runAutoTacticalSync({
-        onlyCharacterId: String(state.selectedParticipant?.character_id ?? "").trim(),
-        runtimeResponse: result?.runtime ?? state.runtime,
-        reason: `${source}-post-apply`
-      });
-    }
     await notify3(successMessage, "SUCCESS");
   }
   async function runAutoTacticalSync({
@@ -10982,13 +11209,28 @@ function setupTacticalMoveTool({ runtime }) {
     };
     try {
       if (state.gmOverrideEnabled && state.player?.role === "GM") {
-        const result2 = await combatApi.gmRepositionCharacter(
+        let result2 = await combatApi.gmRepositionCharacter(
           {
             ...payloadBase,
             consume_movement: false
           },
           state.settings
         );
+        if (result2?.ok === false && result2?.error === "STALE_MOVEMENT_STATE" && result2?.runtime) {
+          updateRuntimeCache(result2.runtime);
+          const retryResult = await tryRetryStaleMovement({
+            preview,
+            payloadBase: {
+              ...payloadBase,
+              consume_movement: false
+            },
+            invokeMutation: (retryPayload, settings) => combatApi.gmRepositionCharacter(retryPayload, settings),
+            source: "combat-gm-reposition"
+          });
+          if (retryResult) {
+            result2 = retryResult;
+          }
+        }
         if (!result2 || result2.ok === false) {
           await failMutation(result2, "Unable to reposition combatant.");
           return;
@@ -11000,7 +11242,19 @@ function setupTacticalMoveTool({ runtime }) {
         );
         return;
       }
-      const result = await combatApi.moveCharacter(payloadBase, state.settings);
+      let result = await combatApi.moveCharacter(payloadBase, state.settings);
+      if (result?.ok === false && result?.error === "STALE_MOVEMENT_STATE" && result?.runtime) {
+        updateRuntimeCache(result.runtime);
+        const retryResult = await tryRetryStaleMovement({
+          preview,
+          payloadBase,
+          invokeMutation: (retryPayload, settings) => combatApi.moveCharacter(retryPayload, settings),
+          source: "combat-movement"
+        });
+        if (retryResult) {
+          result = retryResult;
+        }
+      }
       if (!result || result.ok === false) {
         await failMutation(result, "Unable to move combatant.");
         return;
@@ -11047,6 +11301,13 @@ function setupTacticalMoveTool({ runtime }) {
         return;
       }
     }
+    addDiagnosticEntry(
+      "info",
+      "Combat drag started",
+      formatPreviewDiagnostics({
+        tokenId: selectedTokenId
+      })
+    );
     state.dragActive = true;
     state.previewRequestVersion += 1;
     const requestVersion = state.previewRequestVersion;
@@ -11071,6 +11332,13 @@ function setupTacticalMoveTool({ runtime }) {
   }
   async function handleToolDragEnd(_context, event) {
     if (!state.dragActive) return;
+    addDiagnosticEntry(
+      "info",
+      "Combat drag ended",
+      formatPreviewDiagnostics({
+        tokenId: String(state.selectedToken?.id ?? "").trim()
+      })
+    );
     state.previewRequestVersion += 1;
     const requestVersion = state.previewRequestVersion;
     const preview = await buildPreviewFromPointer(event.pointerPosition);
@@ -11115,6 +11383,10 @@ function setupTacticalMoveTool({ runtime }) {
       }
       const marker = extractMovementMarker(item);
       if (marker && isFreshMarker(marker)) {
+        if (INTERNAL_MOVEMENT_SOURCES.has(marker.source)) {
+          scheduleRuntimeRefresh("internal-movement-marker");
+          continue;
+        }
         if (String(state.player?.role ?? "").toUpperCase() === "GM") {
           const markerKey = marker.requestId || marker.updatedAt;
           if (state.autoSyncedMarkerByTokenId.get(tokenId) !== markerKey) {

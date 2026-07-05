@@ -15,14 +15,6 @@ function ensureVector2(value, fallback = { x: 1, y: 1 }) {
   };
 }
 
-function ensureImageGrid(value) {
-  const grid = value && typeof value === "object" ? value : {};
-  return {
-    dpi: Math.max(1, Number(grid.dpi ?? 1) || 1),
-    offset: ensureVector2(grid.offset, { x: 0, y: 0 }),
-  };
-}
-
 function isImageToken(item) {
   return String(item?.type ?? "").trim().toUpperCase() === "IMAGE"
     && item?.image
@@ -31,11 +23,25 @@ function isImageToken(item) {
     && item.image.url.trim() !== "";
 }
 
+function buildGhostDebugInfo(sourceToken) {
+  return {
+    type: String(sourceToken?.type ?? "").trim().toUpperCase(),
+    hasImage: !!(sourceToken?.image && typeof sourceToken.image === "object"),
+    hasImageUrl: typeof sourceToken?.image?.url === "string" && sourceToken.image.url.trim() !== "",
+    hasGrid: !!(sourceToken?.grid && typeof sourceToken.grid === "object"),
+    hasPosition: !!(sourceToken?.position && typeof sourceToken.position === "object"),
+  };
+}
+
 function buildGhostToken(sourceToken, position) {
   if (!isImageToken(sourceToken) || !position) return null;
 
   const token = ensureObject(sourceToken);
-  const ghost = buildImage(token.image, ensureImageGrid(token.grid))
+  if (!token.grid || typeof token.grid !== "object") {
+    return null;
+  }
+
+  const ghost = buildImage(token.image, token.grid)
     .id(PREVIEW_GHOST_ID)
     .name("Combat Movement Ghost")
     .layer("CHARACTER")
@@ -116,11 +122,18 @@ export function buildPreviewItems({ preview, originScene, selectedToken }) {
     .build();
 
   let ghost = null;
-  ghost = buildGhostToken(selectedToken, preview.scene);
+  let ghostError = null;
+  try {
+    ghost = buildGhostToken(selectedToken, preview.scene);
+  } catch (error) {
+    ghostError = error;
+  }
 
   return {
     line,
     label,
     ghost,
+    ghostError,
+    ghostDebugInfo: buildGhostDebugInfo(selectedToken),
   };
 }
