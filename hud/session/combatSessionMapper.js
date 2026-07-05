@@ -22,6 +22,8 @@ function num(v) {
 function mapParticipant(raw, activeEntryId) {
   const p = raw && typeof raw === "object" ? raw : {};
   const state = p.state && typeof p.state === "object" ? p.state : {};
+  const moveCurrent = num(p.move_current);
+  const moveMax = num(p.move_max);
   return {
     participantId: p.initiative_entry_id ?? null,
     characterId: p.character_id ?? null,
@@ -38,7 +40,9 @@ function mapParticipant(raw, activeEntryId) {
     isEligible: p.is_active !== false && state.is_alive !== false && state.is_conscious !== false,
     isPlayerCharacter: p.character_bucket === "player",
     mainAvailable: num(p.action_current) != null ? num(p.action_current) > 0 : null,
-    moveAvailable: num(p.move_current) != null ? num(p.move_current) > 0 : null,
+    moveAvailable: moveCurrent != null ? moveCurrent > 0 : null,
+    moveCurrent,
+    moveMax,
   };
 }
 
@@ -68,6 +72,10 @@ export function mapCombatRuntimeToSession(runtime, viewCtx = {}) {
     ? participants.find((p) => p.characterId === selectedCharacterId) ?? null
     : null;
   const currentCharacterId = encounter.active_character_id ?? null;
+  const currentParticipant = activeEntryId != null
+    ? participants.find((p) => p.participantId === activeEntryId) ?? null
+    : null;
+  const metersPerCell = num(r?.tactical_grid?.meters_per_cell) ?? 1;
   const isSelectedCharacterTurn = !!selected && selected.isCurrent;
   const viewerControlsSelected = !!selectedCharacterId && controlledIds.includes(selectedCharacterId);
   const isCurrentPlayerTurn = currentCharacterId != null && controlledIds.includes(currentCharacterId);
@@ -83,6 +91,11 @@ export function mapCombatRuntimeToSession(runtime, viewCtx = {}) {
     currentParticipantId: activeEntryId,
     currentCharacterId,
     selectedCharacterParticipantId: selected?.participantId ?? null,
+    selectedMoveCurrent: selected?.moveCurrent ?? null,
+    selectedMoveMax: selected?.moveMax ?? null,
+    currentMoveCurrent: currentParticipant?.moveCurrent ?? null,
+    currentMoveMax: currentParticipant?.moveMax ?? null,
+    metersPerCell,
     isSelectedCharacterTurn,
     isCurrentPlayerTurn,
     // "YOUR TURN" is shown only to the current participant's owner — or to the

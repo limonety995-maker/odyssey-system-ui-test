@@ -22,6 +22,12 @@ import { logDebugEvent } from "../debug/debugLogStore.js";
 import { BC_HUD_COMMAND, BC_HUD_SESSION, BC_HUD_SESSION_REQUEST } from "../overlay/overlayConstants.js";
 import { mapCombatRuntimeToSession } from "./combatSessionMapper.js";
 import { buildStartCandidates, canSeeGmTracker } from "./combatSessionPolicy.js";
+import { normalizeTacticalGridSettings } from "../../movement/gridMath.js";
+import { syncCombatScenePositions } from "../../movement/tacticalSync.js";
+import {
+  getActiveRuntime as getActiveCombatRuntime,
+  syncPositionsFromOwlbear,
+} from "../../api/combatApi.js";
 import {
   fetchActiveSessionRuntime,
   fetchSceneLinkCandidates,
@@ -89,12 +95,82 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
     broadcastSessionState();
   }
 
+  function hasReadyTacticalRuntime(runtime) {
+    if (!normalizeTacticalGridSettings(runtime?.tactical_grid)) {
+      return false;
+    }
+    const participants = Array.isArray(runtime?.visible_participants) ? runtime.visible_participants : [];
+    for (const participant of participants) {
+      const tokenId = String(participant?.token_id ?? "").trim();
+      if (!tokenId) continue;
+      const position = participant?.position ?? null;
+      if (!position || typeof position !== "object") return false;
+      if (
+        !Number.isFinite(Number(position.scene_x))
+        || !Number.isFinite(Number(position.scene_y))
+        || !Number.isFinite(Number(position.cell_q))
+        || !Number.isFinite(Number(position.cell_r))
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function ensureTacticalRuntime(origin = "tactical-runtime") {
+    if (!isGm()) return lastRuntime;
+    if (!lastRuntime?.encounter?.id || hasReadyTacticalRuntime(lastRuntime)) {
+      return lastRuntime;
+    }
+
+    try {
+      logDebugEvent("session", "tactical-sync-started", {
+        origin,
+        sessionId: lastRuntime?.encounter?.id ?? null,
+      });
+
+      const syncResult = await syncCombatScenePositions({
+        combatApi: {
+          getActiveRuntime: getActiveCombatRuntime,
+          syncPositionsFromOwlbear,
+        },
+        settings,
+        runtimeResponse: lastRuntime,
+      });
+
+      const runtime = syncResult?.result?.runtime
+        ?? await fetchActiveSessionRuntime({ context, viewer: viewer(), settings });
+
+      if (runtime) {
+        applyRuntime(runtime, { origin: `${origin}-tactical-sync` });
+      }
+
+      logDebugEvent("session", "tactical-sync-result", {
+        origin,
+        ok: !!runtime?.encounter?.id,
+        gridReady: hasReadyTacticalRuntime(runtime),
+      }, !!runtime?.encounter?.id);
+
+      return runtime;
+    } catch (error) {
+      logDebugEvent("session", "tactical-sync-result", {
+        origin,
+        ok: false,
+        message: String(error?.message ?? error),
+      }, false);
+      return lastRuntime;
+    }
+  }
+
   async function refresh(origin = "refresh") {
     try {
       const runtime = await fetchActiveSessionRuntime({ context, viewer: viewer(), settings });
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { ok: runtime?.ok !== false, origin }, runtime?.ok !== false);
       applyRuntime(runtime, { origin });
+      if (isGm() && encounterOf(runtime)?.status === "active" && !hasReadyTacticalRuntime(runtime)) {
+        await ensureTacticalRuntime(`${origin}-recovery`);
+      }
     } catch (error) {
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { origin, message: String(error?.message ?? error) }, false);
@@ -179,6 +255,7 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
         "start-result",
         () => startSession({ context, viewer: viewer(), settings, excludedCharacterIds: excluded }),
       );
+      await ensureTacticalRuntime("start-result");
       const session = mapCombatRuntimeToSession(lastRuntime, { viewerIsGm: true });
       if (session.exists) {
         logDebugEvent("session", "initiative-calculated", {

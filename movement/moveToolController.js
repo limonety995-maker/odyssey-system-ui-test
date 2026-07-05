@@ -42,7 +42,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.34";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.35";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -100,6 +100,8 @@ function createInitialState() {
     localMarkersByTokenId: new Map(),
     autoSyncedMarkerByTokenId: new Map(),
     autoSyncInFlightByKey: new Map(),
+    gridRecoveryPromise: null,
+    gridRecoveryKey: "",
   };
 }
 
@@ -183,6 +185,29 @@ function buildMovementMarker({ requestId, movementVersion, source }) {
     movementVersion,
     updatedAt: nowIso(),
   };
+}
+
+function participantHasAuthoritativePosition(participant) {
+  const position = participant?.position ?? null;
+  if (!position || typeof position !== "object") return false;
+  return Number.isFinite(Number(position.scene_x))
+    && Number.isFinite(Number(position.scene_y))
+    && Number.isFinite(Number(position.cell_q))
+    && Number.isFinite(Number(position.cell_r));
+}
+
+function hasReadyTacticalRuntime(runtimeResponse) {
+  if (!normalizeTacticalGridSettings(runtimeResponse?.tactical_grid)) {
+    return false;
+  }
+  for (const participant of ensureArray(runtimeResponse?.visible_participants)) {
+    const tokenId = String(participant?.token_id ?? "").trim();
+    if (!tokenId) continue;
+    if (!participantHasAuthoritativePosition(participant)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function setupTacticalMoveTool({ runtime }) {
@@ -317,6 +342,11 @@ export function setupTacticalMoveTool({ runtime }) {
         throw new Error(runtimeResponse?.message || "Unable to read active combat runtime.");
       }
       updateRuntimeCache(runtimeResponse);
+      addDiagnosticEntry(
+        "info",
+        "Authoritative runtime loaded",
+        `gridReady=${hasReadyTacticalRuntime(runtimeResponse) ? "true" : "false"}`,
+      );
       return runtimeResponse;
     })()
       .catch((error) => {
@@ -571,6 +601,9 @@ export function setupTacticalMoveTool({ runtime }) {
     try {
       const runtimeResponse = await fetchRuntime(reason);
       await syncSelectionState(reason, { runtimeResponse });
+      if (state.encounterId && !hasReadyTacticalRuntime(runtimeResponse)) {
+        await ensureTacticalGridReady(reason);
+      }
     } catch {
       await syncSelectionState(reason);
     }
@@ -666,6 +699,7 @@ export function setupTacticalMoveTool({ runtime }) {
     reason = "auto-sync",
   } = {}) {
     if (String(state.player?.role ?? "").toUpperCase() !== "GM") {
+      addDiagnosticEntry("info", "Tactical sync skipped", "player is not GM");
       return null;
     }
 
@@ -702,6 +736,70 @@ export function setupTacticalMoveTool({ runtime }) {
 
     state.autoSyncInFlightByKey.set(key, syncPromise);
     return syncPromise;
+  }
+
+  async function ensureTacticalGridReady(reason = "grid-recovery") {
+    const selectedParticipantReady = !state.selectedParticipant || participantHasAuthoritativePosition(state.selectedParticipant);
+    if (state.grid && selectedParticipantReady) {
+      return true;
+    }
+
+    const recoveryKey = String(state.encounterId ?? "").trim() || "scene";
+    if (state.gridRecoveryPromise && state.gridRecoveryKey === recoveryKey) {
+      return state.gridRecoveryPromise;
+    }
+
+    state.gridRecoveryKey = recoveryKey;
+    state.gridRecoveryPromise = (async () => {
+      addDiagnosticEntry("info", "Combat movement grid recovery started", reason);
+      try {
+        let runtimeResponse = await fetchRuntime(`${reason}-runtime`);
+
+        if (hasReadyTacticalRuntime(runtimeResponse)) {
+          await syncSelectionState(`${reason}-runtime-ready`, { runtimeResponse });
+          addDiagnosticEntry("info", "Combat movement grid recovery succeeded", `${reason}: runtime already had grid`);
+          return Boolean(state.grid);
+        }
+
+        const isGm = String(state.player?.role ?? "").toUpperCase() === "GM";
+        if (isGm) {
+          const syncResult = await runAutoTacticalSync({
+            runtimeResponse,
+            reason: `${reason}-sync`,
+          });
+
+          runtimeResponse = syncResult?.result?.runtime
+            ?? await fetchRuntime(`${reason}-post-sync`);
+
+          updateRuntimeCache(runtimeResponse);
+          await syncSelectionState(`${reason}-post-sync`, { runtimeResponse });
+        } else {
+          addDiagnosticEntry("info", "Tactical sync skipped", "player is not GM");
+          runtimeResponse = await fetchRuntime(`${reason}-retry`);
+          await syncSelectionState(`${reason}-retry`, { runtimeResponse });
+        }
+
+        const ready = Boolean(state.grid)
+          && (!state.selectedParticipant || participantHasAuthoritativePosition(state.selectedParticipant));
+
+        addDiagnosticEntry(
+          ready ? "info" : "warn",
+          ready ? "Combat movement grid recovery succeeded" : "Combat movement grid recovery failed",
+          ready ? reason : `${reason}: tactical grid or authoritative position is still missing`,
+        );
+        return ready;
+      } catch (error) {
+        const normalized = normalizeError(error, "Unable to synchronize tactical grid.");
+        addDiagnosticEntry("warn", "Combat movement grid recovery failed", normalized.message);
+        return Boolean(state.grid)
+          && (!state.selectedParticipant || participantHasAuthoritativePosition(state.selectedParticipant));
+      } finally {
+        state.gridRecoveryPromise = null;
+        state.gridRecoveryKey = "";
+      }
+    })();
+
+    return state.gridRecoveryPromise;
   }
 
   async function failMutation(result, fallbackMessage) {
@@ -825,10 +923,23 @@ export function setupTacticalMoveTool({ runtime }) {
       return;
     }
 
-    if (!state.grid) {
-      await publishStatus({ error: "Tactical grid is not synced yet." });
-      await notify("Tactical grid is not synced yet.", "WARNING");
-      return;
+    if (!state.grid || !participantHasAuthoritativePosition(state.selectedParticipant)) {
+      const gridReady = await ensureTacticalGridReady("drag-start");
+
+      if (!gridReady) {
+        const isGm = String(state.player?.role ?? "").toUpperCase() === "GM";
+        const message = isGm
+          ? "Unable to synchronize tactical grid. Check the Owlbear grid settings."
+          : "Tactical grid is being prepared by the GM. Try again in a moment.";
+
+        await publishStatus({
+          error: message,
+          gridReady: false,
+        });
+
+        await notify(message, "WARNING");
+        return;
+      }
     }
 
     state.dragActive = true;
@@ -1027,6 +1138,9 @@ export function setupTacticalMoveTool({ runtime }) {
         void handleSessionBroadcast(event).catch(() => {});
       });
       await refreshRuntimeAndSelection("startup");
+      if (state.encounterId && !state.grid) {
+        await ensureTacticalGridReady("startup");
+      }
       await publishStatus({
         ready: true,
         toolRegistered: true,

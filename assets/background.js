@@ -5791,6 +5791,8 @@ function num(v) {
 function mapParticipant(raw, activeEntryId) {
   const p = raw && typeof raw === "object" ? raw : {};
   const state = p.state && typeof p.state === "object" ? p.state : {};
+  const moveCurrent = num(p.move_current);
+  const moveMax = num(p.move_max);
   return {
     participantId: p.initiative_entry_id ?? null,
     characterId: p.character_id ?? null,
@@ -5807,7 +5809,9 @@ function mapParticipant(raw, activeEntryId) {
     isEligible: p.is_active !== false && state.is_alive !== false && state.is_conscious !== false,
     isPlayerCharacter: p.character_bucket === "player",
     mainAvailable: num(p.action_current) != null ? num(p.action_current) > 0 : null,
-    moveAvailable: num(p.move_current) != null ? num(p.move_current) > 0 : null
+    moveAvailable: moveCurrent != null ? moveCurrent > 0 : null,
+    moveCurrent,
+    moveMax
   };
 }
 function mapCombatRuntimeToSession(runtime, viewCtx = {}) {
@@ -5824,6 +5828,8 @@ function mapCombatRuntimeToSession(runtime, viewCtx = {}) {
   const controlledIds = Array.isArray(r.viewer_controlled_character_ids) ? r.viewer_controlled_character_ids : [];
   const selected = selectedCharacterId ? participants.find((p) => p.characterId === selectedCharacterId) ?? null : null;
   const currentCharacterId = encounter.active_character_id ?? null;
+  const currentParticipant = activeEntryId != null ? participants.find((p) => p.participantId === activeEntryId) ?? null : null;
+  const metersPerCell = num(r?.tactical_grid?.meters_per_cell) ?? 1;
   const isSelectedCharacterTurn = !!selected && selected.isCurrent;
   const viewerControlsSelected = !!selectedCharacterId && controlledIds.includes(selectedCharacterId);
   const isCurrentPlayerTurn = currentCharacterId != null && controlledIds.includes(currentCharacterId);
@@ -5840,6 +5846,11 @@ function mapCombatRuntimeToSession(runtime, viewCtx = {}) {
     currentParticipantId: activeEntryId,
     currentCharacterId,
     selectedCharacterParticipantId: selected?.participantId ?? null,
+    selectedMoveCurrent: selected?.moveCurrent ?? null,
+    selectedMoveMax: selected?.moveMax ?? null,
+    currentMoveCurrent: currentParticipant?.moveCurrent ?? null,
+    currentMoveMax: currentParticipant?.moveMax ?? null,
+    metersPerCell,
     isSelectedCharacterTurn,
     isCurrentPlayerTurn,
     // "YOUR TURN" is shown only to the current participant's owner — or to the
@@ -5904,6 +5915,263 @@ function buildStartCandidates(links) {
 }
 function expectedVersionOf(session) {
   return isActiveSession(session) ? session.version : null;
+}
+
+// movement/gridMath.js
+var SQRT3 = Math.sqrt(3);
+function normalizeObrGridType(value) {
+  switch (String(value ?? "").trim().toUpperCase()) {
+    case "SQUARE":
+      return "square";
+    case "HEX_VERTICAL":
+      return "hex_vertical";
+    case "HEX_HORIZONTAL":
+      return "hex_horizontal";
+    default:
+      return "";
+  }
+}
+function normalizeDistanceMode(gridType, measurement) {
+  const tacticalType = normalizeObrGridType(gridType);
+  if (tacticalType === "hex_vertical" || tacticalType === "hex_horizontal") {
+    return "hex";
+  }
+  switch (String(measurement ?? "").trim().toUpperCase()) {
+    case "CHEBYSHEV":
+      return "chebyshev";
+    case "MANHATTAN":
+      return "manhattan";
+    default:
+      return "";
+  }
+}
+function normalizeTacticalGridSettings(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const gridType = String(raw.grid_type ?? raw.gridType ?? "").trim().toLowerCase();
+  const distanceMode = String(raw.distance_mode ?? raw.distanceMode ?? "").trim().toLowerCase();
+  const gridDpi = Number(raw.grid_dpi ?? raw.gridDpi ?? 0) || 0;
+  const metersPerCell = Number(raw.meters_per_cell ?? raw.metersPerCell ?? 1) || 1;
+  const anchorX = Number(raw.anchor_scene_x ?? raw.anchorSceneX ?? 0) || 0;
+  const anchorY = Number(raw.anchor_scene_y ?? raw.anchorSceneY ?? 0) || 0;
+  if (!gridType || !distanceMode || gridDpi <= 0 || metersPerCell <= 0) {
+    return null;
+  }
+  return {
+    gridType,
+    distanceMode,
+    gridDpi,
+    metersPerCell,
+    anchor: { x: anchorX, y: anchorY },
+    updatedAt: String(raw.updated_at ?? raw.updatedAt ?? "").trim()
+  };
+}
+function cubeRound({ x, y, z }) {
+  let rx = Math.round(x);
+  let ry = Math.round(y);
+  let rz = Math.round(z);
+  const xDiff = Math.abs(rx - x);
+  const yDiff = Math.abs(ry - y);
+  const zDiff = Math.abs(rz - z);
+  if (xDiff > yDiff && xDiff > zDiff) {
+    rx = -ry - rz;
+  } else if (yDiff > zDiff) {
+    ry = -rx - rz;
+  } else {
+    rz = -rx - ry;
+  }
+  return { x: rx, y: ry, z: rz };
+}
+function axialRound(q, r) {
+  const cube = cubeRound({ x: q, y: -q - r, z: r });
+  return { q: cube.x, r: cube.z };
+}
+function sceneToCell(grid, position) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !position) return null;
+  const x = (Number(position.x) || 0) - settings.anchor.x;
+  const y = (Number(position.y) || 0) - settings.anchor.y;
+  if (settings.gridType === "square") {
+    return {
+      q: Math.round(x / settings.gridDpi),
+      r: Math.round(y / settings.gridDpi)
+    };
+  }
+  if (settings.gridType === "hex_vertical") {
+    const size = settings.gridDpi / SQRT3;
+    const q = (SQRT3 / 3 * x - 1 / 3 * y) / size;
+    const r = 2 / 3 * y / size;
+    return axialRound(q, r);
+  }
+  if (settings.gridType === "hex_horizontal") {
+    const size = settings.gridDpi / SQRT3;
+    const q = 2 / 3 * x / size;
+    const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
+    return axialRound(q, r);
+  }
+  return null;
+}
+function cellToScene(grid, cell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !cell) return null;
+  const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
+  const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
+  if (settings.gridType === "square") {
+    return {
+      x: settings.anchor.x + q * settings.gridDpi,
+      y: settings.anchor.y + r * settings.gridDpi
+    };
+  }
+  if (settings.gridType === "hex_vertical") {
+    const size = settings.gridDpi / SQRT3;
+    return {
+      x: settings.anchor.x + size * SQRT3 * (q + r / 2),
+      y: settings.anchor.y + size * 1.5 * r
+    };
+  }
+  if (settings.gridType === "hex_horizontal") {
+    const size = settings.gridDpi / SQRT3;
+    return {
+      x: settings.anchor.x + size * 1.5 * q,
+      y: settings.anchor.y + size * SQRT3 * (r + q / 2)
+    };
+  }
+  return null;
+}
+function computeDistanceCells(grid, fromCell, toCell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !fromCell || !toCell) return 0;
+  const fromQ = Number(fromCell.q ?? fromCell.cell_q ?? 0) || 0;
+  const fromR = Number(fromCell.r ?? fromCell.cell_r ?? 0) || 0;
+  const toQ = Number(toCell.q ?? toCell.cell_q ?? 0) || 0;
+  const toR = Number(toCell.r ?? toCell.cell_r ?? 0) || 0;
+  const dx = Math.abs(toQ - fromQ);
+  const dy = Math.abs(toR - fromR);
+  if (settings.gridType === "square") {
+    return settings.distanceMode === "manhattan" ? dx + dy : Math.max(dx, dy);
+  }
+  return (dx + dy + Math.abs(toQ + toR - (fromQ + fromR))) / 2;
+}
+function sameCell(a, b) {
+  if (!a || !b) return false;
+  return (Number(a.q ?? a.cell_q ?? 0) || 0) === (Number(b.q ?? b.cell_q ?? 0) || 0) && (Number(a.r ?? a.cell_r ?? 0) || 0) === (Number(b.r ?? b.cell_r ?? 0) || 0);
+}
+
+// movement/tacticalSync.js
+function ensureArray2(value) {
+  return Array.isArray(value) ? value : [];
+}
+async function buildOwlbearTacticalGridPayload() {
+  const grid = await getSceneGrid();
+  if (!grid) {
+    throw new Error("Owlbear grid is not available.");
+  }
+  const gridType = normalizeObrGridType(grid.type);
+  const distanceMode = normalizeDistanceMode(grid.type, grid.measurement);
+  if (!gridType || !distanceMode || !(Number(grid.dpi) > 0)) {
+    throw new Error("Only Square, Hex Vertical, and Hex Horizontal grids are supported for tactical movement.");
+  }
+  const anchor = await snapScenePosition({ x: 0, y: 0 }, 1);
+  if (!anchor) {
+    throw new Error("Unable to resolve tactical grid anchor from Owlbear.");
+  }
+  const metersPerCell = Math.max(1, Math.round(Number(grid?.scale?.parsed?.multiplier ?? 1) || 1));
+  return {
+    grid_type: gridType,
+    distance_mode: distanceMode,
+    meters_per_cell: metersPerCell,
+    anchor_scene_x: Number(anchor.x) || 0,
+    anchor_scene_y: Number(anchor.y) || 0,
+    grid_dpi: Number(grid.dpi) || 0
+  };
+}
+async function syncCombatScenePositions({
+  combatApi,
+  settings,
+  runtimeResponse = null,
+  onlyCharacterId = ""
+}) {
+  if (!combatApi?.syncPositionsFromOwlbear) {
+    throw new Error("Combat sync API is unavailable.");
+  }
+  const [context, player] = await Promise.all([
+    getRoomSceneContext(),
+    getPlayerInfo()
+  ]);
+  if (String(player?.role ?? "").toUpperCase() !== "GM") {
+    throw new Error("Only the GM can sync tactical positions.");
+  }
+  if (!context?.campaignId || !context?.roomId || !context?.sceneId) {
+    throw new Error("Unable to resolve Owlbear room or scene context.");
+  }
+  const runtimeRes = runtimeResponse ?? await combatApi.getActiveRuntime(
+    {
+      campaign_id: context.campaignId,
+      room_id: context.roomId,
+      scene_id: context.sceneId,
+      actor_player_id: player?.id ?? "",
+      actor_is_gm: true,
+      include_hidden: true
+    },
+    settings
+  );
+  if (!runtimeRes?.encounter?.id) {
+    throw new Error("Unable to resolve the active encounter context.");
+  }
+  const [sceneItems, gridPayload] = await Promise.all([
+    getSceneItems(),
+    buildOwlbearTacticalGridPayload()
+  ]);
+  const sceneItemsById = new Map(
+    ensureArray2(sceneItems).map((item) => [String(item?.id ?? "").trim(), item])
+  );
+  const filterCharacterId = String(onlyCharacterId ?? "").trim();
+  const participants = ensureArray2(runtimeRes.visible_participants).filter((participant) => {
+    if (!participant?.token_id || !participant?.character_id) return false;
+    if (!filterCharacterId) return true;
+    return String(participant.character_id ?? "").trim() === filterCharacterId;
+  });
+  const positions = [];
+  for (const participant of participants) {
+    const item = sceneItemsById.get(String(participant.token_id ?? "").trim());
+    if (!item?.position) continue;
+    const snapped = await snapScenePosition(item.position, 1);
+    if (!snapped) continue;
+    const cell = sceneToCell(gridPayload, snapped);
+    if (!cell) continue;
+    positions.push({
+      character_id: participant.character_id,
+      token_id: participant.token_id,
+      cell_q: cell.q,
+      cell_r: cell.r,
+      scene_x: Number(snapped.x) || 0,
+      scene_y: Number(snapped.y) || 0
+    });
+  }
+  if (!positions.length) {
+    throw new Error("No linked encounter tokens were available to sync.");
+  }
+  const result = await combatApi.syncPositionsFromOwlbear(
+    {
+      encounter_id: runtimeRes.encounter.id,
+      campaign_id: context.campaignId,
+      room_id: context.roomId,
+      scene_id: context.sceneId,
+      actor_player_id: player?.id ?? "",
+      actor_is_gm: true,
+      ...gridPayload,
+      positions
+    },
+    settings
+  );
+  if (!result || result.ok === false) {
+    throw new Error(result?.message || result?.error || "Unable to sync tactical positions.");
+  }
+  return {
+    result,
+    positions,
+    gridPayload,
+    runtimeResponse: runtimeRes
+  };
 }
 
 // hud/session/combatSessionApi.js
@@ -6009,12 +6277,68 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
     }
     broadcastSessionState();
   }
+  function hasReadyTacticalRuntime2(runtime) {
+    if (!normalizeTacticalGridSettings(runtime?.tactical_grid)) {
+      return false;
+    }
+    const participants = Array.isArray(runtime?.visible_participants) ? runtime.visible_participants : [];
+    for (const participant of participants) {
+      const tokenId = String(participant?.token_id ?? "").trim();
+      if (!tokenId) continue;
+      const position = participant?.position ?? null;
+      if (!position || typeof position !== "object") return false;
+      if (!Number.isFinite(Number(position.scene_x)) || !Number.isFinite(Number(position.scene_y)) || !Number.isFinite(Number(position.cell_q)) || !Number.isFinite(Number(position.cell_r))) {
+        return false;
+      }
+    }
+    return true;
+  }
+  async function ensureTacticalRuntime(origin = "tactical-runtime") {
+    if (!isGm2()) return lastRuntime;
+    if (!lastRuntime?.encounter?.id || hasReadyTacticalRuntime2(lastRuntime)) {
+      return lastRuntime;
+    }
+    try {
+      logDebugEvent("session", "tactical-sync-started", {
+        origin,
+        sessionId: lastRuntime?.encounter?.id ?? null
+      });
+      const syncResult = await syncCombatScenePositions({
+        combatApi: {
+          getActiveRuntime,
+          syncPositionsFromOwlbear
+        },
+        settings,
+        runtimeResponse: lastRuntime
+      });
+      const runtime = syncResult?.result?.runtime ?? await fetchActiveSessionRuntime({ context, viewer: viewer(), settings });
+      if (runtime) {
+        applyRuntime(runtime, { origin: `${origin}-tactical-sync` });
+      }
+      logDebugEvent("session", "tactical-sync-result", {
+        origin,
+        ok: !!runtime?.encounter?.id,
+        gridReady: hasReadyTacticalRuntime2(runtime)
+      }, !!runtime?.encounter?.id);
+      return runtime;
+    } catch (error) {
+      logDebugEvent("session", "tactical-sync-result", {
+        origin,
+        ok: false,
+        message: String(error?.message ?? error)
+      }, false);
+      return lastRuntime;
+    }
+  }
   async function refresh(origin = "refresh") {
     try {
       const runtime = await fetchActiveSessionRuntime({ context, viewer: viewer(), settings });
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { ok: runtime?.ok !== false, origin }, runtime?.ok !== false);
       applyRuntime(runtime, { origin });
+      if (isGm2() && encounterOf(runtime)?.status === "active" && !hasReadyTacticalRuntime2(runtime)) {
+        await ensureTacticalRuntime(`${origin}-recovery`);
+      }
     } catch (error) {
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { origin, message: String(error?.message ?? error) }, false);
@@ -6090,6 +6414,7 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
         "start-result",
         () => startSession({ context, viewer: viewer(), settings, excludedCharacterIds: excluded })
       );
+      await ensureTacticalRuntime("start-result");
       const session = mapCombatRuntimeToSession(lastRuntime, { viewerIsGm: true });
       if (session.exists) {
         logDebugEvent("session", "initiative-calculated", {
@@ -7934,145 +8259,6 @@ function createTargetGenerationGate() {
       return current2;
     }
   };
-}
-
-// movement/gridMath.js
-var SQRT3 = Math.sqrt(3);
-function normalizeObrGridType(value) {
-  switch (String(value ?? "").trim().toUpperCase()) {
-    case "SQUARE":
-      return "square";
-    case "HEX_VERTICAL":
-      return "hex_vertical";
-    case "HEX_HORIZONTAL":
-      return "hex_horizontal";
-    default:
-      return "";
-  }
-}
-function normalizeDistanceMode(gridType, measurement) {
-  const tacticalType = normalizeObrGridType(gridType);
-  if (tacticalType === "hex_vertical" || tacticalType === "hex_horizontal") {
-    return "hex";
-  }
-  switch (String(measurement ?? "").trim().toUpperCase()) {
-    case "CHEBYSHEV":
-      return "chebyshev";
-    case "MANHATTAN":
-      return "manhattan";
-    default:
-      return "";
-  }
-}
-function normalizeTacticalGridSettings(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const gridType = String(raw.grid_type ?? raw.gridType ?? "").trim().toLowerCase();
-  const distanceMode = String(raw.distance_mode ?? raw.distanceMode ?? "").trim().toLowerCase();
-  const gridDpi = Number(raw.grid_dpi ?? raw.gridDpi ?? 0) || 0;
-  const metersPerCell = Number(raw.meters_per_cell ?? raw.metersPerCell ?? 1) || 1;
-  const anchorX = Number(raw.anchor_scene_x ?? raw.anchorSceneX ?? 0) || 0;
-  const anchorY = Number(raw.anchor_scene_y ?? raw.anchorSceneY ?? 0) || 0;
-  if (!gridType || !distanceMode || gridDpi <= 0 || metersPerCell <= 0) {
-    return null;
-  }
-  return {
-    gridType,
-    distanceMode,
-    gridDpi,
-    metersPerCell,
-    anchor: { x: anchorX, y: anchorY },
-    updatedAt: String(raw.updated_at ?? raw.updatedAt ?? "").trim()
-  };
-}
-function cubeRound({ x, y, z }) {
-  let rx = Math.round(x);
-  let ry = Math.round(y);
-  let rz = Math.round(z);
-  const xDiff = Math.abs(rx - x);
-  const yDiff = Math.abs(ry - y);
-  const zDiff = Math.abs(rz - z);
-  if (xDiff > yDiff && xDiff > zDiff) {
-    rx = -ry - rz;
-  } else if (yDiff > zDiff) {
-    ry = -rx - rz;
-  } else {
-    rz = -rx - ry;
-  }
-  return { x: rx, y: ry, z: rz };
-}
-function axialRound(q, r) {
-  const cube = cubeRound({ x: q, y: -q - r, z: r });
-  return { q: cube.x, r: cube.z };
-}
-function sceneToCell(grid, position) {
-  const settings = normalizeTacticalGridSettings(grid);
-  if (!settings || !position) return null;
-  const x = (Number(position.x) || 0) - settings.anchor.x;
-  const y = (Number(position.y) || 0) - settings.anchor.y;
-  if (settings.gridType === "square") {
-    return {
-      q: Math.round(x / settings.gridDpi),
-      r: Math.round(y / settings.gridDpi)
-    };
-  }
-  if (settings.gridType === "hex_vertical") {
-    const size = settings.gridDpi / SQRT3;
-    const q = (SQRT3 / 3 * x - 1 / 3 * y) / size;
-    const r = 2 / 3 * y / size;
-    return axialRound(q, r);
-  }
-  if (settings.gridType === "hex_horizontal") {
-    const size = settings.gridDpi / SQRT3;
-    const q = 2 / 3 * x / size;
-    const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
-    return axialRound(q, r);
-  }
-  return null;
-}
-function cellToScene(grid, cell) {
-  const settings = normalizeTacticalGridSettings(grid);
-  if (!settings || !cell) return null;
-  const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
-  const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
-  if (settings.gridType === "square") {
-    return {
-      x: settings.anchor.x + q * settings.gridDpi,
-      y: settings.anchor.y + r * settings.gridDpi
-    };
-  }
-  if (settings.gridType === "hex_vertical") {
-    const size = settings.gridDpi / SQRT3;
-    return {
-      x: settings.anchor.x + size * SQRT3 * (q + r / 2),
-      y: settings.anchor.y + size * 1.5 * r
-    };
-  }
-  if (settings.gridType === "hex_horizontal") {
-    const size = settings.gridDpi / SQRT3;
-    return {
-      x: settings.anchor.x + size * 1.5 * q,
-      y: settings.anchor.y + size * SQRT3 * (r + q / 2)
-    };
-  }
-  return null;
-}
-function computeDistanceCells(grid, fromCell, toCell) {
-  const settings = normalizeTacticalGridSettings(grid);
-  if (!settings || !fromCell || !toCell) return 0;
-  const fromQ = Number(fromCell.q ?? fromCell.cell_q ?? 0) || 0;
-  const fromR = Number(fromCell.r ?? fromCell.cell_r ?? 0) || 0;
-  const toQ = Number(toCell.q ?? toCell.cell_q ?? 0) || 0;
-  const toR = Number(toCell.r ?? toCell.cell_r ?? 0) || 0;
-  const dx = Math.abs(toQ - fromQ);
-  const dy = Math.abs(toR - fromR);
-  if (settings.gridType === "square") {
-    return settings.distanceMode === "manhattan" ? dx + dy : Math.max(dx, dy);
-  }
-  return (dx + dy + Math.abs(toQ + toR - (fromQ + fromR))) / 2;
-}
-function sameCell(a, b) {
-  if (!a || !b) return false;
-  return (Number(a.q ?? a.cell_q ?? 0) || 0) === (Number(b.q ?? b.cell_q ?? 0) || 0) && (Number(a.r ?? a.cell_r ?? 0) || 0) === (Number(b.r ?? b.cell_r ?? 0) || 0);
 }
 
 // hud/targeting/targetDistance.js
@@ -10022,124 +10208,6 @@ function resolveCombatMovementPermission({
   };
 }
 
-// movement/tacticalSync.js
-function ensureArray2(value) {
-  return Array.isArray(value) ? value : [];
-}
-async function buildOwlbearTacticalGridPayload() {
-  const grid = await getSceneGrid();
-  if (!grid) {
-    throw new Error("Owlbear grid is not available.");
-  }
-  const gridType = normalizeObrGridType(grid.type);
-  const distanceMode = normalizeDistanceMode(grid.type, grid.measurement);
-  if (!gridType || !distanceMode || !(Number(grid.dpi) > 0)) {
-    throw new Error("Only Square, Hex Vertical, and Hex Horizontal grids are supported for tactical movement.");
-  }
-  const anchor = await snapScenePosition({ x: 0, y: 0 }, 1);
-  if (!anchor) {
-    throw new Error("Unable to resolve tactical grid anchor from Owlbear.");
-  }
-  const metersPerCell = Math.max(1, Math.round(Number(grid?.scale?.parsed?.multiplier ?? 1) || 1));
-  return {
-    grid_type: gridType,
-    distance_mode: distanceMode,
-    meters_per_cell: metersPerCell,
-    anchor_scene_x: Number(anchor.x) || 0,
-    anchor_scene_y: Number(anchor.y) || 0,
-    grid_dpi: Number(grid.dpi) || 0
-  };
-}
-async function syncCombatScenePositions({
-  combatApi,
-  settings,
-  runtimeResponse = null,
-  onlyCharacterId = ""
-}) {
-  if (!combatApi?.syncPositionsFromOwlbear) {
-    throw new Error("Combat sync API is unavailable.");
-  }
-  const [context, player] = await Promise.all([
-    getRoomSceneContext(),
-    getPlayerInfo()
-  ]);
-  if (String(player?.role ?? "").toUpperCase() !== "GM") {
-    throw new Error("Only the GM can sync tactical positions.");
-  }
-  if (!context?.campaignId || !context?.roomId || !context?.sceneId) {
-    throw new Error("Unable to resolve Owlbear room or scene context.");
-  }
-  const runtimeRes = runtimeResponse ?? await combatApi.getActiveRuntime(
-    {
-      campaign_id: context.campaignId,
-      room_id: context.roomId,
-      scene_id: context.sceneId,
-      actor_player_id: player?.id ?? "",
-      actor_is_gm: true,
-      include_hidden: true
-    },
-    settings
-  );
-  if (!runtimeRes?.encounter?.id) {
-    throw new Error("Unable to resolve the active encounter context.");
-  }
-  const [sceneItems, gridPayload] = await Promise.all([
-    getSceneItems(),
-    buildOwlbearTacticalGridPayload()
-  ]);
-  const sceneItemsById = new Map(
-    ensureArray2(sceneItems).map((item) => [String(item?.id ?? "").trim(), item])
-  );
-  const filterCharacterId = String(onlyCharacterId ?? "").trim();
-  const participants = ensureArray2(runtimeRes.visible_participants).filter((participant) => {
-    if (!participant?.token_id || !participant?.character_id) return false;
-    if (!filterCharacterId) return true;
-    return String(participant.character_id ?? "").trim() === filterCharacterId;
-  });
-  const positions = [];
-  for (const participant of participants) {
-    const item = sceneItemsById.get(String(participant.token_id ?? "").trim());
-    if (!item?.position) continue;
-    const snapped = await snapScenePosition(item.position, 1);
-    if (!snapped) continue;
-    const cell = sceneToCell(gridPayload, snapped);
-    if (!cell) continue;
-    positions.push({
-      character_id: participant.character_id,
-      token_id: participant.token_id,
-      cell_q: cell.q,
-      cell_r: cell.r,
-      scene_x: Number(snapped.x) || 0,
-      scene_y: Number(snapped.y) || 0
-    });
-  }
-  if (!positions.length) {
-    throw new Error("No linked encounter tokens were available to sync.");
-  }
-  const result = await combatApi.syncPositionsFromOwlbear(
-    {
-      encounter_id: runtimeRes.encounter.id,
-      campaign_id: context.campaignId,
-      room_id: context.roomId,
-      scene_id: context.sceneId,
-      actor_player_id: player?.id ?? "",
-      actor_is_gm: true,
-      ...gridPayload,
-      positions
-    },
-    settings
-  );
-  if (!result || result.ok === false) {
-    throw new Error(result?.message || result?.error || "Unable to sync tactical positions.");
-  }
-  return {
-    result,
-    positions,
-    gridPayload,
-    runtimeResponse: runtimeRes
-  };
-}
-
 // movement/moveToolBridge.js
 var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
 var TACTICAL_MOVE_TOOL_ID = "com.odyssey-system/tactical-move";
@@ -10184,7 +10252,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.34";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.35";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
@@ -10232,7 +10300,9 @@ function createInitialState() {
     lastSessionSignature: "",
     localMarkersByTokenId: /* @__PURE__ */ new Map(),
     autoSyncedMarkerByTokenId: /* @__PURE__ */ new Map(),
-    autoSyncInFlightByKey: /* @__PURE__ */ new Map()
+    autoSyncInFlightByKey: /* @__PURE__ */ new Map(),
+    gridRecoveryPromise: null,
+    gridRecoveryKey: ""
   };
 }
 function buildStatus(state, extras = {}) {
@@ -10307,6 +10377,24 @@ function buildMovementMarker({ requestId, movementVersion, source }) {
     movementVersion,
     updatedAt: nowIso()
   };
+}
+function participantHasAuthoritativePosition(participant) {
+  const position = participant?.position ?? null;
+  if (!position || typeof position !== "object") return false;
+  return Number.isFinite(Number(position.scene_x)) && Number.isFinite(Number(position.scene_y)) && Number.isFinite(Number(position.cell_q)) && Number.isFinite(Number(position.cell_r));
+}
+function hasReadyTacticalRuntime(runtimeResponse) {
+  if (!normalizeTacticalGridSettings(runtimeResponse?.tactical_grid)) {
+    return false;
+  }
+  for (const participant of ensureArray3(runtimeResponse?.visible_participants)) {
+    const tokenId = String(participant?.token_id ?? "").trim();
+    if (!tokenId) continue;
+    if (!participantHasAuthoritativePosition(participant)) {
+      return false;
+    }
+  }
+  return true;
 }
 function setupTacticalMoveTool({ runtime }) {
   const combatApi = runtime?.api?.combat;
@@ -10424,6 +10512,11 @@ function setupTacticalMoveTool({ runtime }) {
         throw new Error(runtimeResponse?.message || "Unable to read active combat runtime.");
       }
       updateRuntimeCache(runtimeResponse);
+      addDiagnosticEntry(
+        "info",
+        "Authoritative runtime loaded",
+        `gridReady=${hasReadyTacticalRuntime(runtimeResponse) ? "true" : "false"}`
+      );
       return runtimeResponse;
     })().catch((error) => {
       const normalized = normalizeError(error, `Unable to refresh combat runtime (${reason}).`);
@@ -10639,6 +10732,9 @@ function setupTacticalMoveTool({ runtime }) {
     try {
       const runtimeResponse = await fetchRuntime(reason);
       await syncSelectionState(reason, { runtimeResponse });
+      if (state.encounterId && !hasReadyTacticalRuntime(runtimeResponse)) {
+        await ensureTacticalGridReady(reason);
+      }
     } catch {
       await syncSelectionState(reason);
     }
@@ -10724,6 +10820,7 @@ function setupTacticalMoveTool({ runtime }) {
     reason = "auto-sync"
   } = {}) {
     if (String(state.player?.role ?? "").toUpperCase() !== "GM") {
+      addDiagnosticEntry("info", "Tactical sync skipped", "player is not GM");
       return null;
     }
     const key = String(onlyCharacterId ?? "").trim() || "*";
@@ -10754,6 +10851,57 @@ function setupTacticalMoveTool({ runtime }) {
     });
     state.autoSyncInFlightByKey.set(key, syncPromise);
     return syncPromise;
+  }
+  async function ensureTacticalGridReady(reason = "grid-recovery") {
+    const selectedParticipantReady = !state.selectedParticipant || participantHasAuthoritativePosition(state.selectedParticipant);
+    if (state.grid && selectedParticipantReady) {
+      return true;
+    }
+    const recoveryKey = String(state.encounterId ?? "").trim() || "scene";
+    if (state.gridRecoveryPromise && state.gridRecoveryKey === recoveryKey) {
+      return state.gridRecoveryPromise;
+    }
+    state.gridRecoveryKey = recoveryKey;
+    state.gridRecoveryPromise = (async () => {
+      addDiagnosticEntry("info", "Combat movement grid recovery started", reason);
+      try {
+        let runtimeResponse = await fetchRuntime(`${reason}-runtime`);
+        if (hasReadyTacticalRuntime(runtimeResponse)) {
+          await syncSelectionState(`${reason}-runtime-ready`, { runtimeResponse });
+          addDiagnosticEntry("info", "Combat movement grid recovery succeeded", `${reason}: runtime already had grid`);
+          return Boolean(state.grid);
+        }
+        const isGm2 = String(state.player?.role ?? "").toUpperCase() === "GM";
+        if (isGm2) {
+          const syncResult = await runAutoTacticalSync({
+            runtimeResponse,
+            reason: `${reason}-sync`
+          });
+          runtimeResponse = syncResult?.result?.runtime ?? await fetchRuntime(`${reason}-post-sync`);
+          updateRuntimeCache(runtimeResponse);
+          await syncSelectionState(`${reason}-post-sync`, { runtimeResponse });
+        } else {
+          addDiagnosticEntry("info", "Tactical sync skipped", "player is not GM");
+          runtimeResponse = await fetchRuntime(`${reason}-retry`);
+          await syncSelectionState(`${reason}-retry`, { runtimeResponse });
+        }
+        const ready = Boolean(state.grid) && (!state.selectedParticipant || participantHasAuthoritativePosition(state.selectedParticipant));
+        addDiagnosticEntry(
+          ready ? "info" : "warn",
+          ready ? "Combat movement grid recovery succeeded" : "Combat movement grid recovery failed",
+          ready ? reason : `${reason}: tactical grid or authoritative position is still missing`
+        );
+        return ready;
+      } catch (error) {
+        const normalized = normalizeError(error, "Unable to synchronize tactical grid.");
+        addDiagnosticEntry("warn", "Combat movement grid recovery failed", normalized.message);
+        return Boolean(state.grid) && (!state.selectedParticipant || participantHasAuthoritativePosition(state.selectedParticipant));
+      } finally {
+        state.gridRecoveryPromise = null;
+        state.gridRecoveryKey = "";
+      }
+    })();
+    return state.gridRecoveryPromise;
   }
   async function failMutation(result, fallbackMessage) {
     const message = String(result?.message ?? result?.error ?? fallbackMessage);
@@ -10865,10 +11013,18 @@ function setupTacticalMoveTool({ runtime }) {
       await notify3(state.permission?.message || "You cannot control this combatant.", "WARNING");
       return;
     }
-    if (!state.grid) {
-      await publishStatus({ error: "Tactical grid is not synced yet." });
-      await notify3("Tactical grid is not synced yet.", "WARNING");
-      return;
+    if (!state.grid || !participantHasAuthoritativePosition(state.selectedParticipant)) {
+      const gridReady = await ensureTacticalGridReady("drag-start");
+      if (!gridReady) {
+        const isGm2 = String(state.player?.role ?? "").toUpperCase() === "GM";
+        const message = isGm2 ? "Unable to synchronize tactical grid. Check the Owlbear grid settings." : "Tactical grid is being prepared by the GM. Try again in a moment.";
+        await publishStatus({
+          error: message,
+          gridReady: false
+        });
+        await notify3(message, "WARNING");
+        return;
+      }
     }
     state.dragActive = true;
     const preview = buildPreviewFromPointer(event.pointerPosition);
@@ -11053,6 +11209,9 @@ function setupTacticalMoveTool({ runtime }) {
         });
       });
       await refreshRuntimeAndSelection("startup");
+      if (state.encounterId && !state.grid) {
+        await ensureTacticalGridReady("startup");
+      }
       await publishStatus({
         ready: true,
         toolRegistered: true
