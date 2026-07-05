@@ -60,15 +60,6 @@ function buildGhostToken(sourceToken, position) {
   if (Array.isArray(token.disableAttachmentBehavior) && token.disableAttachmentBehavior.length) {
     ghost.disableAttachmentBehavior(token.disableAttachmentBehavior);
   }
-  if (typeof token.description === "string" && token.description.trim()) {
-    ghost.description(token.description);
-  }
-  if (token.text && typeof token.text === "object") {
-    ghost.text(token.text);
-  }
-  if (token.textItemType) {
-    ghost.textItemType(token.textItemType);
-  }
 
   return ghost.build();
 }

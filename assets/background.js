@@ -5991,6 +5991,19 @@ function getSquareCellCenterAnchor(settings) {
     y: Number(settings.anchor?.y ?? 0) || 0
   };
 }
+function getSquareCellScenePosition(grid, cell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || settings.gridType !== "square" || !cell) {
+    return null;
+  }
+  const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
+  const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
+  const anchor = getSquareCellCenterAnchor(settings);
+  return {
+    x: anchor.x + q * settings.gridDpi,
+    y: anchor.y + r * settings.gridDpi
+  };
+}
 function getSquareCellFromScenePosition(grid, position) {
   const settings = normalizeTacticalGridSettings(grid);
   if (!settings || settings.gridType !== "square" || !position) {
@@ -6025,6 +6038,30 @@ function sceneToCell(grid, position) {
     const q = 2 / 3 * x / size;
     const r = (-1 / 3 * x + SQRT3 / 3 * y) / size;
     return axialRound(q, r);
+  }
+  return null;
+}
+function cellToScene(grid, cell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || !cell) return null;
+  const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
+  const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
+  if (settings.gridType === "square") {
+    return getSquareCellScenePosition(settings, { q, r });
+  }
+  if (settings.gridType === "hex_vertical") {
+    const size = settings.gridDpi / SQRT3;
+    return {
+      x: settings.anchor.x + size * SQRT3 * (q + r / 2),
+      y: settings.anchor.y + size * 1.5 * r
+    };
+  }
+  if (settings.gridType === "hex_horizontal") {
+    const size = settings.gridDpi / SQRT3;
+    return {
+      x: settings.anchor.x + size * 1.5 * q,
+      y: settings.anchor.y + size * SQRT3 * (r + q / 2)
+    };
   }
   return null;
 }
@@ -10124,15 +10161,6 @@ function buildGhostToken(sourceToken, position) {
   if (Array.isArray(token.disableAttachmentBehavior) && token.disableAttachmentBehavior.length) {
     ghost.disableAttachmentBehavior(token.disableAttachmentBehavior);
   }
-  if (typeof token.description === "string" && token.description.trim()) {
-    ghost.description(token.description);
-  }
-  if (token.text && typeof token.text === "object") {
-    ghost.text(token.text);
-  }
-  if (token.textItemType) {
-    ghost.textItemType(token.textItemType);
-  }
   return ghost.build();
 }
 function getPreviewLabelPosition(originScene, targetScene) {
@@ -10285,7 +10313,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.45";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.46";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
@@ -10793,10 +10821,12 @@ function setupTacticalMoveTool({ runtime }) {
       reason: String(reason ?? "").trim()
     });
   }
-  async function buildPreviewFromPointer(pointerPosition) {
+  function buildPreviewFromScenePosition(scenePosition, tokenIdOverride = "") {
     const grid = state.grid;
     const participant = state.selectedParticipant;
-    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    const tokenId = String(
+      tokenIdOverride || state.selectedToken?.id || participant?.token_id || ""
+    ).trim();
     if (!grid) {
       addDiagnosticEntry(
         "info",
@@ -10813,11 +10843,11 @@ function setupTacticalMoveTool({ runtime }) {
       );
       return null;
     }
-    if (!pointerPosition) {
+    if (!scenePosition) {
       addDiagnosticEntry(
         "info",
         "Combat preview unavailable",
-        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-pointer-position" })
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-scene-position" })
       );
       return null;
     }
@@ -10830,37 +10860,28 @@ function setupTacticalMoveTool({ runtime }) {
       );
       return null;
     }
-    const snappedScene = await snapScenePosition(
-      pointerPosition,
-      1,
-      false,
-      true
-    );
-    if (!snappedScene) {
-      addDiagnosticEntry(
-        "info",
-        "Combat preview unavailable",
-        buildPreviewDiagnosticDetails({ tokenId, reason: "snap-returned-null" })
-      );
-      return null;
-    }
-    addDiagnosticEntry(
-      "info",
-      "Combat preview position snapped",
-      buildPreviewDiagnosticDetails({
-        tokenId,
-        scene: snappedScene
-      })
-    );
-    const cell = sceneToCell(grid, snappedScene);
+    const cell = sceneToCell(grid, scenePosition);
     if (!cell) {
       addDiagnosticEntry(
         "info",
         "Combat preview unavailable",
         buildPreviewDiagnosticDetails({
           tokenId,
-          scene: snappedScene,
+          scene: scenePosition,
           reason: "cell-conversion-failed"
+        })
+      );
+      return null;
+    }
+    const snappedScene = cellToScene(grid, cell);
+    if (!snappedScene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({
+          tokenId,
+          cell,
+          reason: "scene-conversion-failed"
         })
       );
       return null;
@@ -10898,6 +10919,44 @@ function setupTacticalMoveTool({ runtime }) {
     );
     return preview;
   }
+  function buildPreviewFromPointerFast(pointerPosition) {
+    return buildPreviewFromScenePosition(pointerPosition);
+  }
+  async function buildPreviewFromPointer(pointerPosition) {
+    const participant = state.selectedParticipant;
+    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    if (!pointerPosition) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-pointer-position" })
+      );
+      return null;
+    }
+    const snappedScene = await snapScenePosition(
+      pointerPosition,
+      1,
+      false,
+      true
+    );
+    if (!snappedScene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "snap-returned-null" })
+      );
+      return null;
+    }
+    addDiagnosticEntry(
+      "info",
+      "Combat preview position snapped",
+      buildPreviewDiagnosticDetails({
+        tokenId,
+        scene: snappedScene
+      })
+    );
+    return buildPreviewFromScenePosition(snappedScene, tokenId);
+  }
   function queuePreviewRender(preview) {
     if (!preview) return;
     const previous = state.previewRenderQueue.at(-1);
@@ -10925,18 +10984,11 @@ function setupTacticalMoveTool({ runtime }) {
   }
   function queuePreviewPointer(pointerPosition) {
     if (!pointerPosition) return;
-    const clonedPointer = {
-      x: Number(pointerPosition.x ?? 0) || 0,
-      y: Number(pointerPosition.y ?? 0) || 0
-    };
-    const previous = state.previewPointerQueue.at(-1);
-    if (previous && sameScenePosition(previous, clonedPointer, 0.01)) {
-      return;
-    }
-    state.previewPointerQueue.push(clonedPointer);
-    if (!state.previewPointerActive) {
-      void flushPreviewPointerQueue();
-    }
+    const preview = buildPreviewFromPointerFast(pointerPosition);
+    if (!preview) return;
+    state.previewPointerQueue = [];
+    state.previewRenderQueue = [];
+    queuePreviewRender(preview);
   }
   async function flushPreviewPointerQueue() {
     if (state.previewPointerActive) return;

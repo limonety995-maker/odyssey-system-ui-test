@@ -19,6 +19,7 @@ import { loadRoomSupabaseSettings, hasSupabaseSettings } from "../bridge/setting
 import { COMBAT_MOVEMENT_METADATA_KEY } from "../constants/metadataKeys.js";
 import { BC_HUD_SESSION } from "../hud/overlay/overlayConstants.js";
 import {
+  cellToScene,
   computeDistanceCells,
   normalizeTacticalGridSettings,
   sceneToCell,
@@ -41,7 +42,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.45";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.46";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -621,10 +622,15 @@ export function setupTacticalMoveTool({ runtime }) {
     });
   }
 
-  async function buildPreviewFromPointer(pointerPosition) {
+  function buildPreviewFromScenePosition(scenePosition, tokenIdOverride = "") {
     const grid = state.grid;
     const participant = state.selectedParticipant;
-    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    const tokenId = String(
+      tokenIdOverride
+      || state.selectedToken?.id
+      || participant?.token_id
+      || "",
+    ).trim();
     if (!grid) {
       addDiagnosticEntry(
         "info",
@@ -641,11 +647,11 @@ export function setupTacticalMoveTool({ runtime }) {
       );
       return null;
     }
-    if (!pointerPosition) {
+    if (!scenePosition) {
       addDiagnosticEntry(
         "info",
         "Combat preview unavailable",
-        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-pointer-position" }),
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-scene-position" }),
       );
       return null;
     }
@@ -660,40 +666,29 @@ export function setupTacticalMoveTool({ runtime }) {
       return null;
     }
 
-    const snappedScene = await snapScenePosition(
-      pointerPosition,
-      1,
-      false,
-      true,
-    );
-
-    if (!snappedScene) {
-      addDiagnosticEntry(
-        "info",
-        "Combat preview unavailable",
-        buildPreviewDiagnosticDetails({ tokenId, reason: "snap-returned-null" }),
-      );
-      return null;
-    }
-
-    addDiagnosticEntry(
-      "info",
-      "Combat preview position snapped",
-      buildPreviewDiagnosticDetails({
-        tokenId,
-        scene: snappedScene,
-      }),
-    );
-
-    const cell = sceneToCell(grid, snappedScene);
+    const cell = sceneToCell(grid, scenePosition);
     if (!cell) {
       addDiagnosticEntry(
         "info",
         "Combat preview unavailable",
         buildPreviewDiagnosticDetails({
           tokenId,
-          scene: snappedScene,
+          scene: scenePosition,
           reason: "cell-conversion-failed",
+        }),
+      );
+      return null;
+    }
+
+    const snappedScene = cellToScene(grid, cell);
+    if (!snappedScene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({
+          tokenId,
+          cell,
+          reason: "scene-conversion-failed",
         }),
       );
       return null;
@@ -736,6 +731,50 @@ export function setupTacticalMoveTool({ runtime }) {
     return preview;
   }
 
+  function buildPreviewFromPointerFast(pointerPosition) {
+    return buildPreviewFromScenePosition(pointerPosition);
+  }
+
+  async function buildPreviewFromPointer(pointerPosition) {
+    const participant = state.selectedParticipant;
+    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    if (!pointerPosition) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "missing-pointer-position" }),
+      );
+      return null;
+    }
+
+    const snappedScene = await snapScenePosition(
+      pointerPosition,
+      1,
+      false,
+      true,
+    );
+
+    if (!snappedScene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, reason: "snap-returned-null" }),
+      );
+      return null;
+    }
+
+    addDiagnosticEntry(
+      "info",
+      "Combat preview position snapped",
+      buildPreviewDiagnosticDetails({
+        tokenId,
+        scene: snappedScene,
+      }),
+    );
+
+    return buildPreviewFromScenePosition(snappedScene, tokenId);
+  }
+
   function queuePreviewRender(preview) {
     if (!preview) return;
     const previous = state.previewRenderQueue.at(-1);
@@ -765,18 +804,11 @@ export function setupTacticalMoveTool({ runtime }) {
 
   function queuePreviewPointer(pointerPosition) {
     if (!pointerPosition) return;
-    const clonedPointer = {
-      x: Number(pointerPosition.x ?? 0) || 0,
-      y: Number(pointerPosition.y ?? 0) || 0,
-    };
-    const previous = state.previewPointerQueue.at(-1);
-    if (previous && sameScenePosition(previous, clonedPointer, 0.01)) {
-      return;
-    }
-    state.previewPointerQueue.push(clonedPointer);
-    if (!state.previewPointerActive) {
-      void flushPreviewPointerQueue();
-    }
+    const preview = buildPreviewFromPointerFast(pointerPosition);
+    if (!preview) return;
+    state.previewPointerQueue = [];
+    state.previewRenderQueue = [];
+    queuePreviewRender(preview);
   }
 
   async function flushPreviewPointerQueue() {
