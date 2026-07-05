@@ -43,7 +43,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.41";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.42";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -70,6 +70,12 @@ function nowIso() {
 function createRequestId() {
   return globalThis.crypto?.randomUUID?.()
     ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function nextAnimationFrame() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
 }
 
 function formatPreviewDiagnostics(details = {}) {
@@ -527,6 +533,18 @@ export function setupTacticalMoveTool({ runtime }) {
       return;
     }
 
+    addDiagnosticEntry(
+      "info",
+      "Combat preview render",
+      formatPreviewDiagnostics({
+        tokenId: String(state.selectedToken?.id ?? "").trim(),
+        cellQ: Number(preview.cell?.q ?? 0) || 0,
+        cellR: Number(preview.cell?.r ?? 0) || 0,
+        sceneX: Number(preview.scene?.x ?? 0) || 0,
+        sceneY: Number(preview.scene?.y ?? 0) || 0,
+      }),
+    );
+
     try {
       if (!state.previewGhostCreated) {
         await OBR.scene.local.addItems([items.ghost]);
@@ -870,10 +888,11 @@ export function setupTacticalMoveTool({ runtime }) {
     if (state.previewRenderActive) return;
     state.previewRenderActive = true;
     try {
-      while (state.previewRenderQueue.length > 0) {
+      while (state.dragActive && state.previewRenderQueue.length > 0) {
         const preview = state.previewRenderQueue.shift();
         if (!preview) continue;
         await updatePreview(preview);
+        await nextAnimationFrame();
       }
     } finally {
       state.previewRenderActive = false;
@@ -1498,28 +1517,28 @@ export function setupTacticalMoveTool({ runtime }) {
         tokenId: String(state.selectedToken?.id ?? "").trim(),
       }),
     );
-    let preview = null;
-    if (state.grid?.gridType === "square") {
-      queuePreviewPointer(event.pointerPosition);
-      preview = getLatestQueuedOrRenderedPreview();
-    } else {
-      preview = await buildPreviewFromPointer(event.pointerPosition);
-      if (preview) {
-        queuePreviewRender(preview);
-      }
+    const finalPreview = state.grid?.gridType === "square"
+      ? buildSquarePreviewFromPointer(event.pointerPosition)
+      : await buildPreviewFromPointer(event.pointerPosition);
+
+    state.previewPointerQueue = [];
+    state.previewRenderQueue = [];
+
+    if (finalPreview) {
+      await updatePreview(finalPreview);
+      await nextAnimationFrame();
     }
-    await flushPreviewPointerQueue();
-    await flushPreviewRenderQueue();
+
     state.dragActive = false;
     state.previewPointerQueue = [];
     state.previewRenderQueue = [];
-    const resolvedPreview = preview ?? state.preview;
-    if (!resolvedPreview) {
+
+    if (!finalPreview) {
       await clearPreview({ reason: "drag-end-no-preview", silent: true });
       await publishStatus({ reason: "drag-end-no-preview" });
       return;
     }
-    await commitPreview(resolvedPreview);
+    await commitPreview(finalPreview);
   }
 
   async function handleToolDragCancel() {

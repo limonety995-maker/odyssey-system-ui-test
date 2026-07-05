@@ -84,8 +84,51 @@ function axialRound(q, r) {
 
 function getSquareCellCenterAnchor(settings) {
   return {
-    x: settings.anchor.x + settings.gridDpi / 2,
-    y: settings.anchor.y + settings.gridDpi / 2,
+    x: Number(settings.anchor?.x ?? 0) || 0,
+    y: Number(settings.anchor?.y ?? 0) || 0,
+  };
+}
+
+export function getSquareCellScenePosition(grid, cell) {
+  const settings = normalizeTacticalGridSettings(grid);
+
+  if (
+    !settings
+    || settings.gridType !== "square"
+    || !cell
+  ) {
+    return null;
+  }
+
+  const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
+  const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
+  const anchor = getSquareCellCenterAnchor(settings);
+
+  return {
+    x: anchor.x + q * settings.gridDpi,
+    y: anchor.y + r * settings.gridDpi,
+  };
+}
+
+export function getSquareCellFromScenePosition(grid, position) {
+  const settings = normalizeTacticalGridSettings(grid);
+
+  if (
+    !settings
+    || settings.gridType !== "square"
+    || !position
+  ) {
+    return null;
+  }
+
+  const anchor = getSquareCellCenterAnchor(settings);
+  return {
+    q: Math.round(
+      ((Number(position.x) || 0) - anchor.x) / settings.gridDpi,
+    ),
+    r: Math.round(
+      ((Number(position.y) || 0) - anchor.y) / settings.gridDpi,
+    ),
   };
 }
 
@@ -94,13 +137,7 @@ export function sceneToCell(grid, position) {
   if (!settings || !position) return null;
 
   if (settings.gridType === "square") {
-    const centerAnchor = getSquareCellCenterAnchor(settings);
-    const x = (Number(position.x) || 0) - centerAnchor.x;
-    const y = (Number(position.y) || 0) - centerAnchor.y;
-    return {
-      q: Math.round(x / settings.gridDpi),
-      r: Math.round(y / settings.gridDpi),
-    };
+    return getSquareCellFromScenePosition(settings, position);
   }
 
   const x = (Number(position.x) || 0) - settings.anchor.x;
@@ -130,11 +167,7 @@ export function cellToScene(grid, cell) {
   const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
 
   if (settings.gridType === "square") {
-    const centerAnchor = getSquareCellCenterAnchor(settings);
-    return {
-      x: centerAnchor.x + q * settings.gridDpi,
-      y: centerAnchor.y + r * settings.gridDpi,
-    };
+    return getSquareCellScenePosition(settings, { q, r });
   }
 
   if (settings.gridType === "hex_vertical") {
@@ -167,21 +200,14 @@ export function snapSquarePointerToCellCenter(grid, pointerPosition) {
     return null;
   }
 
-  const dpi = settings.gridDpi;
-  const centerAnchor = getSquareCellCenterAnchor(settings);
-  const q = Math.round(
-    ((Number(pointerPosition.x) || 0) - centerAnchor.x) / dpi,
-  );
-  const r = Math.round(
-    ((Number(pointerPosition.y) || 0) - centerAnchor.y) / dpi,
-  );
+  const cell = getSquareCellFromScenePosition(settings, pointerPosition);
+  if (!cell) {
+    return null;
+  }
 
   return {
-    cell: { q, r },
-    scene: {
-      x: centerAnchor.x + q * dpi,
-      y: centerAnchor.y + r * dpi,
-    },
+    cell,
+    scene: getSquareCellScenePosition(settings, cell),
   };
 }
 

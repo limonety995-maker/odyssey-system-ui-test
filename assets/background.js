@@ -5987,21 +5987,43 @@ function axialRound(q, r) {
 }
 function getSquareCellCenterAnchor(settings) {
   return {
-    x: settings.anchor.x + settings.gridDpi / 2,
-    y: settings.anchor.y + settings.gridDpi / 2
+    x: Number(settings.anchor?.x ?? 0) || 0,
+    y: Number(settings.anchor?.y ?? 0) || 0
+  };
+}
+function getSquareCellScenePosition(grid, cell) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || settings.gridType !== "square" || !cell) {
+    return null;
+  }
+  const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
+  const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
+  const anchor = getSquareCellCenterAnchor(settings);
+  return {
+    x: anchor.x + q * settings.gridDpi,
+    y: anchor.y + r * settings.gridDpi
+  };
+}
+function getSquareCellFromScenePosition(grid, position) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || settings.gridType !== "square" || !position) {
+    return null;
+  }
+  const anchor = getSquareCellCenterAnchor(settings);
+  return {
+    q: Math.round(
+      ((Number(position.x) || 0) - anchor.x) / settings.gridDpi
+    ),
+    r: Math.round(
+      ((Number(position.y) || 0) - anchor.y) / settings.gridDpi
+    )
   };
 }
 function sceneToCell(grid, position) {
   const settings = normalizeTacticalGridSettings(grid);
   if (!settings || !position) return null;
   if (settings.gridType === "square") {
-    const centerAnchor = getSquareCellCenterAnchor(settings);
-    const x2 = (Number(position.x) || 0) - centerAnchor.x;
-    const y2 = (Number(position.y) || 0) - centerAnchor.y;
-    return {
-      q: Math.round(x2 / settings.gridDpi),
-      r: Math.round(y2 / settings.gridDpi)
-    };
+    return getSquareCellFromScenePosition(settings, position);
   }
   const x = (Number(position.x) || 0) - settings.anchor.x;
   const y = (Number(position.y) || 0) - settings.anchor.y;
@@ -6025,11 +6047,7 @@ function cellToScene(grid, cell) {
   const q = Number(cell.q ?? cell.cell_q ?? 0) || 0;
   const r = Number(cell.r ?? cell.cell_r ?? 0) || 0;
   if (settings.gridType === "square") {
-    const centerAnchor = getSquareCellCenterAnchor(settings);
-    return {
-      x: centerAnchor.x + q * settings.gridDpi,
-      y: centerAnchor.y + r * settings.gridDpi
-    };
+    return getSquareCellScenePosition(settings, { q, r });
   }
   if (settings.gridType === "hex_vertical") {
     const size = settings.gridDpi / SQRT3;
@@ -6052,20 +6070,13 @@ function snapSquarePointerToCellCenter(grid, pointerPosition) {
   if (!settings || settings.gridType !== "square" || !pointerPosition) {
     return null;
   }
-  const dpi = settings.gridDpi;
-  const centerAnchor = getSquareCellCenterAnchor(settings);
-  const q = Math.round(
-    ((Number(pointerPosition.x) || 0) - centerAnchor.x) / dpi
-  );
-  const r = Math.round(
-    ((Number(pointerPosition.y) || 0) - centerAnchor.y) / dpi
-  );
+  const cell = getSquareCellFromScenePosition(settings, pointerPosition);
+  if (!cell) {
+    return null;
+  }
   return {
-    cell: { q, r },
-    scene: {
-      x: centerAnchor.x + q * dpi,
-      y: centerAnchor.y + r * dpi
-    }
+    cell,
+    scene: getSquareCellScenePosition(settings, cell)
   };
 }
 function computeDistanceCells(grid, fromCell, toCell) {
@@ -10325,7 +10336,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.41";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.42";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
@@ -10346,6 +10357,11 @@ function nowIso() {
 }
 function createRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+function nextAnimationFrame() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
 }
 function formatPreviewDiagnostics(details2 = {}) {
   try {
@@ -10743,6 +10759,17 @@ function setupTacticalMoveTool({ runtime }) {
       await publishStatus();
       return;
     }
+    addDiagnosticEntry(
+      "info",
+      "Combat preview render",
+      formatPreviewDiagnostics({
+        tokenId: String(state.selectedToken?.id ?? "").trim(),
+        cellQ: Number(preview.cell?.q ?? 0) || 0,
+        cellR: Number(preview.cell?.r ?? 0) || 0,
+        sceneX: Number(preview.scene?.x ?? 0) || 0,
+        sceneY: Number(preview.scene?.y ?? 0) || 0
+      })
+    );
     try {
       if (!state.previewGhostCreated) {
         await lib_default.scene.local.addItems([items.ghost]);
@@ -11056,10 +11083,11 @@ function setupTacticalMoveTool({ runtime }) {
     if (state.previewRenderActive) return;
     state.previewRenderActive = true;
     try {
-      while (state.previewRenderQueue.length > 0) {
+      while (state.dragActive && state.previewRenderQueue.length > 0) {
         const preview = state.previewRenderQueue.shift();
         if (!preview) continue;
         await updatePreview(preview);
+        await nextAnimationFrame();
       }
     } finally {
       state.previewRenderActive = false;
@@ -11604,28 +11632,22 @@ function setupTacticalMoveTool({ runtime }) {
         tokenId: String(state.selectedToken?.id ?? "").trim()
       })
     );
-    let preview = null;
-    if (state.grid?.gridType === "square") {
-      queuePreviewPointer(event.pointerPosition);
-      preview = getLatestQueuedOrRenderedPreview();
-    } else {
-      preview = await buildPreviewFromPointer(event.pointerPosition);
-      if (preview) {
-        queuePreviewRender(preview);
-      }
+    const finalPreview = state.grid?.gridType === "square" ? buildSquarePreviewFromPointer(event.pointerPosition) : await buildPreviewFromPointer(event.pointerPosition);
+    state.previewPointerQueue = [];
+    state.previewRenderQueue = [];
+    if (finalPreview) {
+      await updatePreview(finalPreview);
+      await nextAnimationFrame();
     }
-    await flushPreviewPointerQueue();
-    await flushPreviewRenderQueue();
     state.dragActive = false;
     state.previewPointerQueue = [];
     state.previewRenderQueue = [];
-    const resolvedPreview = preview ?? state.preview;
-    if (!resolvedPreview) {
+    if (!finalPreview) {
       await clearPreview({ reason: "drag-end-no-preview", silent: true });
       await publishStatus({ reason: "drag-end-no-preview" });
       return;
     }
-    await commitPreview(resolvedPreview);
+    await commitPreview(finalPreview);
   }
   async function handleToolDragCancel() {
     await clearPreview({ reason: "drag-cancelled", silent: true });

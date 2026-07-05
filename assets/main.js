@@ -34467,21 +34467,30 @@ function axialRound(q, r) {
 }
 function getSquareCellCenterAnchor(settings) {
   return {
-    x: settings.anchor.x + settings.gridDpi / 2,
-    y: settings.anchor.y + settings.gridDpi / 2
+    x: Number(settings.anchor?.x ?? 0) || 0,
+    y: Number(settings.anchor?.y ?? 0) || 0
+  };
+}
+function getSquareCellFromScenePosition(grid, position) {
+  const settings = normalizeTacticalGridSettings(grid);
+  if (!settings || settings.gridType !== "square" || !position) {
+    return null;
+  }
+  const anchor = getSquareCellCenterAnchor(settings);
+  return {
+    q: Math.round(
+      ((Number(position.x) || 0) - anchor.x) / settings.gridDpi
+    ),
+    r: Math.round(
+      ((Number(position.y) || 0) - anchor.y) / settings.gridDpi
+    )
   };
 }
 function sceneToCell(grid, position) {
   const settings = normalizeTacticalGridSettings(grid);
   if (!settings || !position) return null;
   if (settings.gridType === "square") {
-    const centerAnchor = getSquareCellCenterAnchor(settings);
-    const x2 = (Number(position.x) || 0) - centerAnchor.x;
-    const y2 = (Number(position.y) || 0) - centerAnchor.y;
-    return {
-      q: Math.round(x2 / settings.gridDpi),
-      r: Math.round(y2 / settings.gridDpi)
-    };
+    return getSquareCellFromScenePosition(settings, position);
   }
   const x = (Number(position.x) || 0) - settings.anchor.x;
   const y = (Number(position.y) || 0) - settings.anchor.y;
