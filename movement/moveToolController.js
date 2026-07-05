@@ -19,6 +19,7 @@ import { loadRoomSupabaseSettings, hasSupabaseSettings } from "../bridge/setting
 import { COMBAT_MOVEMENT_METADATA_KEY } from "../constants/metadataKeys.js";
 import { BC_HUD_SESSION } from "../hud/overlay/overlayConstants.js";
 import {
+  cellToScene,
   computeDistanceCells,
   normalizeTacticalGridSettings,
   sceneToCell,
@@ -42,7 +43,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.40";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.41";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -666,6 +667,75 @@ export function setupTacticalMoveTool({ runtime }) {
     return preview;
   }
 
+  function buildPreviewFromSquareCell(cell) {
+    const grid = state.grid;
+    const participant = state.selectedParticipant;
+    const tokenId = String(state.selectedToken?.id ?? participant?.token_id ?? "").trim();
+    if (!grid || !participant?.position || !cell) {
+      return null;
+    }
+
+    const origin = getSelectedParticipantOrigin();
+    if (!origin) {
+      return null;
+    }
+
+    const scene = cellToScene(grid, cell);
+    if (!scene) {
+      addDiagnosticEntry(
+        "info",
+        "Combat preview unavailable",
+        buildPreviewDiagnosticDetails({ tokenId, cell, reason: "square-cell-to-scene-failed" }),
+      );
+      return null;
+    }
+
+    const distanceCells = computeDistanceCells(grid, origin.cell, cell);
+    const moveLimitM = Number(participant.move_current ?? 0) || 0;
+    const moveCostM = distanceCells * Math.max(Number(grid.metersPerCell ?? 1) || 1, 1);
+
+    return {
+      cell: {
+        q: Number(cell.q ?? 0) || 0,
+        r: Number(cell.r ?? 0) || 0,
+      },
+      scene: {
+        x: Number(scene.x ?? 0) || 0,
+        y: Number(scene.y ?? 0) || 0,
+      },
+      distanceCells,
+      moveCostM,
+      moveLimitM,
+      remainingMoveM: moveLimitM - moveCostM,
+      inRange: moveCostM <= moveLimitM,
+    };
+  }
+
+  function interpolateSquareCells(fromCell, toCell) {
+    if (!fromCell || !toCell) return [];
+    const fromQ = Number(fromCell.q ?? 0) || 0;
+    const fromR = Number(fromCell.r ?? 0) || 0;
+    const toQ = Number(toCell.q ?? 0) || 0;
+    const toR = Number(toCell.r ?? 0) || 0;
+    const steps = Math.max(Math.abs(toQ - fromQ), Math.abs(toR - fromR));
+    if (steps <= 0) {
+      return [{ q: toQ, r: toR }];
+    }
+
+    const path = [];
+    for (let step = 1; step <= steps; step += 1) {
+      path.push({
+        q: Math.round(fromQ + ((toQ - fromQ) * step) / steps),
+        r: Math.round(fromR + ((toR - fromR) * step) / steps),
+      });
+    }
+    return path;
+  }
+
+  function getLatestQueuedOrRenderedPreview() {
+    return state.previewRenderQueue.at(-1) ?? state.preview ?? null;
+  }
+
   async function buildPreviewFromPointer(pointerPosition) {
     const grid = state.grid;
     const participant = state.selectedParticipant;
@@ -812,6 +882,22 @@ export function setupTacticalMoveTool({ runtime }) {
 
   function queuePreviewPointer(pointerPosition) {
     if (!pointerPosition) return;
+    if (state.grid?.gridType === "square") {
+      const nextPreview = buildSquarePreviewFromPointer(pointerPosition);
+      if (!nextPreview) return;
+
+      const previousPreview = getLatestQueuedOrRenderedPreview();
+      const previousCell = previousPreview?.cell ?? getSelectedParticipantOrigin()?.cell ?? null;
+      const path = interpolateSquareCells(previousCell, nextPreview.cell);
+
+      for (const pathCell of path) {
+        const preview = buildPreviewFromSquareCell(pathCell);
+        if (!preview) continue;
+        queuePreviewRender(preview);
+      }
+      return;
+    }
+
     const clonedPointer = {
       x: Number(pointerPosition.x ?? 0) || 0,
       y: Number(pointerPosition.y ?? 0) || 0,
@@ -1412,9 +1498,15 @@ export function setupTacticalMoveTool({ runtime }) {
         tokenId: String(state.selectedToken?.id ?? "").trim(),
       }),
     );
-    const preview = await buildPreviewFromPointer(event.pointerPosition);
-    if (preview) {
-      queuePreviewRender(preview);
+    let preview = null;
+    if (state.grid?.gridType === "square") {
+      queuePreviewPointer(event.pointerPosition);
+      preview = getLatestQueuedOrRenderedPreview();
+    } else {
+      preview = await buildPreviewFromPointer(event.pointerPosition);
+      if (preview) {
+        queuePreviewRender(preview);
+      }
     }
     await flushPreviewPointerQueue();
     await flushPreviewRenderQueue();
