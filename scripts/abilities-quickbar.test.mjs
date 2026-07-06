@@ -354,9 +354,27 @@ test("SQL: quickbar table is per-character (unique), versioned, cascade-deleted 
 });
 
 test("SQL: save increments version and returns fresh layout (server is source of truth)", () => {
-  assert.ok(/version = version \+ 1/.test(sql92), "version bumped on update");
+  assert.ok(/version = t\.version \+ 1/.test(sql92), "version bumped on update");
   assert.ok(sql92.includes("'layout', v_result"), "fresh layout returned");
   assert.ok(sql92.includes("'version', v_current_version"), "fresh version returned");
+});
+
+test("regression: every quickbar_layouts column reference is qualified — no bare 'version'/'layout' that could ambiguate", () => {
+  // Bug reproduced live: "column reference \"version\" is ambiguous" on Save.
+  // ON CONFLICT DO UPDATE SET/RETURNING mixes the target table's row with the
+  // `excluded` pseudo-row, so every reference must be qualified (t.* or
+  // excluded.*) — a bare `version`/`layout` is never safe in that clause.
+  const saveFn = sql92.slice(sql92.indexOf("function public.odyssey_save_character_quickbar_layout"), sql92.indexOf("function public.odyssey_quickbar_layout_update_timestamp"));
+  assert.ok(saveFn.includes("insert into public.odyssey_character_quickbar_layouts as t"), "target table has an explicit alias");
+  assert.ok(saveFn.includes("select t.version into v_current_version"));
+  assert.ok(saveFn.includes("version = t.version + 1"));
+  assert.ok(saveFn.includes("returning t.layout, t.version"));
+  // No bare (unqualified) version/layout assignment or RETURNING target inside
+  // the ON CONFLICT...RETURNING block — every one must be t.* or excluded.*.
+  const conflictBlock = saveFn.slice(saveFn.indexOf("on conflict"), saveFn.indexOf("into v_result, v_current_version"));
+  assert.ok(!/\bset\s+version\s*=/.test(conflictBlock), "SET target 'version' must be a plain column name (fine) but its VALUE must be qualified");
+  assert.ok(!/=\s*version\s*\+\s*1/.test(conflictBlock), "no bare 'version + 1' — must be t.version + 1");
+  assert.ok(!/returning\s+layout,\s*version/.test(conflictBlock), "no bare 'returning layout, version' — must be t.layout, t.version");
 });
 
 test("SQL: migration 92 does not touch combat session (90) or perform_attack", () => {

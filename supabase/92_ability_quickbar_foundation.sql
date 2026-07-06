@@ -46,11 +46,11 @@ language sql
 stable
 as $$
   select coalesce(
-    layout,
+    t.layout,
     jsonb_build_object('slots', '[]'::jsonb)
   )
-  from public.odyssey_character_quickbar_layouts
-  where character_id = p_character_id
+  from public.odyssey_character_quickbar_layouts t
+  where t.character_id = p_character_id
 $$;
 
 -- Save quickbar layout with optimistic version check.
@@ -81,10 +81,12 @@ begin
     );
   end if;
 
-  -- Get current version.
-  select version into v_current_version
-  from public.odyssey_character_quickbar_layouts
-  where character_id = p_character_id;
+  -- Get current version. Table alias + qualified column avoid ANY ambiguity
+  -- with the plpgsql variable / the excluded pseudo-row used further below —
+  -- a bare "version" here previously raised "column reference is ambiguous".
+  select t.version into v_current_version
+  from public.odyssey_character_quickbar_layouts t
+  where t.character_id = p_character_id;
 
   -- Default to version 0 if no layout exists yet.
   v_current_version := coalesce(v_current_version, 0);
@@ -99,14 +101,16 @@ begin
     );
   end if;
 
-  -- Insert or update layout.
-  insert into public.odyssey_character_quickbar_layouts (character_id, layout, version, updated_at)
+  -- Insert or update layout. The target table carries an explicit alias (t) so
+  -- every column in SET/RETURNING is unambiguously qualified against either
+  -- the existing row (t.*) or the proposed row (excluded.*) — never a bare name.
+  insert into public.odyssey_character_quickbar_layouts as t (character_id, layout, version, updated_at)
   values (p_character_id, jsonb_build_object('slots', coalesce(p_slots, '[]'::jsonb)), v_current_version + 1, timezone('utc', now()))
   on conflict (character_id) do update set
     layout = excluded.layout,
-    version = version + 1,
+    version = t.version + 1,
     updated_at = timezone('utc', now())
-  returning layout, version
+  returning t.layout, t.version
   into v_result, v_current_version;
 
   return jsonb_build_object(
@@ -204,10 +208,10 @@ begin
   -- effect's data.flags.skip_turn — the same source the turn engine uses).
   v_has_skip_turn_effect := public.odyssey_character_has_active_effect_flag(p_character_id, 'skip_turn');
 
-  -- Fetch quickbar layout and version.
-  select layout, version into v_layout, v_version
-  from public.odyssey_character_quickbar_layouts
-  where character_id = p_character_id;
+  -- Fetch quickbar layout and version (qualified — see the save function for why).
+  select t.layout, t.version into v_layout, v_version
+  from public.odyssey_character_quickbar_layouts t
+  where t.character_id = p_character_id;
 
   v_layout := coalesce(v_layout, jsonb_build_object('slots', '[]'::jsonb));
   -- No saved layout yet -> version 0, matching odyssey_save_character_quickbar_layout's
