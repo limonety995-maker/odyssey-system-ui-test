@@ -184,81 +184,80 @@ test("4.0e: ten slots fit one row without horizontal scroll (flex-basis-0 divisi
   assert.ok(!/flex-wrap:\s*wrap\b/.test(rowRule), "row never wraps to a horizontal scroll/second line of its own");
 });
 
-test("4.0e: the quickbar grid does not use vertical centering — content is top-aligned", () => {
-  const wrapRule = cssRule(layoutCss, ".ohud-qb-wrap {");
+test("4.0i: the quickbar grid IS vertically centered inside the Skill Block (HUD refine pass reverses the old top-alignment)", () => {
   const gridRule = cssRule(layoutCss, ".ohud-qb {");
-  assert.ok(!/justify-content:\s*center/.test(wrapRule));
   assert.ok(gridRule, ".ohud-qb rule exists");
-  assert.match(gridRule, /justify-content:\s*flex-start/, "rows must hug the top, never centered or bottom-anchored");
+  assert.match(gridRule, /justify-content:\s*center/, "rows are vertically centered, not top/bottom-anchored");
 });
 
-test("4.0e: EDIT is pinned to the block's own bottom-right corner (absolute, not in normal row flow)", () => {
-  const rule = cssRule(layoutCss, ".ohud-qb-edit {");
-  assert.ok(rule, ".ohud-qb-edit rule exists");
-  assert.match(rule, /position:\s*absolute/, "EDIT no longer participates in the row flex flow");
-  const right = cssNum(rule, "right");
-  const bottom = cssNum(rule, "bottom");
-  assert.ok(right >= 8 && right <= 12, `EDIT right offset (${right}) must be within the 8-12px spec range`);
-  assert.ok(bottom >= 7 && bottom <= 10, `EDIT bottom offset (${bottom}) must be within the 7-10px spec range`);
-  const wrapRule = cssRule(layoutCss, ".ohud-qb-wrap {");
-  assert.match(wrapRule, /position:\s*relative/, "wrap must be the positioning context EDIT anchors to");
+test("4.0i: no separate EDIT control remains — its dedicated CSS class is gone", () => {
+  assert.equal(cssRule(layoutCss, ".ohud-qb-edit {"), null, ".ohud-qb-edit rule must be removed along with the button");
 });
 
-test("4.0e: EDIT cannot overlap the slot grid at one OR two full rows — the stylesheet's own numbers leave a positive gap", () => {
+test("4.0i: two full rows (20 slots) still fit inside the Skill Block's own panel height — no clipping now that EDIT's reserved corner is gone", () => {
   // A geometry budget check (Node has no layout engine): reconstructs the
-  // vertical stack from the ACTUAL CSS values and asserts a positive gap
-  // remains between the last row's bottom edge and EDIT's top edge, for both
-  // a single 10-slot row and a full 20-slot (two-row) layout. If a future
-  // edit changes one number without checking the others, this fails loudly
-  // instead of silently reintroducing the visual overlap bug.
+  // vertical stack from the ACTUAL CSS values and asserts two full rows leave
+  // a non-negative margin inside the panel's own content box.
   const panelHeight = cssNum(cssRule(layoutCss, ".ohud-panel--skills {"), "height");
   const panelRule = cssRule(layoutCss, ".ohud-panel {\n");
   const padMatch = /padding:\s*(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px/.exec(panelRule);
   const panelPadV = padMatch ? Number(padMatch[1]) : 0;
 
   const wrapRule = cssRule(layoutCss, ".ohud-qb-wrap {");
-  const wrapPadTop = cssNum(wrapRule, "padding-top");
-  const wrapGap = Number(/gap:\s*(\d+(?:\.\d+)?)px/.exec(wrapRule)[1]);
+  const wrapPadMatch = /padding:\s*(\d+(?:\.\d+)?)px/.exec(wrapRule);
+  const wrapPadV = wrapPadMatch ? Number(wrapPadMatch[1]) * 2 : 0;
 
+  const gridRule = cssRule(layoutCss, ".ohud-qb {");
+  const gridGap = Number(/gap:\s*(\d+(?:\.\d+)?)px/.exec(gridRule)[1]);
   const slotHeight = cssNum(cssRule(layoutCss, ".ohud-qb-slot {"), "height");
 
-  const editRule = cssRule(layoutCss, ".ohud-qb-edit {");
-  const editHeight = cssNum(editRule, "height");
-  const editBottom = cssNum(editRule, "bottom");
-
   const bodyHeight = panelHeight - panelPadV * 2;
-  const editTopFromBodyTop = bodyHeight - editBottom - editHeight;
+  const twoRowContentHeight = slotHeight * 2 + gridGap;
 
-  const oneRowBottom = wrapPadTop + slotHeight;
-  const twoRowBottom = wrapPadTop + slotHeight + wrapGap + slotHeight;
-
-  assert.ok(editTopFromBodyTop - oneRowBottom > 0, `1-row: gap before EDIT must be positive (got ${editTopFromBodyTop - oneRowBottom})`);
-  assert.ok(editTopFromBodyTop - twoRowBottom > 0, `2-row (20 slots): gap before EDIT must be positive (got ${editTopFromBodyTop - twoRowBottom})`);
+  assert.ok(bodyHeight - wrapPadV >= twoRowContentHeight, `two full rows (${twoRowContentHeight}px) must fit inside the available body height (${bodyHeight - wrapPadV}px) without clipping`);
   // And the whole thing must still fit inside the module's own 165px popover
-  // allocation (hudLayout.js DEFAULT_HUD_LAYOUT_V2.skills.height) — this CSS
-  // change must never require enlarging the popover itself.
+  // allocation (hudLayout.js DEFAULT_HUD_LAYOUT_V2.skills.height).
   assert.ok(panelHeight <= 165, `panel height (${panelHeight}) must stay within the module's existing 165px popover`);
 });
 
-test("4.0e: regression — the pre-existing Skills-module centering override no longer fights the quickbar grid", () => {
-  // Root cause of BOTH visual bugs (vertical centering AND a squashed/narrow
-  // row): combatHudModule.css had a Skills-only rule centering .ohud-panel-body
-  // both axes (for the LEGACY category-grouped view). That rule's align-items:
-  // center made .ohud-qb-wrap shrink to its content width instead of filling
-  // the panel — 10 slots at flex:1 1 0 divided a much NARROWER box than
-  // intended. Fixed with a scoped :has() override for the quickbar case only;
-  // the legacy rule itself must remain untouched.
+test("4.0i: the pre-existing Skills-module centering override still doesn't fight the quickbar grid — now both agree: centered", () => {
+  // Root cause of the ORIGINAL 4.0e bug: combatHudModule.css had a Skills-only
+  // rule centering .ohud-panel-body both axes (for the LEGACY category-grouped
+  // view), whose align-items: center shrank .ohud-qb-wrap to its content width
+  // instead of filling the panel. Fixed then with a scoped :has() override
+  // (top-aligned + stretch); this pass (4.0i) flips that override's vertical
+  // axis back to centered per the new requirement, while keeping the
+  // full-width stretch fix and leaving the legacy rule itself untouched.
   assert.match(moduleCss, /\[data-module="skills"\]\s*\.ohud-panel-body\s*\{\s*justify-content:\s*center;\s*align-items:\s*center;\s*\}/, "legacy centering rule for the category view is still present, unmodified");
   const overrideRule = cssRule(moduleCss, '.ohud-panel-body:has(.ohud-qb-wrap)');
   assert.ok(overrideRule, "a scoped override for the quickbar case exists");
-  assert.match(overrideRule, /justify-content:\s*flex-start/, "quickbar case is top-aligned, not centered");
+  assert.match(overrideRule, /justify-content:\s*center/, "quickbar case is vertically centered");
   assert.match(overrideRule, /align-items:\s*stretch/, "quickbar case stretches to full width, not shrink-to-content");
 });
 
-test("strip shows an EDIT button and empty-quickbar fallback", () => {
-  assert.match(renderQuickbarStrip(runtime()), /data-action="open-quickbar-editor"/);
+test("4.0i: empty slots open the quickbar editor; the all-empty fallback is also clickable — no separate EDIT button remains", () => {
+  const withEmptySlot = renderQuickbarStrip(runtime([
+    { slotIndex: 0, characterActionId: "act-1", empty: false },
+    { slotIndex: 1, characterActionId: null, empty: true },
+  ]));
+  assert.match(withEmptySlot, /data-action="open-quickbar-editor"/, "an empty slot carries the open-editor trigger");
+  assert.ok(!withEmptySlot.includes("ohud-qb-edit"), "no separate EDIT button/class remains");
+
   const empty = renderQuickbarStrip({ ok: true, quickActions: [], quickbar: { slots: [], maxSlots: 20, version: 1 } });
   assert.match(empty, /No quickbar actions/);
+  assert.match(empty, /data-action="open-quickbar-editor"/, "the all-empty fallback is itself clickable to open the editor");
+});
+
+test("4.0i: a filled slot never carries the open-editor trigger — only show-ability-detail, unchanged", () => {
+  const html = renderQuickbarStrip(runtime([{ slotIndex: 0, characterActionId: "act-1", empty: false }], [action({ id: "act-1" })]));
+  assert.match(html, /data-action="show-ability-detail"/);
+  assert.ok(!html.includes("open-quickbar-editor"), "filled slot must never open the editor");
+});
+
+test("4.0i: canEdit:false disables the empty-slot editor trigger (parity with the old EDIT gate)", () => {
+  const html = renderQuickbarStrip(runtime([{ slotIndex: 1, characterActionId: null, empty: true }]), { canEdit: false });
+  assert.ok(!html.includes("open-quickbar-editor"));
+  assert.match(html, /is-empty/, "still renders as an empty tile, just non-interactive");
 });
 
 /* ── SkillBlock fold + fallback (spec 15) ─────────────────────────────── */
@@ -266,11 +265,14 @@ test("strip shows an EDIT button and empty-quickbar fallback", () => {
 test("SkillBlock renders the quickbar when snapshot.quickbar is present", () => {
   const state = {
     viewer: { role: "player" },
-    snapshot: { quickbar: runtime() },
+    snapshot: { quickbar: runtime([
+      { slotIndex: 0, characterActionId: "act-1", empty: false },
+      { slotIndex: 1, characterActionId: null, empty: true },
+    ]) },
   };
   const html = renderSkillBlock(state);
   assert.match(html, /ohud-qb/);
-  assert.match(html, /data-action="open-quickbar-editor"/);
+  assert.match(html, /data-action="open-quickbar-editor"/, "the empty slot carries the open-editor trigger");
 });
 
 test("15/backcompat. SkillBlock falls back to the legacy category view when no quickbar (mock path unaffected)", () => {

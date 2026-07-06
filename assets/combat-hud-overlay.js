@@ -3980,16 +3980,19 @@ var combatHudLayout_default = `/*
 .ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }
 .ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }
 
-/* ===================== Quickbar (Phase 4.0b, visual pass 4.0e) =====================
+/* ===================== Quickbar (Phase 4.0b, visual pass 4.0e, HUD refine 4.0i) =====================
  * Skills-module strip: dense action-card rows. Row 0 (slots 1-10) is on TOP,
  * row 1 (slots 11-20) is BELOW it \u2014 matching the Quickbar Editor's fixed row
  * order (a second row only renders at all when the runtime actually has slots
- * in it). Content is TOP-aligned (no vertical centering) so the grid doesn't
- * float in a sea of empty space; EDIT is pinned to the block's own bottom-right
- * corner, independent of whether one or two rows are showing. */
-.ohud-qb-wrap { position: relative; display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; padding-top: 4px; }
-.ohud-qb { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; justify-content: flex-start; }
+ * in it). Rows are vertically centered inside the block (4.0i). There is no
+ * separate EDIT control: any empty slot (or the all-empty fallback) opens the
+ * SAME Quickbar Editor via data-action="open-quickbar-editor". */
+.ohud-qb-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 4px 0; }
+.ohud-qb { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; justify-content: center; }
 .ohud-qb--empty { justify-content: center; }
+.ohud-qb--empty-clickable { border: none; background: transparent; padding: 0; margin: 0; width: 100%; font: inherit; color: inherit; cursor: pointer; }
+.ohud-qb--empty-clickable:hover .ohud-muted-fill, .ohud-qb--empty-clickable:focus-visible .ohud-muted-fill { color: var(--odyssey-hud-implant); }
+.ohud-qb--empty-clickable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
 .ohud-qb-row { display: flex; gap: 4px; flex-wrap: nowrap; }
 .ohud-qb-slot {
   /* Width fills the row evenly (flex-basis 0 + grow), capped at 56px so ten
@@ -4006,6 +4009,13 @@ var combatHudLayout_default = `/*
 .ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.6; background: transparent; }
 .ohud-qb-slot.is-empty::after { content: "+"; font-size: 15px; color: var(--odyssey-hud-dim); opacity: 0.5; }
 .ohud-qb-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.03); }
+/* Editable empty slots (Phase 4.0i) are the open-editor trigger \u2014 same "+"
+ * marker, but a real clickable control with its own hover/focus affordance so
+ * it reads as interactive without looking like a filled/executable tile. */
+.ohud-qb-slot.is-empty.is-editable { cursor: pointer; }
+.ohud-qb-slot.is-empty.is-editable:hover { border-color: var(--odyssey-hud-implant); background: rgba(255, 255, 255, 0.06); }
+.ohud-qb-slot.is-empty.is-editable:hover::after { color: var(--odyssey-hud-implant); opacity: 0.9; }
+.ohud-qb-slot.is-empty.is-editable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
 .ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
 .ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
 .ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
@@ -4022,14 +4032,6 @@ var combatHudLayout_default = `/*
 .ohud-qb-cd { font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
 .ohud-qb-active { font-size: 7px; font-weight: 800; color: var(--odyssey-hud-state-active); }
 .ohud-qb-missing { font-size: 20px; font-weight: 800; }
-.ohud-qb-edit {
-  position: absolute; right: 10px; bottom: 8px;
-  padding: 0 9px; height: 18px;
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;
-  color: var(--odyssey-hud-text); background: rgba(10, 14, 24, 0.55);
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
-}
-.ohud-qb-edit:hover { border-color: var(--odyssey-hud-implant); color: var(--odyssey-hud-implant); }
 
 /* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
  * A standalone sci-fi window: dark surface, thin glowing border, header / body
@@ -4342,11 +4344,11 @@ var combatHudModule_default = `/*\r
 .ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }\r
 .ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }\r
 .ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }\r
-/* Phase 4.0e: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE \u2014\r
- * full width (so 10 slots can divide it evenly) and top-aligned (so the grid\r
- * doesn't float centered in empty space). Scoped narrowly so it never touches\r
- * the legacy category view above. */\r
-.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: flex-start; align-items: stretch; }\r
+/* Phase 4.0e/4.0i: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE\r
+ * horizontal behaviour \u2014 full width (so 10 slots can divide it evenly) \u2014 while\r
+ * still agreeing with the legacy view on vertical centering. Scoped narrowly\r
+ * so it never touches the legacy category view above. */\r
+.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: center; align-items: stretch; }\r
 .ohud-module .ohud-gun { position: relative; }\r
 \r
 /* ---------- Combat Control composite (330\xD7165, reworked Phase 4.0f) ---------- */\r
@@ -6794,8 +6796,11 @@ function occupiedTile(slot, action) {
     ${badges}
   </button>`;
 }
-function emptyTile(slotIndex) {
-  return `<div class="${cls("ohud-qb-slot", "is-empty")}" data-slot-index="${slotIndex}" aria-hidden="true"></div>`;
+function emptyTile(slotIndex, canEdit) {
+  if (!canEdit) {
+    return `<div class="${cls("ohud-qb-slot", "is-empty")}" data-slot-index="${slotIndex}" aria-hidden="true"></div>`;
+  }
+  return `<button type="button" class="${cls("ohud-qb-slot", "is-empty", "is-editable")}" data-action="open-quickbar-editor" data-slot-index="${slotIndex}" aria-label="Open quickbar editor"${tipAttr("Edit quickbar", ["Assign, reorder or remove actions."])}></button>`;
 }
 function renderQuickbarStrip(runtime, opts = {}) {
   const rt = runtime && typeof runtime === "object" ? runtime : { quickActions: [], quickbar: { slots: [], maxSlots: FIRST_ROW_SIZE } };
@@ -6810,14 +6815,13 @@ function renderQuickbarStrip(runtime, opts = {}) {
   const rowKeys = [...rows.keys()].sort((a, b) => a - b);
   const rowsHtml = rowKeys.map((r) => {
     const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
-      if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex);
+      if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
       return occupiedTile(slot, actionById(rt, slot.characterActionId));
     }).join("");
     return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;
   }).join("");
-  const editBtn = canEdit ? `<button type="button" class="ohud-qb-edit" data-action="open-quickbar-editor" ${tipAttr("Edit quickbar", ["Assign, reorder or remove actions."])}>EDIT</button>` : "";
-  const body = slots.length ? `<div class="ohud-qb">${rowsHtml}</div>` : `<div class="ohud-qb ohud-qb--empty"><div class="ohud-muted-fill">No quickbar actions</div></div>`;
-  return `<div class="ohud-qb-wrap">${body}${editBtn}</div>`;
+  const body = slots.length ? `<div class="ohud-qb">${rowsHtml}</div>` : canEdit ? `<button type="button" class="ohud-qb ohud-qb--empty ohud-qb--empty-clickable" data-action="open-quickbar-editor" aria-label="Open quickbar editor"${tipAttr("Edit quickbar", ["No actions assigned yet \u2014 click to add some."])}><div class="ohud-muted-fill">No quickbar actions</div></button>` : `<div class="ohud-qb ohud-qb--empty"><div class="ohud-muted-fill">No quickbar actions</div></div>`;
+  return `<div class="ohud-qb-wrap">${body}</div>`;
 }
 
 // hud/components/SkillBlock.js

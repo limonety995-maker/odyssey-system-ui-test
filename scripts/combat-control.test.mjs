@@ -3,8 +3,8 @@
 // PURE render tests over the new Target / AUTO+ARMED Modifiers / full-width
 // Action Bar structure, plus source-contract checks for the removed MAIN/MOVE
 // pips, the equal-width action bar, and the Phase 4.1 CSS/DOM hooks. Also
-// pins (E.1) that this rework never touches the Skills Block's EDIT corner
-// position or its quickbar row order.
+// pins (E.1) that this rework never touches the Skills Block's quickbar-editor
+// trigger or its quickbar row order.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -238,28 +238,26 @@ test("10b. clicking Attack when unavailable surfaces the SAME honest ui.basicAtt
   assert.match(html, /ohud-cc-abtn--attack is-disabled/);
 });
 
-/* ── E.1: Skills Block EDIT position must be unaffected ───────────────── */
+/* ── E.1: Skills Block quickbar-editor trigger must be unaffected ────────
+ * Updated for HUD refine 4.0i: the EDIT button was removed and its CSS class
+ * deleted; the open-editor trigger now lives on empty slots / the all-empty
+ * fallback instead. These checks confirm Combat Control's own rework still
+ * doesn't reach into or collide with any of that. */
 
-test("E.1: Skills Block EDIT stays pinned bottom-right (right 8-12px, bottom 7-10px) — Combat Control changes never touched it", () => {
-  const rule = cssRule(layoutCss, ".ohud-qb-edit {");
-  assert.ok(rule, ".ohud-qb-edit rule exists");
-  assert.match(rule, /position:\s*absolute/);
-  const right = Number(/right:\s*(\d+(?:\.\d+)?)px/.exec(rule)[1]);
-  const bottom = Number(/bottom:\s*(\d+(?:\.\d+)?)px/.exec(rule)[1]);
-  assert.ok(right >= 8 && right <= 12, `right offset (${right}) must stay in the agreed 8-12px range`);
-  assert.ok(bottom >= 7 && bottom <= 10, `bottom offset (${bottom}) must stay in the agreed 7-10px range`);
+test("E.1: the old EDIT button's dedicated CSS class stays gone — Combat Control changes never resurrect it", () => {
+  assert.equal(cssRule(layoutCss, ".ohud-qb-edit {"), null, ".ohud-qb-edit rule must not exist");
 });
 
 test("E.1: Skills quickbar row order is unaffected (slots 1-10 top, 11-20 bottom)", () => {
-  const wrapRule = cssRule(layoutCss, ".ohud-qb {");
-  assert.match(wrapRule, /justify-content:\s*flex-start/, "still top-aligned, not touched by this pass");
+  const gridRule = cssRule(layoutCss, ".ohud-qb {");
+  assert.match(gridRule, /justify-content:\s*center/, "vertical alignment per 4.0i, not touched by this Combat Control pass");
 });
 
-test("E.1: EDIT still dispatches only open-quickbar-editor — Combat Control's new markup shares no data-action values with it", () => {
+test("E.1: the quickbar-editor trigger still dispatches only open-quickbar-editor — Combat Control's new markup shares no data-action values with it", () => {
   const skillsHtml = renderSkillBlock({ viewer: { role: "player" }, snapshot: { quickbar: { ok: true, quickActions: [], quickbar: { slots: [], maxSlots: 20, version: 1 } } } });
   assert.match(skillsHtml, /data-action="open-quickbar-editor"/);
   const ccHtml = renderCombatControlBlock(baseState());
-  assert.ok(!ccHtml.includes("open-quickbar-editor"), "Combat Control never references the Skills EDIT action");
+  assert.ok(!ccHtml.includes("open-quickbar-editor"), "Combat Control never references the Skills quickbar-editor action");
 });
 
 setTimeout(() => {

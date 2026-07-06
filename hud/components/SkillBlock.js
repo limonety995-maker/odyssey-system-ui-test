@@ -61,7 +61,8 @@ export function renderSkillBlock(state) {
   if (quickbar && quickbar.ok !== false) {
     const role = String(state?.viewer?.role ?? "").toLowerCase();
     // UX-only edit gate (full ownership enforcement is Phase B0): the module is
-    // only shown for a character the viewer may view, so allow EDIT here.
+    // only shown for a character the viewer may view, so allow opening the
+    // quickbar editor (via an empty slot, Phase 4.0i) here.
     const canEdit = role === "gm" || role === "player";
     return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit }) });
   }

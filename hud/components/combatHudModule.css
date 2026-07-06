@@ -83,11 +83,11 @@
 .ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }
 .ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }
 .ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }
-/* Phase 4.0e: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE —
- * full width (so 10 slots can divide it evenly) and top-aligned (so the grid
- * doesn't float centered in empty space). Scoped narrowly so it never touches
- * the legacy category view above. */
-.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: flex-start; align-items: stretch; }
+/* Phase 4.0e/4.0i: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE
+ * horizontal behaviour — full width (so 10 slots can divide it evenly) — while
+ * still agreeing with the legacy view on vertical centering. Scoped narrowly
+ * so it never touches the legacy category view above. */
+.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: center; align-items: stretch; }
 .ohud-module .ohud-gun { position: relative; }
 
 /* ---------- Combat Control composite (330×165, reworked Phase 4.0f) ---------- */

@@ -1,14 +1,18 @@
-// HUD Abilities — Phase 4.0b/4.0e: quickbar strip render for the Skills module (PURE).
+// HUD Abilities — Phase 4.0b/4.0e, HUD refine 4.0i: quickbar strip render for
+// the Skills module (PURE).
 //
 // Renders the persisted quickbar as slot tiles: slots 0-9 (1-10) fill the TOP
 // row, slots 10-19 (11-20) fill the row BELOW it — matching the Quickbar
 // Editor's fixed row order (Phase 4.0c). Each occupied tile shows icon / short
-// name / type marker / cooldown / ACTIVE / disabled; empty slots are calm but
-// visible. An EDIT button opens the editor, pinned to the block's corner.
+// name / type marker / cooldown / ACTIVE / disabled. There is no separate EDIT
+// control (Phase 4.0i): an empty slot IS the editor trigger — clicking one
+// dispatches the exact same open-quickbar-editor action the old EDIT button
+// used, so there is only ever one editor-opening code path.
 //
 // This is the ONLY place the Skills module learns about abilities, and it only
 // consumes the already-mapped, already-SAFE runtime (hud/abilities/*). Clicking
-// a tile requests a detail tooltip — it NEVER executes or changes Target/Action.
+// a FILLED tile requests a detail tooltip — it NEVER executes or changes
+// Target/Action, and never opens the editor.
 
 import { esc, cls, tipAttr } from "../components/hudDom.js";
 import { skillIconSvg } from "../components/hudIcons.js";
@@ -65,8 +69,15 @@ function occupiedTile(slot, action) {
   </button>`;
 }
 
-function emptyTile(slotIndex) {
-  return `<div class="${cls("ohud-qb-slot", "is-empty")}" data-slot-index="${slotIndex}" aria-hidden="true"></div>`;
+// An empty slot doubles as the open-editor trigger (Phase 4.0i) — same
+// data-action the old EDIT button used, so CombatHudModule.js needs no new
+// command or dispatch case. When editing isn't allowed, it stays an inert,
+// non-interactive placeholder (parity with the old canEdit-gated EDIT button).
+function emptyTile(slotIndex, canEdit) {
+  if (!canEdit) {
+    return `<div class="${cls("ohud-qb-slot", "is-empty")}" data-slot-index="${slotIndex}" aria-hidden="true"></div>`;
+  }
+  return `<button type="button" class="${cls("ohud-qb-slot", "is-empty", "is-editable")}" data-action="open-quickbar-editor" data-slot-index="${slotIndex}" aria-label="Open quickbar editor"${tipAttr("Edit quickbar", ["Assign, reorder or remove actions."])}></button>`;
 }
 
 /**
@@ -96,20 +107,21 @@ export function renderQuickbarStrip(runtime, opts = {}) {
     const tiles = rows.get(r)
       .sort((a, b) => a.slotIndex - b.slotIndex)
       .map((slot) => {
-        if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex);
+        if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
         return occupiedTile(slot, actionById(rt, slot.characterActionId));
       })
       .join("");
     return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;
   }).join("");
 
-  const editBtn = canEdit
-    ? `<button type="button" class="ohud-qb-edit" data-action="open-quickbar-editor" ${tipAttr("Edit quickbar", ["Assign, reorder or remove actions."])}>EDIT</button>`
-    : "";
-
+  // No slots at all (fresh character, no layout saved yet) is itself an
+  // "empty" state — it gets the same open-editor trigger as any empty tile,
+  // rather than a dead-end message.
   const body = slots.length
     ? `<div class="ohud-qb">${rowsHtml}</div>`
-    : `<div class="ohud-qb ohud-qb--empty"><div class="ohud-muted-fill">No quickbar actions</div></div>`;
+    : canEdit
+      ? `<button type="button" class="ohud-qb ohud-qb--empty ohud-qb--empty-clickable" data-action="open-quickbar-editor" aria-label="Open quickbar editor"${tipAttr("Edit quickbar", ["No actions assigned yet — click to add some."])}><div class="ohud-muted-fill">No quickbar actions</div></button>`
+      : `<div class="ohud-qb ohud-qb--empty"><div class="ohud-muted-fill">No quickbar actions</div></div>`;
 
-  return `<div class="ohud-qb-wrap">${body}${editBtn}</div>`;
+  return `<div class="ohud-qb-wrap">${body}</div>`;
 }
