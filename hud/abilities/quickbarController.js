@@ -28,7 +28,7 @@ function shortId(id) {
   return `${s.slice(0, 8)}…${s.slice(-4)}`;
 }
 
-export function setupQuickbarController({ settings, getViewer, getSelectedCharacterId }) {
+export function setupQuickbarController({ settings, getViewer, getSelectedCharacterId, onRuntime }) {
   let disposed = false;
   let lastRuntime = null; // mapped runtime (safe shape)
   let lastCharacterId = null;
@@ -39,7 +39,19 @@ export function setupQuickbarController({ settings, getViewer, getSelectedCharac
   const viewer = () => (typeof getViewer === "function" ? getViewer() : {}) ?? {};
   const selectedCharacterId = () => (typeof getSelectedCharacterId === "function" ? getSelectedCharacterId() : null) ?? null;
 
+  function emitRuntime() {
+    // The scene controller folds this SAFE runtime into snapshot.quickbar so the
+    // Skills block renders the persisted quickbar; the editor iframe gets it via
+    // the BC_HUD_ABILITIES broadcast below.
+    if (typeof onRuntime === "function") {
+      try { onRuntime(lastRuntime); } catch (_e) { /* consumer owns its errors */ }
+    }
+  }
+
   function broadcastAbilities() {
+    // Feed the scene controller (Skills block) AND the editor iframe together so
+    // both always reflect the same runtime after every load/save.
+    emitRuntime();
     try {
       OBR.broadcast.sendMessage(
         BC_HUD_ABILITIES,
