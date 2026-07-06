@@ -10232,7 +10232,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.54";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.55";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
@@ -10334,7 +10334,8 @@ function createInitialState() {
     gridRecoveryPromise: null,
     gridRecoveryKey: "",
     obstructionDebugDone: false,
-    lastVanillaMoveBlockAt: 0
+    lastVanillaMoveBlockAt: 0,
+    pendingUnauthorizedRevertTimers: /* @__PURE__ */ new Map()
   };
 }
 function normalizeMetadataKeys(metadata) {
@@ -11283,6 +11284,47 @@ function setupTacticalMoveTool({ runtime }) {
       addDiagnosticEntry("warn", "Combat movement revert failed", normalized.message);
     }
   }
+  function clearUnauthorizedRevertTimers(tokenId) {
+    const key = String(tokenId ?? "").trim();
+    if (!key) return;
+    const timers = state.pendingUnauthorizedRevertTimers.get(key) ?? [];
+    for (const timerId of timers) {
+      clearTimeout(timerId);
+    }
+    state.pendingUnauthorizedRevertTimers.delete(key);
+  }
+  function scheduleUnauthorizedRevertChecks(tokenId, authoritative, message) {
+    const key = String(tokenId ?? "").trim();
+    if (!key) return;
+    clearUnauthorizedRevertTimers(key);
+    const delays = [120, 360, 900];
+    const timers = delays.map((delayMs) => setTimeout(() => {
+      void (async () => {
+        try {
+          const sceneItems = await getSceneItems();
+          const currentItem = sceneItems.find((item) => String(item?.id ?? "").trim() === key);
+          if (!currentItem?.position) return;
+          const authoritativeScene = {
+            x: Number(authoritative?.scene_x ?? 0) || 0,
+            y: Number(authoritative?.scene_y ?? 0) || 0
+          };
+          if (positionsMatch(currentItem.position, authoritativeScene)) {
+            clearUnauthorizedRevertTimers(key);
+            return;
+          }
+          const marker = extractMovementMarker(currentItem);
+          if (marker && isFreshMarker(marker) && INTERNAL_MOVEMENT_SOURCES.has(marker.source)) {
+            return;
+          }
+          await revertUnauthorizedTokenMove(key, authoritative, message);
+        } catch (error) {
+          const normalized = normalizeError(error, "Unable to verify unauthorized movement revert.");
+          addDiagnosticEntry("warn", "Combat movement revert retry failed", normalized.message);
+        }
+      })();
+    }, delayMs));
+    state.pendingUnauthorizedRevertTimers.set(key, timers);
+  }
   async function applyMoveResultToScene(result, source) {
     const nextPosition = result?.position ?? null;
     const tokenId = String(
@@ -11717,6 +11759,7 @@ function setupTacticalMoveTool({ runtime }) {
         y: Number(authoritative.scene_y ?? 0) || 0
       };
       if (positionsMatch(item.position, authoritativeScene)) {
+        clearUnauthorizedRevertTimers(tokenId);
         continue;
       }
       const marker = extractMovementMarker(item);
@@ -11747,6 +11790,7 @@ function setupTacticalMoveTool({ runtime }) {
         continue;
       }
       await revertUnauthorizedTokenMove(tokenId, authoritative);
+      scheduleUnauthorizedRevertChecks(tokenId, authoritative, "Use combat movement during your turn.");
     }
   }
   async function handleBroadcastMessage(message) {
@@ -11894,6 +11938,12 @@ function setupTacticalMoveTool({ runtime }) {
       if (state.runtimeRefreshTimer) {
         clearTimeout(state.runtimeRefreshTimer);
       }
+      for (const timers of state.pendingUnauthorizedRevertTimers.values()) {
+        for (const timerId of timers) {
+          clearTimeout(timerId);
+        }
+      }
+      state.pendingUnauthorizedRevertTimers.clear();
       await clearPreview({ reason: "dispose", silent: true });
       try {
         await lib_default.tool.removeMode(TACTICAL_MOVE_MODE_ID);
