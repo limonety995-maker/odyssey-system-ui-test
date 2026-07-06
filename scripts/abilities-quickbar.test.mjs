@@ -343,6 +343,15 @@ test("SQL: migration 92 does not touch combat session (90) or perform_attack", (
   assert.ok(!/perform_attack|combat_start_encounter|odyssey_perform_weapon_attack/.test(sql92), "no unrelated combat fixes in 92");
 });
 
+test("SQL: type is a canonical value derived from the definition (not the raw activation_type)", () => {
+  // Regression: the runtime must emit one of attack_technique|directed|instant
+  // (toggle deferred), NOT the raw activation_type ('manual'). attack effect/kind
+  // → attack_technique; a character/body-part target → directed; else instant.
+  assert.ok(!/'type', ad\.activation_type/.test(sql92), "type is not the raw activation_type");
+  assert.ok(sql92.includes("then 'attack_technique'"));
+  assert.ok(sql92.includes("in ('character', 'body_part') then 'directed'"));
+});
+
 test("SQL: alive/conscious come from the combat-state table, skip_turn from the engine helper (real schema)", () => {
   // Regression: alive/conscious are NOT columns on odyssey_characters — they live
   // on odyssey_character_combat_state. A prior version wrongly selected c.is_alive

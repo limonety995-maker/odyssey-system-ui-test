@@ -222,7 +222,14 @@ begin
           'characterActionId', ca.id,
           'definitionId', ca.ability_def_id,
           'sourceType', ad.source_type,
-          'type', ad.activation_type, -- or custom mapping based on ability_kind
+          -- Canonical action type (one of attack_technique|directed|instant|toggle),
+          -- derived from the definition. activation_type ('manual') is NOT the type.
+          -- Toggle has no schema marker yet → deferred to Phase 4.1 (data convention).
+          'type', case
+            when coalesce(ad.effect_mode, '') = 'attack' or ad.ability_kind = 'attack' then 'attack_technique'
+            when coalesce(ad.target_type, 'none') in ('character', 'body_part') then 'directed'
+            else 'instant'
+          end,
           'name', ad.name,
           'shortDescription', substring(ad.description, 1, 100),
           'fullDescription', ad.description,
