@@ -3941,6 +3941,79 @@ var combatHudLayout_default = `/*\r
 .ohud-hud[data-mode="mini"] .ohud-panel--skills { flex: 1 1 100%; min-width: 0; }\r
 .ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }\r
 .ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }\r
+
+/* ===================== Quickbar (Phase 4.0b) ===================== */
+/* Skills-module strip: slot tiles in rows; row 0 (slots 1-10) on the bottom,
+ * higher rows stacked above (second row grows upward). */
+.ohud-qb-wrap { display: flex; flex-direction: column; gap: 3px; height: 100%; min-height: 0; }
+.ohud-qb { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; justify-content: flex-end; }
+.ohud-qb--empty { justify-content: center; }
+.ohud-qb-row { display: flex; gap: 3px; flex-wrap: nowrap; }
+.ohud-qb-slot {
+  position: relative; width: 34px; height: 34px; flex: 0 0 auto;
+  display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);
+  cursor: pointer; overflow: hidden;
+}
+.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.5; background: transparent; }
+.ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
+.ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
+.ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
+.ohud-qb-icon { width: 18px; height: 18px; display: block; }
+.ohud-qb-name {
+  position: absolute; bottom: 0; left: 0; right: 0; font-size: 6px; line-height: 1.1;
+  text-align: center; padding: 0 1px 1px; background: rgba(0,0,0,0.35);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ohud-qb-type { position: absolute; top: 1px; left: 2px; font-size: 5.5px; font-weight: 800; opacity: 0.8; letter-spacing: 0.3px; }
+.ohud-qb-cd { position: absolute; top: 1px; right: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qb-active { position: absolute; top: 1px; right: 2px; font-size: 6px; font-weight: 800; color: var(--odyssey-hud-state-active); }
+.ohud-qb-missing { font-size: 14px; font-weight: 800; }
+.ohud-qb-edit {
+  flex: 0 0 auto; align-self: flex-end; padding: 0 8px; height: 16px;
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;
+  color: var(--odyssey-hud-text); background: transparent;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+
+/* Quickbar editor companion popover. */
+.ohud-qbe { display: flex; flex-direction: column; height: 100%; overflow: hidden; gap: 5px; padding: 6px 8px; }
+.ohud-qbe-head { flex: 0 0 auto; }
+.ohud-qbe-title { font-size: 12px; font-weight: 800; }
+.ohud-qbe-section-label { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }
+.ohud-qbe-library { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; max-height: 110px; overflow-y: auto; padding: 2px; }
+.ohud-qbe-lib-empty, .ohud-qbe-empty { font-size: 10px; color: var(--odyssey-hud-muted); padding: 4px; }
+.ohud-qbe-card {
+  display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 4px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: grab;
+  background: var(--odyssey-hud-panel, rgba(255,255,255,0.05)); max-width: 140px;
+}
+.ohud-qbe-card.is-disabled { opacity: 0.6; }
+.ohud-qbe-card-icon { width: 15px; height: 15px; flex: 0 0 auto; }
+.ohud-qbe-card-name { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ohud-qbe-card-type { font-size: 6.5px; font-weight: 800; opacity: 0.7; }
+.ohud-qbe-card-off { font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qbe-slots { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
+.ohud-qbe-slot-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.ohud-qbe-slot {
+  position: relative; width: 40px; height: 40px; flex: 0 0 auto;
+  display: grid; place-items: center; border: 1px solid var(--odyssey-hud-border);
+  border-radius: 6px; background: var(--odyssey-hud-panel, rgba(255,255,255,0.04));
+}
+.ohud-qbe-slot.is-empty { border-style: dashed; opacity: 0.6; }
+.ohud-qbe-slot.is-filled { cursor: grab; }
+.ohud-qbe-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
+.ohud-qbe-slot-idx { position: absolute; top: 1px; left: 2px; font-size: 6.5px; font-weight: 800; opacity: 0.6; }
+.ohud-qbe-slot-icon { width: 18px; height: 18px; }
+.ohud-qbe-slot-name { position: absolute; bottom: 0; left: 0; right: 0; font-size: 6px; text-align: center; background: rgba(0,0,0,0.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 1px; }
+.ohud-qbe-remove { position: absolute; top: -4px; right: -4px; width: 14px; height: 14px; font-size: 10px; line-height: 1; border-radius: 50%; border: none; background: var(--odyssey-hud-danger, #a33); color: #fff; cursor: pointer; padding: 0; }
+.ohud-qbe-conflict { font-size: 10px; color: #2a1c00; background: var(--odyssey-hud-warning); border-radius: 6px; padding: 4px 6px; display: flex; align-items: center; gap: 6px; }
+.ohud-qbe-reload { font-size: 9px; font-weight: 800; border: 1px solid rgba(0,0,0,0.3); background: transparent; border-radius: 5px; padding: 1px 5px; cursor: pointer; }
+.ohud-qbe-actions { flex: 0 0 auto; display: flex; gap: 6px; }
+.ohud-qbe-btn { flex: 1 1 auto; padding: 4px 8px; font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer; }
+.ohud-qbe-btn.is-primary { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }
+.ohud-qbe-btn[disabled] { opacity: 0.5; cursor: default; }
 `;
 
 // hud/components/combatHudModule.css
@@ -5181,6 +5254,8 @@ var BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
 var BC_HUD_COMMAND = "com.odyssey.combat-hud/command";
 var BC_HUD_SESSION = "com.odyssey.combat-hud/session-state";
 var BC_HUD_SESSION_REQUEST = "com.odyssey.combat-hud/session-state-request";
+var BC_HUD_ABILITIES = "com.odyssey.combat-hud/abilities-runtime";
+var BC_HUD_ABILITIES_REQUEST = "com.odyssey.combat-hud/abilities-runtime-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -5887,6 +5962,253 @@ function renderAmmoCard(weapon, mag, isEmpty, canReload, reloadMag, reloadBlockR
   </div>`;
 }
 
+// hud/abilities/quickbarLayoutPolicy.js
+var DEFAULT_MAX_SLOTS = 20;
+var FIRST_ROW_SIZE = 10;
+function num(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function str(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+function emptySlot(slotIndex) {
+  return { slotIndex, characterActionId: null, empty: true, missing: false };
+}
+function buildDraft(serverSlots, actionIdSet, maxSlots = DEFAULT_MAX_SLOTS) {
+  const size = Math.max(1, num(maxSlots, DEFAULT_MAX_SLOTS));
+  const draft = Array.from({ length: size }, (_, i) => emptySlot(i));
+  const seen = /* @__PURE__ */ new Set();
+  for (const raw of Array.isArray(serverSlots) ? serverSlots : []) {
+    const idx = num(raw?.slotIndex ?? raw?.index, -1);
+    if (idx < 0 || idx >= size) continue;
+    const actionId = str(raw?.characterActionId ?? raw?.actionId);
+    if (!actionId) continue;
+    if (seen.has(actionId)) continue;
+    seen.add(actionId);
+    draft[idx] = {
+      slotIndex: idx,
+      characterActionId: actionId,
+      empty: false,
+      missing: !actionIdSet.has(actionId)
+    };
+  }
+  return draft;
+}
+function slotIndexOfAction(draft, actionId) {
+  return draft.findIndex((s) => s && s.characterActionId === actionId);
+}
+function assignActionToSlot(draft, actionId, targetIndex, actionIdSet) {
+  const id = str(actionId);
+  const tIdx = num(targetIndex, -1);
+  if (!id || tIdx < 0 || tIdx >= draft.length) return draft.slice();
+  const next = draft.map((s) => ({ ...s }));
+  const fromIdx = slotIndexOfAction(next, id);
+  const displaced = next[tIdx].characterActionId;
+  next[tIdx] = {
+    slotIndex: tIdx,
+    characterActionId: id,
+    empty: false,
+    missing: actionIdSet ? !actionIdSet.has(id) : false
+  };
+  if (fromIdx >= 0 && fromIdx !== tIdx) {
+    if (displaced) {
+      next[fromIdx] = {
+        slotIndex: fromIdx,
+        characterActionId: displaced,
+        empty: false,
+        missing: actionIdSet ? !actionIdSet.has(displaced) : false
+      };
+    } else {
+      next[fromIdx] = emptySlot(fromIdx);
+    }
+  }
+  return next;
+}
+function moveSlot(draft, fromIndex, toIndex) {
+  const f = num(fromIndex, -1);
+  const t = num(toIndex, -1);
+  if (f < 0 || t < 0 || f >= draft.length || t >= draft.length || f === t) return draft.slice();
+  const next = draft.map((s) => ({ ...s }));
+  const a = { ...next[f] };
+  const b = { ...next[t] };
+  next[t] = { ...a, slotIndex: t };
+  next[f] = { ...b, slotIndex: f };
+  return next;
+}
+function removeSlot(draft, slotIndex) {
+  const idx = num(slotIndex, -1);
+  if (idx < 0 || idx >= draft.length) return draft.slice();
+  const next = draft.map((s) => ({ ...s }));
+  next[idx] = emptySlot(idx);
+  return next;
+}
+function unassignedActions(quickActions, draft) {
+  const placed = new Set(
+    (Array.isArray(draft) ? draft : []).map((s) => s?.characterActionId).filter(Boolean)
+  );
+  return (Array.isArray(quickActions) ? quickActions : []).filter(
+    (a) => a?.characterActionId && !placed.has(a.characterActionId)
+  );
+}
+function draftToSavePayload(draft) {
+  return (Array.isArray(draft) ? draft : []).map((s) => {
+    const idx = num(s?.slotIndex, 0);
+    const actionId = s?.missing ? null : str(s?.characterActionId);
+    return { slotIndex: idx, characterActionId: actionId };
+  }).sort((a, b) => a.slotIndex - b.slotIndex);
+}
+function rowOfSlot(slotIndex, firstRowSize = FIRST_ROW_SIZE) {
+  const idx = num(slotIndex, 0);
+  const size = Math.max(1, num(firstRowSize, FIRST_ROW_SIZE));
+  return Math.floor(idx / size);
+}
+function isDraftDirty(draft, originalDraft) {
+  const a = draftToSavePayload(draft);
+  const b = draftToSavePayload(originalDraft);
+  if (a.length !== b.length) return true;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].slotIndex !== b[i].slotIndex) return true;
+    if (a[i].characterActionId !== b[i].characterActionId) return true;
+  }
+  return false;
+}
+
+// hud/abilities/AbilityTooltip.js
+var TYPE_LABEL = {
+  attack_technique: "Attack technique",
+  directed: "Directed action",
+  instant: "Instant action",
+  toggle: "Toggle"
+};
+var TARGET_LABEL = {
+  self: "Self",
+  character: "One character",
+  character_body_zone: "One character (body zone)",
+  body_part: "One character (body zone)",
+  multiple_characters: "Multiple characters",
+  point: "Point on map",
+  area: "Area",
+  none: "No target"
+};
+function costText(costs) {
+  const c = costs ?? {};
+  const parts = [];
+  if (Number(c.main) > 0) parts.push(`MAIN\xD7${c.main}`);
+  if (Number(c.move) > 0) parts.push(`MOVE\xD7${c.move}`);
+  if (parts.length === 0) parts.push("No action cost");
+  return parts.join(" \xB7 ");
+}
+function resourceText(costs) {
+  const c = costs ?? {};
+  const parts = [];
+  if (Number(c.psi) > 0) parts.push(`PSI ${c.psi}`);
+  if (Number(c.charges) > 0) parts.push(`Charges ${c.charges}`);
+  return parts.join(" \xB7 ");
+}
+function abilityTooltipModel(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const costs = a.costs ?? {};
+  const cooldown = a.cooldown ?? {};
+  const targeting = a.targeting ?? {};
+  const requirements = a.requirements ?? {};
+  const state = a.state ?? {};
+  const lines = [];
+  const typeLabel = TYPE_LABEL[a.type] ?? "Action";
+  lines.push({ label: "Type", value: typeLabel });
+  if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+  lines.push({ label: "Cost", value: costText(costs) });
+  const res = resourceText(costs);
+  if (res) lines.push({ label: "Resource", value: res });
+  if (Number(cooldown.max) > 0) {
+    const cur = Number(cooldown.current) || 0;
+    lines.push({
+      label: "Cooldown",
+      value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
+    });
+  }
+  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014") });
+  const reqParts = [];
+  if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
+  if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
+  if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
+  if (state.available === false && state.disabledReason) {
+    lines.push({ label: "Unavailable", value: String(state.disabledReason) });
+  } else if (state.active === true) {
+    lines.push({ label: "Status", value: "Active" });
+  }
+  return { title: String(a.name ?? "Action"), type: typeLabel, lines };
+}
+function abilityTooltipLines(action) {
+  const model = abilityTooltipModel(action);
+  return model.lines.map((l) => `${l.label}: ${l.value}`);
+}
+
+// hud/abilities/QuickbarView.js
+var SEMANTIC_ACCENT = {
+  attack: "attack",
+  psi: "psionic",
+  tech: "implant",
+  utility: "neutral",
+  intervention: "intervention"
+};
+var TYPE_MARK = {
+  attack_technique: "ATK",
+  directed: "DIR",
+  instant: "INS",
+  toggle: "TGL"
+};
+function actionById(runtime, id) {
+  if (!id) return null;
+  return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
+}
+function occupiedTile(slot, action) {
+  if (!action) {
+    return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
+      <span class="ohud-qb-missing">?</span>
+    </button>`;
+  }
+  const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
+  const disabled = action.state?.available === false;
+  const active = action.state?.active === true;
+  const cd = Number(action.cooldown?.current) || 0;
+  const mark = TYPE_MARK[action.type] ?? "";
+  const tip = tipAttr(action.name, abilityTooltipLines(action));
+  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "")}" data-action="show-ability-detail" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}"${tip}>
+    <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
+    <span class="ohud-qb-name">${esc(action.name)}</span>
+    ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
+    ${cd > 0 ? `<span class="ohud-qb-cd">${cd}</span>` : ""}
+    ${active ? `<span class="ohud-qb-active">ON</span>` : ""}
+  </button>`;
+}
+function emptyTile(slotIndex) {
+  return `<div class="${cls("ohud-qb-slot", "is-empty")}" data-slot-index="${slotIndex}" aria-hidden="true"></div>`;
+}
+function renderQuickbarStrip(runtime, opts = {}) {
+  const rt = runtime && typeof runtime === "object" ? runtime : { quickActions: [], quickbar: { slots: [], maxSlots: FIRST_ROW_SIZE } };
+  const slots = Array.isArray(rt.quickbar?.slots) ? rt.quickbar.slots : [];
+  const canEdit = opts.canEdit !== false;
+  const rows = /* @__PURE__ */ new Map();
+  for (const slot of slots) {
+    const r = rowOfSlot(slot.slotIndex);
+    if (!rows.has(r)) rows.set(r, []);
+    rows.get(r).push(slot);
+  }
+  const rowKeys = [...rows.keys()].sort((a, b) => b - a);
+  const rowsHtml = rowKeys.map((r) => {
+    const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
+      if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex);
+      return occupiedTile(slot, actionById(rt, slot.characterActionId));
+    }).join("");
+    return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;
+  }).join("");
+  const editBtn = canEdit ? `<button type="button" class="ohud-qb-edit" data-action="open-quickbar-editor" ${tipAttr("Edit quickbar", ["Assign, reorder or remove actions."])}>EDIT</button>` : "";
+  const body = slots.length ? `<div class="ohud-qb">${rowsHtml}</div>` : `<div class="ohud-qb ohud-qb--empty"><div class="ohud-muted-fill">No quickbar actions</div></div>`;
+  return `<div class="ohud-qb-wrap">${body}${editBtn}</div>`;
+}
+
 // hud/components/SkillBlock.js
 var COST_ABBR = { FREE: "F", MOVE: "Mv", MAIN: "M", TURN: "T" };
 var CATEGORY_ORDER = [
@@ -5920,6 +6242,12 @@ function skillTile(skill2, selectedId) {
   </button>`;
 }
 function renderSkillBlock(state) {
+  const quickbar = state?.snapshot?.quickbar ?? null;
+  if (quickbar && quickbar.ok !== false) {
+    const role = String(state?.viewer?.role ?? "").toLowerCase();
+    const canEdit = role === "gm" || role === "player";
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit }) });
+  }
   const slots = selectQuickSlots(state);
   const selectedId = selectSelectedSkill(state)?.id ?? null;
   const skills = slots.map((slot) => selectSkillById(state, slot.skillId)).filter(Boolean);
@@ -6848,6 +7176,12 @@ function mountCombatHudModule(options) {
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
         break;
+      case "open-quickbar-editor":
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "quickbar", type: "open-editor" });
+        break;
+      case "show-ability-detail":
+        if (!t.classList.contains("is-disabled")) showToast("Ability details \u2014 execution arrives in Phase 4.1");
+        break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "end-turn" });
@@ -7337,6 +7671,97 @@ function renderGmCombatTracker({ session, candidates, viewerRole, busy = false }
   </section>`;
 }
 
+// hud/abilities/QuickbarEditorPanel.js
+var SEMANTIC_ACCENT2 = {
+  attack: "attack",
+  psi: "psionic",
+  tech: "implant",
+  utility: "neutral",
+  intervention: "intervention"
+};
+var TYPE_MARK2 = { attack_technique: "ATK", directed: "DIR", instant: "INS", toggle: "TGL" };
+function actionById2(runtime, id) {
+  if (!id) return null;
+  return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
+}
+function libraryCard(action) {
+  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const disabled = action.state?.available === false;
+  const mark = TYPE_MARK2[action.type] ?? "";
+  const tip = tipAttr(action.name, abilityTooltipLines(action));
+  return `<div class="${cls("ohud-qbe-card", `ohud-accent--${accent}`, disabled ? "is-disabled" : "")}" draggable="true" data-qbe-action="${esc(action.characterActionId)}"${tip}>
+    <span class="ohud-qbe-card-icon">${skillIconSvg(action.iconKey)}</span>
+    <span class="ohud-qbe-card-name">${esc(action.name)}</span>
+    ${mark ? `<span class="ohud-qbe-card-type">${esc(mark)}</span>` : ""}
+    ${disabled ? `<span class="ohud-qbe-card-off" ${tipAttr("Currently unavailable", [String(action.state.disabledReason ?? "")])}>!</span>` : ""}
+  </div>`;
+}
+function editorSlot(slot, action) {
+  const idx = slot.slotIndex;
+  if (slot.empty || slot.characterActionId == null) {
+    return `<div class="${cls("ohud-qbe-slot", "is-empty")}" data-qbe-slot="${idx}">
+      <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+    </div>`;
+  }
+  if (slot.missing || !action) {
+    return `<div class="${cls("ohud-qbe-slot", "is-missing")}" data-qbe-slot="${idx}" ${tipAttr("Missing action", ["No longer available \u2014 remove it."])}>
+      <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+      <span class="ohud-qbe-missing">?</span>
+      <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
+    </div>`;
+  }
+  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const tip = tipAttr(action.name, abilityTooltipLines(action));
+  return `<div class="${cls("ohud-qbe-slot", "is-filled", `ohud-accent--${accent}`)}" draggable="true" data-qbe-slot="${idx}" data-qbe-action="${esc(action.characterActionId)}"${tip}>
+    <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+    <span class="ohud-qbe-slot-icon">${skillIconSvg(action.iconKey)}</span>
+    <span class="ohud-qbe-slot-name">${esc(action.name)}</span>
+    <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
+  </div>`;
+}
+function renderQuickbarEditor(args = {}) {
+  const runtime = args.runtime && typeof args.runtime === "object" ? args.runtime : null;
+  const draft = Array.isArray(args.draft) ? args.draft : [];
+  const library = Array.isArray(args.library) ? args.library : [];
+  const busy = !!args.busy;
+  const dirty = !!args.dirty;
+  const conflict = !!args.conflict;
+  const name = String(args.characterName ?? "Character");
+  if (!runtime) {
+    return `<div class="ohud-qbe"><div class="ohud-qbe-empty">Loading quickbar\u2026</div></div>`;
+  }
+  const conflictBar = conflict ? `<div class="ohud-qbe-conflict" role="alert">
+        Layout changed on the server. Your edits were not saved.
+        <button type="button" class="ohud-qbe-reload" data-action="qbe-reload">Reload layout</button>
+      </div>` : "";
+  const libraryHtml = library.length ? library.map(libraryCard).join("") : `<div class="ohud-qbe-lib-empty">All actions are placed.</div>`;
+  const rows = /* @__PURE__ */ new Map();
+  for (const slot of draft) {
+    const r = rowOfSlot(slot.slotIndex);
+    if (!rows.has(r)) rows.set(r, []);
+    rows.get(r).push(slot);
+  }
+  const slotsHtml = [...rows.keys()].sort((a, b) => b - a).map((r) => {
+    const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => editorSlot(slot, actionById2(runtime, slot.characterActionId))).join("");
+    return `<div class="ohud-qbe-slot-row" data-row="${r}">${tiles}</div>`;
+  }).join("");
+  const saveDisabled = busy || !dirty;
+  return `<div class="${cls("ohud-qbe", busy ? "is-busy" : "")}">
+    <div class="ohud-qbe-head">
+      <span class="ohud-qbe-title">Quickbar \u2014 ${esc(name)}</span>
+    </div>
+    ${conflictBar}
+    <div class="ohud-qbe-section-label">Available actions</div>
+    <div class="ohud-qbe-library" data-qbe-library>${libraryHtml}</div>
+    <div class="ohud-qbe-section-label">Quickbar slots</div>
+    <div class="ohud-qbe-slots">${slotsHtml}</div>
+    <div class="ohud-qbe-actions">
+      <button type="button" class="ohud-qbe-btn is-primary" data-action="qbe-save" ${saveDisabled ? "disabled" : ""}>Save</button>
+      <button type="button" class="ohud-qbe-btn" data-action="qbe-cancel" ${busy ? "disabled" : ""}>Cancel</button>
+    </div>
+  </div>`;
+}
+
 // hud/overlay/combatHudOverlayPage.js
 var COMPANION_DEBUG = (() => {
   try {
@@ -7567,6 +7992,143 @@ function start() {
       }
     }
     renderTracker();
+    return;
+  }
+  if (moduleParam === "quickbar-editor") {
+    let actionIdSet = function() {
+      return new Set((runtime?.quickActions ?? []).map((a) => a.characterActionId).filter(Boolean));
+    }, rebuildDraftFromRuntime = function() {
+      const ids = actionIdSet();
+      const maxSlots = runtime?.quickbar?.maxSlots ?? 20;
+      draft = buildDraft(runtime?.quickbar?.slots ?? [], ids, maxSlots);
+      originalDraft = draft.map((s) => ({ ...s }));
+      baseVersion = runtime?.quickbar?.version ?? null;
+    }, renderEditor = function() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-module";
+      host.setAttribute("data-module", "quickbar-editor");
+      const library = runtime ? unassignedActions(runtime.quickActions, draft) : [];
+      host.innerHTML = renderQuickbarEditor({
+        runtime,
+        draft,
+        library,
+        characterName: runtime?.characterName ?? "",
+        busy,
+        dirty: isDraftDirty(draft, originalDraft),
+        conflict
+      });
+      root.appendChild(host);
+      wireDragAndDrop();
+    }, notifyDraftChanged = function() {
+      const occupied = draft.filter((s) => s.characterActionId && !s.empty).length;
+      send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "draft-changed", occupiedSlots: occupied });
+    }, wireDragAndDrop = function() {
+      const ids = actionIdSet();
+      root.querySelectorAll("[draggable='true']").forEach((el) => {
+        el.addEventListener("dragstart", (e) => {
+          const actionId = el.getAttribute("data-qbe-action");
+          const fromSlot = el.getAttribute("data-qbe-slot");
+          const payload = JSON.stringify({ actionId: actionId ?? null, fromSlot: fromSlot != null ? Number(fromSlot) : null });
+          try {
+            e.dataTransfer.setData("text/plain", payload);
+            e.dataTransfer.effectAllowed = "move";
+          } catch (_e) {
+          }
+        });
+      });
+      root.querySelectorAll("[data-qbe-slot]").forEach((slotEl) => {
+        slotEl.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          try {
+            e.dataTransfer.dropEffect = "move";
+          } catch (_e) {
+          }
+        });
+        slotEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const targetIdx = Number(slotEl.getAttribute("data-qbe-slot"));
+          let data = {};
+          try {
+            data = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
+          } catch (_e) {
+            data = {};
+          }
+          if (data.fromSlot != null && !Number.isNaN(data.fromSlot)) {
+            draft = moveSlot(draft, data.fromSlot, targetIdx);
+          } else if (data.actionId) {
+            draft = assignActionToSlot(draft, data.actionId, targetIdx, ids);
+          } else {
+            return;
+          }
+          notifyDraftChanged();
+          renderEditor();
+        });
+      });
+    };
+    let runtime = null;
+    let draft = [];
+    let originalDraft = [];
+    let baseVersion = null;
+    let busy = false;
+    let conflict = false;
+    root.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("[data-qbe-remove]");
+      if (removeBtn && !busy) {
+        draft = removeSlot(draft, Number(removeBtn.getAttribute("data-qbe-remove")));
+        notifyDraftChanged();
+        renderEditor();
+        return;
+      }
+      const target = e.target.closest("[data-action]");
+      if (!target || busy) return;
+      const action = target.getAttribute("data-action");
+      if (action === "qbe-save") {
+        busy = true;
+        renderEditor();
+        send(BC_HUD_COMMAND, {
+          scope: "combat-hud",
+          feature: "quickbar",
+          type: "save-layout",
+          expectedVersion: baseVersion,
+          slots: draftToSavePayload(draft)
+        });
+      } else if (action === "qbe-cancel") {
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "close-editor" });
+      } else if (action === "qbe-reload") {
+        conflict = false;
+        rebuildDraftFromRuntime();
+        renderEditor();
+      }
+    });
+    if (available) {
+      try {
+        lib_default.broadcast.onMessage(BC_HUD_ABILITIES, (event) => {
+          const nextRuntime = event?.data?.runtime ?? null;
+          const nextVersion = nextRuntime?.quickbar?.version ?? null;
+          const wasBusy = busy;
+          busy = false;
+          if (!runtime) {
+            runtime = nextRuntime;
+            rebuildDraftFromRuntime();
+          } else if (wasBusy) {
+            runtime = nextRuntime;
+            conflict = false;
+            rebuildDraftFromRuntime();
+          } else if (nextVersion != null && baseVersion != null && nextVersion !== baseVersion) {
+            runtime = nextRuntime;
+            conflict = true;
+          } else {
+            runtime = nextRuntime;
+          }
+          renderEditor();
+        });
+        send(BC_HUD_ABILITIES_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "editor-opened" });
+      } catch (_e) {
+      }
+    }
+    renderEditor();
     return;
   }
   mountCombatHudLayoutEditor({ root, uiState, layout: readStoredLayout(window.localStorage), integration: {} });

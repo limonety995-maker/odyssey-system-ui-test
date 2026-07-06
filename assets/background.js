@@ -4208,6 +4208,8 @@ var BC_HUD_TARGETING_REQUEST = "com.odyssey.combat-hud/targeting-request";
 var BC_HUD_TARGETING_COMMAND = "com.odyssey.combat-hud/targeting-command";
 var BC_HUD_SESSION = "com.odyssey.combat-hud/session-state";
 var BC_HUD_SESSION_REQUEST = "com.odyssey.combat-hud/session-state-request";
+var BC_HUD_ABILITIES = "com.odyssey.combat-hud/abilities-runtime";
+var BC_HUD_ABILITIES_REQUEST = "com.odyssey.combat-hud/abilities-runtime-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -6504,6 +6506,400 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   };
 }
 
+// hud/abilities/abilityRuntimeMapper.js
+var QUICK_ACTION_TYPES = Object.freeze({
+  attackTechnique: "attack_technique",
+  directed: "directed",
+  instant: "instant",
+  toggle: "toggle"
+});
+var QUICK_ACTION_SOURCES = Object.freeze({
+  perk: "perk",
+  psi: "psi",
+  implant: "implant",
+  item: "item",
+  technique: "technique"
+});
+var SEMANTIC_KINDS = Object.freeze({
+  attack: "attack",
+  psi: "psi",
+  tech: "tech",
+  utility: "utility",
+  intervention: "intervention"
+});
+var FIELD_SENTINELS = Object.freeze({
+  notConfigured: "not configured",
+  notImplemented: "not implemented",
+  notReturned: "not returned by server"
+});
+var VALID_TYPES = new Set(Object.values(QUICK_ACTION_TYPES));
+var VALID_SOURCES = new Set(Object.values(QUICK_ACTION_SOURCES));
+var VALID_SEMANTIC = new Set(Object.values(SEMANTIC_KINDS));
+function str(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+function num2(v, fallback = null) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function bool(v, fallback = false) {
+  return v === null || v === void 0 ? fallback : Boolean(v);
+}
+function normalizeType(raw) {
+  const v = String(raw?.type ?? "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (VALID_TYPES.has(v)) return v;
+  const kind = String(raw?.semanticKind ?? raw?.ability_kind ?? "").toLowerCase();
+  if (kind === "attack") return QUICK_ACTION_TYPES.attackTechnique;
+  return QUICK_ACTION_TYPES.instant;
+}
+function normalizeSource(raw) {
+  const v = String(raw?.sourceType ?? raw?.source_type ?? "").toLowerCase();
+  if (VALID_SOURCES.has(v)) return v;
+  const aliases = {
+    psionic: QUICK_ACTION_SOURCES.psi,
+    prosthetic: QUICK_ACTION_SOURCES.implant,
+    equipment: QUICK_ACTION_SOURCES.item,
+    innate: QUICK_ACTION_SOURCES.perk,
+    custom: QUICK_ACTION_SOURCES.technique
+  };
+  return aliases[v] ?? QUICK_ACTION_SOURCES.technique;
+}
+function normalizeSemantic(raw) {
+  const v = String(raw?.semanticKind ?? raw?.ability_kind ?? "").toLowerCase();
+  if (VALID_SEMANTIC.has(v)) return v;
+  const aliases = {
+    buff: SEMANTIC_KINDS.utility,
+    defense: SEMANTIC_KINDS.intervention,
+    narrative: SEMANTIC_KINDS.utility
+  };
+  return aliases[v] ?? SEMANTIC_KINDS.utility;
+}
+function mapTargeting(raw) {
+  const t = raw?.targeting && typeof raw.targeting === "object" ? raw.targeting : {};
+  return {
+    mode: str(t.mode) ?? "none",
+    minTargets: num2(t.minTargets, 0),
+    maxTargets: num2(t.maxTargets, 0),
+    allowAllies: bool(t.allowAllies, false),
+    allowSelf: bool(t.allowSelf, false),
+    requiresBodyZone: bool(t.requiresBodyZone, false)
+  };
+}
+function mapCosts(raw) {
+  const c = raw?.costs && typeof raw.costs === "object" ? raw.costs : {};
+  return {
+    main: num2(c.main, 0),
+    move: num2(c.move, 0),
+    psi: num2(c.psi, 0),
+    charges: num2(c.charges, 0)
+  };
+}
+function mapCooldown(raw) {
+  const cd = raw?.cooldown && typeof raw.cooldown === "object" ? raw.cooldown : {};
+  const current2 = num2(cd.current, 0);
+  const max = num2(cd.max, 0);
+  return {
+    current: current2,
+    max,
+    unit: str(cd.unit) ?? "turn",
+    active: current2 > 0
+  };
+}
+function mapState(raw) {
+  const s = raw?.state && typeof raw.state === "object" ? raw.state : {};
+  const available = bool(s.available, false);
+  const serverReason = str(s.disabledReason);
+  return {
+    available,
+    active: bool(s.active, false),
+    // If unavailable but the server gave no reason, use a neutral fallback —
+    // never invent a specific cause (e.g. do not claim "cooldown" ourselves).
+    disabledReason: serverReason ?? (available ? null : "Not available"),
+    selectable: bool(s.selectable, available)
+  };
+}
+function mapRequirements(raw) {
+  const r = raw?.requirements && typeof raw.requirements === "object" ? raw.requirements : {};
+  return {
+    weaponClass: str(r.weaponClass),
+    weaponId: str(r.weaponId),
+    conditionSummary: str(r.conditionSummary)
+  };
+}
+function mapQuickAction(raw) {
+  const q = raw && typeof raw === "object" ? raw : {};
+  return {
+    characterActionId: str(q.characterActionId) ?? str(q.character_action_id) ?? null,
+    definitionId: str(q.definitionId) ?? str(q.definition_id) ?? null,
+    sourceType: normalizeSource(q),
+    type: normalizeType(q),
+    name: str(q.name) ?? "Unknown action",
+    shortDescription: str(q.shortDescription) ?? str(q.short_description) ?? "",
+    fullDescription: str(q.fullDescription) ?? str(q.full_description) ?? "",
+    iconKey: str(q.iconKey) ?? str(q.icon_key) ?? "bolt",
+    semanticKind: normalizeSemantic(q),
+    targeting: mapTargeting(q),
+    costs: mapCosts(q),
+    cooldown: mapCooldown(q),
+    state: mapState(q),
+    requirements: mapRequirements(q)
+  };
+}
+function mapSlots(rawSlots, actionIdSet) {
+  const slots = Array.isArray(rawSlots) ? rawSlots : [];
+  return slots.map((s) => {
+    const actionId = str(s?.characterActionId) ?? str(s?.character_action_id) ?? str(s?.actionId) ?? null;
+    const empty = actionId == null;
+    return {
+      slotIndex: num2(s?.slotIndex ?? s?.slot_index ?? s?.index, 0),
+      characterActionId: actionId,
+      empty,
+      // A non-empty slot whose action isn't in the current library is a
+      // "missing" slot: shown to the user, removable, never silently dropped.
+      missing: !empty && !actionIdSet.has(actionId)
+    };
+  }).sort((a, b) => a.slotIndex - b.slotIndex);
+}
+function mapQuickActionsRuntime(runtime) {
+  const r = runtime && typeof runtime === "object" ? runtime : null;
+  if (!r) {
+    return {
+      ok: false,
+      error: "NO_RUNTIME",
+      characterId: null,
+      quickActions: [],
+      quickbar: { slots: [], maxSlots: 20, version: 1 }
+    };
+  }
+  const rawActions = Array.isArray(r.quickActions) ? r.quickActions : [];
+  const quickActions = rawActions.map(mapQuickAction);
+  const actionIdSet = new Set(quickActions.map((a) => a.characterActionId).filter(Boolean));
+  const rawQuickbar = r.quickbar && typeof r.quickbar === "object" ? r.quickbar : {};
+  const slots = mapSlots(rawQuickbar.slots, actionIdSet);
+  return {
+    ok: r.ok !== false,
+    error: str(r.error),
+    characterId: str(r.characterId) ?? str(r.character_id) ?? null,
+    quickActions,
+    quickbar: {
+      slots,
+      maxSlots: num2(rawQuickbar.maxSlots ?? rawQuickbar.max_slots, 20),
+      version: num2(rawQuickbar.version, 1)
+    }
+  };
+}
+
+// hud/abilities/quickbarLayoutPolicy.js
+function num3(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function str2(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+function buildSlotPayload(slots) {
+  if (!Array.isArray(slots)) return [];
+  return slots.filter((s) => s != null).map((s) => ({
+    slotIndex: num3(s?.slotIndex ?? s?.index, 0),
+    characterActionId: str2(s?.characterActionId ?? s?.actionId)
+  })).sort((a, b) => a.slotIndex - b.slotIndex);
+}
+
+// hud/abilities/abilityApi.js
+function fetchQuickActionsRuntime(characterId, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.getQuickActionsRuntime,
+    { p_character_id: characterId ?? "" },
+    settings
+  );
+}
+function saveQuickbarLayout(characterId, expectedVersion, slots, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.saveQuickbarLayout,
+    {
+      p_character_id: characterId ?? "",
+      p_expected_version: Number.isFinite(Number(expectedVersion)) ? Number(expectedVersion) : null,
+      p_slots: Array.isArray(slots) ? slots : []
+    },
+    settings
+  );
+}
+
+// hud/abilities/quickbarController.js
+function shortId(id) {
+  const s = String(id ?? "");
+  if (s.length <= 12) return s || null;
+  return `${s.slice(0, 8)}\u2026${s.slice(-4)}`;
+}
+function setupQuickbarController({ settings, getViewer, getSelectedCharacterId, onRuntime }) {
+  let disposed = false;
+  let lastRuntime = null;
+  let lastCharacterId = null;
+  let mutationInFlight = false;
+  const cleanups3 = [];
+  const viewer = () => (typeof getViewer === "function" ? getViewer() : {}) ?? {};
+  const selectedCharacterId = () => (typeof getSelectedCharacterId === "function" ? getSelectedCharacterId() : null) ?? null;
+  function emitRuntime() {
+    if (typeof onRuntime === "function") {
+      try {
+        onRuntime(lastRuntime);
+      } catch (_e) {
+      }
+    }
+  }
+  function broadcastAbilities() {
+    emitRuntime();
+    try {
+      lib_default.broadcast.sendMessage(
+        BC_HUD_ABILITIES,
+        {
+          characterId: lastCharacterId,
+          runtime: lastRuntime
+          // already SAFE (mapper-whitelisted)
+        },
+        { destination: "LOCAL" }
+      );
+    } catch (_e) {
+    }
+  }
+  async function loadRuntime(characterId, origin) {
+    const cid = String(characterId ?? "") || null;
+    lastCharacterId = cid;
+    if (!cid) {
+      lastRuntime = null;
+      broadcastAbilities();
+      return null;
+    }
+    logDebugEvent("abilities", "runtime-requested", { character: shortId(cid), origin });
+    try {
+      const raw = await fetchQuickActionsRuntime(cid, settings);
+      if (disposed) return null;
+      const mapped = mapQuickActionsRuntime(raw);
+      lastRuntime = mapped;
+      logDebugEvent(
+        "abilities",
+        "runtime-loaded",
+        {
+          character: shortId(cid),
+          actionCount: mapped.quickActions.length,
+          slotCount: mapped.quickbar.slots.length,
+          version: mapped.quickbar.version
+        },
+        mapped.ok !== false
+      );
+      broadcastAbilities();
+      return mapped;
+    } catch (error) {
+      if (disposed) return null;
+      lastRuntime = null;
+      logDebugEvent("abilities", "runtime-loaded", { character: shortId(cid), message: String(error?.message ?? error) }, false);
+      broadcastAbilities();
+      return null;
+    }
+  }
+  function onSelectionChanged(characterId) {
+    const cid = String(characterId ?? "") || null;
+    if (cid === lastCharacterId) return;
+    void loadRuntime(cid, "selection-changed");
+  }
+  async function handleSaveLayout(data) {
+    if (mutationInFlight) return;
+    const cid = lastCharacterId ?? selectedCharacterId();
+    if (!cid) return;
+    const expectedVersion = Number.isFinite(Number(data?.expectedVersion)) ? Number(data.expectedVersion) : null;
+    const slots = buildSlotPayload(Array.isArray(data?.slots) ? data.slots : []);
+    mutationInFlight = true;
+    logDebugEvent("quickbar", "save-requested", {
+      character: shortId(cid),
+      slotIndexes: slots.filter((s) => s.characterActionId).map((s) => s.slotIndex),
+      versionBefore: expectedVersion
+    });
+    try {
+      const result = await saveQuickbarLayout(cid, expectedVersion, slots, settings);
+      const ok = result?.ok !== false;
+      if (result?.error === "QUICKBAR_VERSION_CONFLICT") {
+        logDebugEvent("quickbar", "version-conflict", {
+          character: shortId(cid),
+          versionBefore: expectedVersion,
+          serverVersion: result?.server_version ?? null
+        }, false);
+        await loadRuntime(cid, "version-conflict");
+        return;
+      }
+      logDebugEvent("quickbar", "save-result", {
+        character: shortId(cid),
+        ok,
+        error: ok ? null : result?.error ?? null,
+        versionAfter: result?.version ?? null
+      }, ok);
+      await loadRuntime(cid, "post-save");
+    } catch (error) {
+      logDebugEvent("quickbar", "save-result", { character: shortId(cid), message: String(error?.message ?? error) }, false);
+      await loadRuntime(cid, "post-save-error");
+    } finally {
+      mutationInFlight = false;
+    }
+  }
+  async function handleCommand(data) {
+    const type = String(data?.type ?? "");
+    if (type === "refresh") {
+      await loadRuntime(lastCharacterId ?? selectedCharacterId(), "command-refresh");
+      logDebugEvent("quickbar", "layout-refreshed", { character: shortId(lastCharacterId) });
+      return;
+    }
+    if (type === "editor-opened") {
+      logDebugEvent("quickbar", "editor-opened", { character: shortId(lastCharacterId) });
+      broadcastAbilities();
+      return;
+    }
+    if (type === "draft-changed") {
+      logDebugEvent("quickbar", "draft-changed", {
+        character: shortId(lastCharacterId),
+        occupiedSlots: Number(data?.occupiedSlots ?? 0)
+      });
+      return;
+    }
+    if (type === "save-layout") {
+      await handleSaveLayout(data);
+      return;
+    }
+  }
+  try {
+    cleanups3.push(lib_default.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
+      const data = event?.data ?? {};
+      if (data?.scope !== "combat-hud" || data?.feature !== "quickbar") return;
+      void handleCommand(data).catch((error) => {
+        logDebugEvent("quickbar", "command-exception", { type: String(data?.type ?? ""), message: String(error?.message ?? error) }, false);
+      });
+    }));
+    cleanups3.push(lib_default.broadcast.onMessage(BC_HUD_ABILITIES_REQUEST, () => {
+      const cid = selectedCharacterId();
+      if (cid && cid !== lastCharacterId) {
+        void loadRuntime(cid, "request-resync");
+      } else {
+        broadcastAbilities();
+      }
+    }));
+  } catch (_e) {
+  }
+  return {
+    onSelectionChanged,
+    refresh: () => loadRuntime(lastCharacterId ?? selectedCharacterId(), "external"),
+    getRuntime: () => lastRuntime,
+    cleanup() {
+      disposed = true;
+      for (const fn of cleanups3.splice(0)) {
+        try {
+          fn();
+        } catch (_e) {
+        }
+      }
+    }
+  };
+}
+
 // hud/targeting/bodyConditionPolicy.js
 var BODY_CONDITION_STATE = Object.freeze({
   healthy: "healthy",
@@ -6539,7 +6935,7 @@ var LABEL = Object.freeze({
   disabled: "Disabled",
   unknown: "Unknown"
 });
-function num2(v) {
+function num4(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
@@ -6548,9 +6944,9 @@ function evaluateBodyCondition(bp) {
     return build(BODY_CONDITION_STATE.unknown);
   }
   if (bp.destroyed || bp.disabled) return build(BODY_CONDITION_STATE.disabled);
-  if (num2(bp.critical) > 0) return build(BODY_CONDITION_STATE.critical);
-  if (num2(bp.serious) > 0) return build(BODY_CONDITION_STATE.serious);
-  if (num2(bp.minor) > 0) return build(BODY_CONDITION_STATE.minor);
+  if (num4(bp.critical) > 0) return build(BODY_CONDITION_STATE.critical);
+  if (num4(bp.serious) > 0) return build(BODY_CONDITION_STATE.serious);
+  if (num4(bp.minor) > 0) return build(BODY_CONDITION_STATE.minor);
   return build(BODY_CONDITION_STATE.healthy);
 }
 function build(state) {
@@ -6561,25 +6957,25 @@ function bodyConditionDetailLines(bp) {
   const lines = [];
   if (bp.destroyed) lines.push("Destroyed");
   else if (bp.disabled) lines.push("Disabled");
-  if (num2(bp.critical) > 0) lines.push(`Critical damage: ${num2(bp.critical)}`);
-  if (num2(bp.serious) > 0) lines.push(`Serious wounds: ${num2(bp.serious)}`);
-  if (num2(bp.minor) > 0) lines.push(`Minor wounds: ${num2(bp.minor)}`);
+  if (num4(bp.critical) > 0) lines.push(`Critical damage: ${num4(bp.critical)}`);
+  if (num4(bp.serious) > 0) lines.push(`Serious wounds: ${num4(bp.serious)}`);
+  if (num4(bp.minor) > 0) lines.push(`Minor wounds: ${num4(bp.minor)}`);
   if (Number.isFinite(Number(bp.armor_value)) && Number(bp.armor_value) > 0) {
-    lines.push(`Armor: ${num2(bp.armor_value)}`);
+    lines.push(`Armor: ${num4(bp.armor_value)}`);
   }
   return lines;
 }
 
 // hud/runtime/runtimeBundleMapper.js
-function str(v) {
+function str3(v) {
   const s = String(v ?? "").trim();
   return s || null;
 }
-function num3(v, fallback = 0) {
+function num5(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
-function bool(v, fallback = false) {
+function bool2(v, fallback = false) {
   return v === null || v === void 0 ? fallback : Boolean(v);
 }
 function arr(v) {
@@ -6596,7 +6992,7 @@ function hasValue(v) {
   return v !== null && v !== void 0 && v !== "";
 }
 function normalizePartId(bp) {
-  const raw = str(bp?.zone_id) ?? str(bp?.part_key) ?? str(bp?.code) ?? str(bp?.id) ?? "unknown";
+  const raw = str3(bp?.zone_id) ?? str3(bp?.part_key) ?? str3(bp?.code) ?? str3(bp?.id) ?? "unknown";
   const v = raw.toLowerCase();
   const aliases = {
     head: "head",
@@ -6635,9 +7031,9 @@ function mapZones(bodyParts) {
     const id = normalizePartId(bp);
     return {
       id,
-      label: str(bp?.name) ?? ZONE_LABELS[id] ?? id,
+      label: str3(bp?.name) ?? ZONE_LABELS[id] ?? id,
       state: zoneStateFromBodyPart(bp),
-      canBeTargeted: bp?.can_be_targeted === false ? false : !bool(bp?.disabled) && !bool(bp?.destroyed),
+      canBeTargeted: bp?.can_be_targeted === false ? false : !bool2(bp?.disabled) && !bool2(bp?.destroyed),
       // Real wound-count detail lines for the Player Block hover tooltip
       // (source only — see PlayerBlock.js). Never a fabricated current/max
       // fraction; empty when healthy (nothing to report beyond the label).
@@ -6653,11 +7049,11 @@ function normalizePolarity(p) {
 }
 function mapEffect(ef) {
   return {
-    id: str(ef?.id) ?? `ef-${Math.random().toString(36).slice(2)}`,
-    name: str(ef?.effect_name) ?? str(ef?.name) ?? "Unknown effect",
+    id: str3(ef?.id) ?? `ef-${Math.random().toString(36).slice(2)}`,
+    name: str3(ef?.effect_name) ?? str3(ef?.name) ?? "Unknown effect",
     polarity: normalizePolarity(ef?.polarity),
-    durationTurns: ef?.remaining_turns != null ? num3(ef.remaining_turns) : null,
-    description: str(ef?.description) ?? ""
+    durationTurns: ef?.remaining_turns != null ? num5(ef.remaining_turns) : null,
+    description: str3(ef?.description) ?? ""
   };
 }
 function mapEntity(bundle) {
@@ -6666,8 +7062,8 @@ function mapEntity(bundle) {
   const combat = section2(bundle, "combat") ?? {};
   const abilities = section2(bundle, "abilities") ?? {};
   const flags = combat?.combat_flags ?? state?.combat_flags ?? {};
-  const shieldCur = num3(combat.shield_current ?? state.shield_current, 0);
-  const shieldMax = num3(combat.shield_max ?? state.shield_max, 0);
+  const shieldCur = num5(combat.shield_current ?? state.shield_current, 0);
+  const shieldMax = num5(combat.shield_max ?? state.shield_max, 0);
   const psiPool = arr(abilities?.resource_pools).find((pool) => {
     const code = String(pool?.code ?? pool?.resource_pool_code ?? "").toLowerCase();
     const name = String(pool?.name ?? "").toLowerCase();
@@ -6676,18 +7072,18 @@ function mapEntity(bundle) {
   });
   const psiCurrentRaw = combat.psi_current ?? state.psi_current ?? psiPool?.current_value ?? psiPool?.current;
   const psiMaxRaw = combat.psi_max ?? state.psi_max ?? psiPool?.max_value ?? psiPool?.max;
-  const psiCur = hasValue(psiCurrentRaw) ? num3(psiCurrentRaw, 0) : null;
-  const psiMax = hasValue(psiMaxRaw) ? num3(psiMaxRaw, 0) : null;
+  const psiCur = hasValue(psiCurrentRaw) ? num5(psiCurrentRaw, 0) : null;
+  const psiMax = hasValue(psiMaxRaw) ? num5(psiMaxRaw, 0) : null;
   const zones = mapZones(combat.body_parts ?? []);
   const effectsSection = section2(bundle, "effects");
   const effects = Array.isArray(effectsSection) ? effectsSection.map(mapEffect) : [];
   return {
     summary: {
-      id: str(char.id) ?? str(char.character_key) ?? "unknown",
-      name: str(char.display_name) ?? str(char.character_key) ?? "Unknown",
+      id: str3(char.id) ?? str3(char.character_key) ?? "unknown",
+      name: str3(char.display_name) ?? str3(char.character_key) ?? "Unknown",
       icon: null,
       characterType: "player",
-      ownerPlayerId: str(char.owner_player_id),
+      ownerPlayerId: str3(char.owner_player_id),
       svgRef: "humanoid"
     },
     zones,
@@ -6695,15 +7091,15 @@ function mapEntity(bundle) {
     armorByZone: [],
     psi: { current: psiCur, max: psiMax },
     actions: {
-      main: !bool(flags?.main_action_spent, false),
-      move: !bool(flags?.move_action_spent, false)
+      main: !bool2(flags?.main_action_spent, false),
+      move: !bool2(flags?.move_action_spent, false)
     },
     // All DB effects shown as status chips in the Player block.
     statuses: effects,
     effects: [],
     flags: {
-      alive: bool(state.is_alive ?? combat.is_alive, true),
-      conscious: bool(state.is_conscious ?? combat.is_conscious, true)
+      alive: bool2(state.is_alive ?? combat.is_alive, true),
+      conscious: bool2(state.is_conscious ?? combat.is_conscious, true)
     },
     mech: null,
     pilot: null
@@ -6716,7 +7112,7 @@ function hasEquippedFlag(w) {
 function pickActiveWeapon(armory, selectedWeaponId = null) {
   if (!armory || typeof armory !== "object") return null;
   const weapons = Array.isArray(armory.weapons) ? armory.weapons.filter(Boolean) : [];
-  const selected = selectedWeaponId ? weapons.find((w) => str(w?.id) === selectedWeaponId) : null;
+  const selected = selectedWeaponId ? weapons.find((w) => str3(w?.id) === selectedWeaponId) : null;
   if (selected) return selected;
   if (armory.equipped_weapon && typeof armory.equipped_weapon === "object") {
     return armory.equipped_weapon;
@@ -6725,19 +7121,19 @@ function pickActiveWeapon(armory, selectedWeaponId = null) {
   return weapons.find(hasEquippedFlag) ?? weapons[0];
 }
 function rawMagCaliberCode(m) {
-  return str(m?.magazine_def?.caliber) ?? str(m?.caliber);
+  return str3(m?.magazine_def?.caliber) ?? str3(m?.caliber);
 }
 function readMagazine(mag) {
   if (!mag || typeof mag !== "object") return null;
-  const max = num3(mag.capacity ?? mag.magazine_def?.capacity ?? mag.max_rounds ?? mag.max, 0);
-  const current2 = num3(mag.current_rounds ?? mag.current, 0);
-  const ammoType = str(mag.ammo_type_name) ?? str(mag.ammo_type?.name) ?? str(mag.ammo_type_key) ?? str(typeof mag.ammo_type === "string" ? mag.ammo_type : null) ?? "\u2014";
-  const caliber = str(mag.magazine_def?.caliber) ?? str(mag.caliber) ?? str(mag.magazine_def?.caliber_name) ?? str(mag.caliber_name) ?? "";
-  const caliberLabel = str(mag.magazine_def?.caliber_name) ?? str(mag.caliber_name) ?? caliber ?? "";
+  const max = num5(mag.capacity ?? mag.magazine_def?.capacity ?? mag.max_rounds ?? mag.max, 0);
+  const current2 = num5(mag.current_rounds ?? mag.current, 0);
+  const ammoType = str3(mag.ammo_type_name) ?? str3(mag.ammo_type?.name) ?? str3(mag.ammo_type_key) ?? str3(typeof mag.ammo_type === "string" ? mag.ammo_type : null) ?? "\u2014";
+  const caliber = str3(mag.magazine_def?.caliber) ?? str3(mag.caliber) ?? str3(mag.magazine_def?.caliber_name) ?? str3(mag.caliber_name) ?? "";
+  const caliberLabel = str3(mag.magazine_def?.caliber_name) ?? str3(mag.caliber_name) ?? caliber ?? "";
   return {
-    id: str(mag.id) ?? `mag-${Math.random().toString(36).slice(2)}`,
+    id: str3(mag.id) ?? `mag-${Math.random().toString(36).slice(2)}`,
     ammoType,
-    description: str(mag.ammo_type_name) ?? str(mag.name) ?? "",
+    description: str3(mag.ammo_type_name) ?? str3(mag.name) ?? "",
     current: current2,
     max,
     caliber,
@@ -6747,22 +7143,22 @@ function readMagazine(mag) {
 function readFireModes(w) {
   const objs = Array.isArray(w.available_fire_modes) && w.available_fire_modes.length ? w.available_fire_modes : Array.isArray(w.active_profile?.available_fire_modes) ? w.active_profile.available_fire_modes : [];
   if (objs.length) {
-    return objs.map((m) => str(m?.name) ?? str(m?.code) ?? str(m)).filter(Boolean);
+    return objs.map((m) => str3(m?.name) ?? str3(m?.code) ?? str3(m)).filter(Boolean);
   }
-  if (Array.isArray(w.fire_modes)) return w.fire_modes.map((m) => str(m)).filter(Boolean);
+  if (Array.isArray(w.fire_modes)) return w.fire_modes.map((m) => str3(m)).filter(Boolean);
   return [];
 }
 function readCurrentFireMode(w) {
   const fm = w.selected_fire_mode ?? w.active_profile?.selected_fire_mode ?? null;
-  if (fm && typeof fm === "object") return str(fm.name) ?? str(fm.code);
-  return str(w.current_fire_mode);
+  if (fm && typeof fm === "object") return str3(fm.name) ?? str3(fm.code);
+  return str3(w.current_fire_mode);
 }
 function readFireModeOption(m) {
   if (!m || typeof m !== "object") return null;
-  const id = str(m.id);
+  const id = str3(m.id);
   if (!id) return null;
-  const code = str(m.code);
-  return { id, code, name: str(m.name) ?? code ?? id };
+  const code = str3(m.code);
+  return { id, code, name: str3(m.name) ?? code ?? id };
 }
 function readFireMode(w) {
   const rawAvailable = Array.isArray(w.available_fire_modes) && w.available_fire_modes.length ? w.available_fire_modes : Array.isArray(w.active_profile?.available_fire_modes) ? w.active_profile.available_fire_modes : [];
@@ -6790,35 +7186,35 @@ function weaponSvgRef(w) {
 }
 function readReserveMagazines(armory, w, loadedMag) {
   const mags = Array.isArray(armory?.magazines) ? armory.magazines : [];
-  const weaponCaliber = str(w.model?.caliber) ?? str(w.caliber);
+  const weaponCaliber = str3(w.model?.caliber) ?? str3(w.caliber);
   const loadedId = loadedMag?.id ?? null;
   if (mags.length) {
-    return mags.filter((m) => m && (str(m.id) ?? null) !== loadedId).filter((m) => !weaponCaliber || !rawMagCaliberCode(m) || rawMagCaliberCode(m) === weaponCaliber).map(readMagazine).filter(Boolean);
+    return mags.filter((m) => m && (str3(m.id) ?? null) !== loadedId).filter((m) => !weaponCaliber || !rawMagCaliberCode(m) || rawMagCaliberCode(m) === weaponCaliber).map(readMagazine).filter(Boolean);
   }
   if (Array.isArray(w.reserve_magazines) && w.reserve_magazines.length) {
-    return w.reserve_magazines.filter((m) => m && (str(m.id) ?? null) !== loadedId).map(readMagazine).filter(Boolean);
+    return w.reserve_magazines.filter((m) => m && (str3(m.id) ?? null) !== loadedId).map(readMagazine).filter(Boolean);
   }
   const profileMags = Array.isArray(w.compatible_magazines) && w.compatible_magazines.length ? w.compatible_magazines : Array.isArray(w.active_profile?.compatible_magazines) ? w.active_profile.compatible_magazines : [];
   if (!profileMags.length) return [];
-  return profileMags.filter((m) => m && (str(m.id) ?? null) !== loadedId).map(readMagazine).filter(Boolean);
+  return profileMags.filter((m) => m && (str3(m.id) ?? null) !== loadedId).map(readMagazine).filter(Boolean);
 }
 function mapWeapon(armory, selectedWeaponId = null) {
   const w = pickActiveWeapon(armory, selectedWeaponId);
   if (!w) return null;
-  const isMelee = !str(w.model?.caliber) && !str(w.caliber);
+  const isMelee = !str3(w.model?.caliber) && !str3(w.caliber);
   const rawMag = w.loaded_magazine ?? w.active_profile?.loaded_magazine ?? null;
   const loadedMag = readMagazine(rawMag);
   const fireModes = readFireModes(w);
   const currentFireMode = readCurrentFireMode(w) ?? fireModes[0] ?? null;
   const reserve = readReserveMagazines(armory, w, loadedMag);
-  const usesMagazine = w.uses_magazine != null ? bool(w.uses_magazine) : !isMelee;
-  const requiresAmmo = w.requires_ammo != null ? bool(w.requires_ammo) : !isMelee;
-  const usesConsumable = bool(w.uses_consumable, false);
-  const canReload = w.can_reload != null ? bool(w.can_reload) : !isMelee && reserve.length > 0;
+  const usesMagazine = w.uses_magazine != null ? bool2(w.uses_magazine) : !isMelee;
+  const requiresAmmo = w.requires_ammo != null ? bool2(w.requires_ammo) : !isMelee;
+  const usesConsumable = bool2(w.uses_consumable, false);
+  const canReload = w.can_reload != null ? bool2(w.can_reload) : !isMelee && reserve.length > 0;
   return {
-    id: str(w.id) ?? "wpn-unknown",
-    name: str(w.name) ?? str(w.weapon_name) ?? "Unknown Weapon",
-    activeProfileId: str(w.active_profile?.id) ?? str(w.active_profile_id),
+    id: str3(w.id) ?? "wpn-unknown",
+    name: str3(w.name) ?? str3(w.weapon_name) ?? "Unknown Weapon",
+    activeProfileId: str3(w.active_profile?.id) ?? str3(w.active_profile_id),
     svgRef: weaponSvgRef(w),
     fireModes,
     currentFireMode,
@@ -6829,12 +7225,12 @@ function mapWeapon(armory, selectedWeaponId = null) {
     loadedMagazine: loadedMag,
     reserveMagazines: reserve,
     ammo: {
-      current: loadedMag ? loadedMag.current : num3(w.ammo_current, 0),
-      max: loadedMag ? loadedMag.max : num3(w.ammo_max, 0)
+      current: loadedMag ? loadedMag.current : num5(w.ammo_current, 0),
+      max: loadedMag ? loadedMag.max : num5(w.ammo_max, 0)
     },
     reloadCandidateId: reserve[0]?.id ?? null,
     canReload,
-    disabledReason: str(w.disabled_reason)
+    disabledReason: str3(w.disabled_reason)
   };
 }
 function buildCanonicalArmory(armory, inventory) {
@@ -6868,12 +7264,12 @@ function mapSkillSource(v) {
   return SKILL_SOURCES.perk;
 }
 function mapWeaponOption(armory, weapon, selectedWeaponId) {
-  const vm = mapWeapon({ ...armory, weapons: [weapon] }, str(weapon?.id));
-  const cls = str(weapon?.model?.weapon_class_name) ?? str(weapon?.model?.weapon_class);
+  const vm = mapWeapon({ ...armory, weapons: [weapon] }, str3(weapon?.id));
+  const cls = str3(weapon?.model?.weapon_class_name) ?? str3(weapon?.model?.weapon_class);
   const mag = vm?.loadedMagazine ?? null;
   return {
-    id: str(weapon?.id) ?? "wpn-unknown",
-    name: str(weapon?.name) ?? str(weapon?.weapon_name) ?? "Unknown Weapon",
+    id: str3(weapon?.id) ?? "wpn-unknown",
+    name: str3(weapon?.name) ?? str3(weapon?.weapon_name) ?? "Unknown Weapon",
     type: cls,
     selected: vm?.id === selectedWeaponId,
     ammoLabel: mag ? `${mag.current}/${mag.max}` : vm?.requiresAmmo ? "no magazine" : "\u2014"
@@ -6904,23 +7300,23 @@ function mapSkillAction(qa) {
   const resourceCost = qa?.resource?.cost ?? qa?.resource_cost ?? null;
   const source = qa?.source_type ?? qa?.source;
   return {
-    id: str(qa?.id) ?? `sk-${Math.random().toString(36).slice(2)}`,
-    name: str(qa?.ability_name) ?? str(qa?.name) ?? "Unknown",
+    id: str3(qa?.id) ?? `sk-${Math.random().toString(36).slice(2)}`,
+    name: str3(qa?.ability_name) ?? str3(qa?.name) ?? "Unknown",
     type: normalizeEnum(qa?.ability_type ?? qa?.type, VALID_SKILL_TYPES, SKILL_TYPES.instantAbility),
     source: normalizeEnum(source, VALID_SKILL_SOURCES, mapSkillSource(source)),
-    icon: str(qa?.icon_key) ?? str(qa?.icon) ?? "bolt",
+    icon: str3(qa?.icon_key) ?? str3(qa?.icon) ?? "bolt",
     color: normalizeEnum(qa?.color_key ?? qa?.color, VALID_COLORS, mapSkillColor(source)),
     actionCost: normalizeActionCost(qa?.action_cost),
-    resourceCost: resourceCost != null && Number(resourceCost) > 0 ? { type: str(qa?.resource?.pool_code) ?? "resource", amount: num3(resourceCost, 0) } : null,
-    cooldownTurns: num3(qa?.cooldown_remaining_turns ?? qa?.cooldown_remaining ?? qa?.current_cooldown_rounds, 0),
+    resourceCost: resourceCost != null && Number(resourceCost) > 0 ? { type: str3(qa?.resource?.pool_code) ?? "resource", amount: num5(resourceCost, 0) } : null,
+    cooldownTurns: num5(qa?.cooldown_remaining_turns ?? qa?.cooldown_remaining ?? qa?.current_cooldown_rounds, 0),
     weaponRequirements: Array.isArray(qa?.weapon_requirements) ? qa.weapon_requirements.map(String) : [],
     targeting: normalizeEnum(qa?.targeting_mode ?? qa?.targeting, VALID_TARGETING, TARGETING_MODES.none),
-    allowsMultipleTargets: bool(qa?.allows_multiple_targets, false),
-    usesPoint: bool(qa?.uses_point, false),
-    radius: qa?.radius != null ? num3(qa.radius) : null,
-    isToggled: bool(qa?.is_toggled, false),
-    disabledReason: str(qa?.disabled_reason) ?? (qa?.is_enabled === false ? "Disabled" : null),
-    tooltip: str(qa?.tooltip) ?? str(qa?.description) ?? str(qa?.level_data?.effect_data?.summary) ?? ""
+    allowsMultipleTargets: bool2(qa?.allows_multiple_targets, false),
+    usesPoint: bool2(qa?.uses_point, false),
+    radius: qa?.radius != null ? num5(qa.radius) : null,
+    isToggled: bool2(qa?.is_toggled, false),
+    disabledReason: str3(qa?.disabled_reason) ?? (qa?.is_enabled === false ? "Disabled" : null),
+    tooltip: str3(qa?.tooltip) ?? str3(qa?.description) ?? str3(qa?.level_data?.effect_data?.summary) ?? ""
   };
 }
 function mapSkills(abilitiesSection) {
@@ -6937,9 +7333,9 @@ function mapSkills(abilitiesSection) {
   const idSet = new Set(library.map((sk) => sk.id));
   const slotsSource = rawSlots.length ? rawSlots : library.map((sk, index) => ({ slot_index: index, ability_id: sk.id }));
   const quickSlots = slotsSource.map((s) => {
-    const sid = str(s?.ability_id ?? s?.skill_id ?? s?.action_id);
+    const sid = str3(s?.ability_id ?? s?.skill_id ?? s?.action_id);
     return {
-      index: num3(s?.slot_index ?? s?.index, 0),
+      index: num5(s?.slot_index ?? s?.index, 0),
       skillId: sid && idSet.has(sid) ? sid : null
     };
   }).sort((a, b) => a.index - b.index);
@@ -6956,15 +7352,15 @@ function mapBattleLog(bundle) {
   const entries3 = Array.isArray(log?.entries) ? log.entries : Array.isArray(log) ? log : [];
   return {
     entries: entries3.map((entry, index) => ({
-      id: str(entry?.id) ?? `log-${index}`,
-      sequence: num3(entry?.sequence ?? index, index),
-      kind: str(entry?.kind) ?? "system",
-      actor: str(entry?.actor) ?? str(entry?.actor_name) ?? "",
-      action: str(entry?.action) ?? str(entry?.message) ?? str(entry?.summary) ?? "",
-      target: str(entry?.target) ?? str(entry?.target_name) ?? "",
-      delta: str(entry?.delta) ?? "",
-      summary: str(entry?.summary) ?? str(entry?.message) ?? "",
-      detail: str(entry?.detail) ?? ""
+      id: str3(entry?.id) ?? `log-${index}`,
+      sequence: num5(entry?.sequence ?? index, index),
+      kind: str3(entry?.kind) ?? "system",
+      actor: str3(entry?.actor) ?? str3(entry?.actor_name) ?? "",
+      action: str3(entry?.action) ?? str3(entry?.message) ?? str3(entry?.summary) ?? "",
+      target: str3(entry?.target) ?? str3(entry?.target_name) ?? "",
+      delta: str3(entry?.delta) ?? "",
+      summary: str3(entry?.summary) ?? str3(entry?.message) ?? "",
+      detail: str3(entry?.detail) ?? ""
     }))
   };
 }
@@ -7020,7 +7416,7 @@ function mapBundleToHudSnapshot(bundle, options = {}) {
   }
   let weaponPrimary = null;
   const armory = section2(bundle, "armory");
-  const selectedWeaponId = str(options.selectedWeaponId) ?? null;
+  const selectedWeaponId = str3(options.selectedWeaponId) ?? null;
   try {
     weaponPrimary = armory ? mapWeapon(armory, selectedWeaponId) : null;
   } catch (_e) {
@@ -7371,6 +7767,9 @@ function buildBroadcastPayload(state, ephemeral = {}) {
         }
       };
     }
+    if (ephemeral.abilitiesRuntime && ephemeral.abilitiesRuntime.ok !== false) {
+      hudSnapshot = { ...hudSnapshot, quickbar: ephemeral.abilitiesRuntime };
+    }
   }
   const debug = ready && s.runtimeBundle ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
     selectionStatus: s.status,
@@ -7611,6 +8010,17 @@ function setupSceneSelection(hooks = {}) {
       }
     }) : null;
     if (sessionController) cleanups3.push(() => sessionController.cleanup());
+    let abilitiesRuntime = null;
+    const quickbarController = configured ? setupQuickbarController({
+      settings,
+      getViewer: () => viewer,
+      getSelectedCharacterId: () => ephemeral.characterId ?? null,
+      onRuntime: (runtime) => {
+        abilitiesRuntime = runtime;
+        if (lastState) publishState(lastState);
+      }
+    }) : null;
+    if (quickbarController) cleanups3.push(() => quickbarController.cleanup());
     function currentMappedSession() {
       return mapCombatRuntimeToSession(sessionRuntime, {
         viewerPlayerId: viewer?.playerId ?? null,
@@ -7659,6 +8069,8 @@ function setupSceneSelection(hooks = {}) {
       ephemeral.fireModeSelectorOpen = false;
       ephemeral.fireModeRpcResult = null;
       ephemeral.basicAttackResult = null;
+      abilitiesRuntime = null;
+      if (quickbarController) quickbarController.onSelectionChanged(characterId ?? null);
       return true;
     }
     function restoreSelectedWeapon(characterId, bundle) {
@@ -7690,7 +8102,8 @@ function setupSceneSelection(hooks = {}) {
         basicAttackInFlight: ephemeral.basicAttackInFlight,
         basicAttackResult: ephemeral.basicAttackResult,
         combatLog,
-        sessionRuntime
+        sessionRuntime,
+        abilitiesRuntime
       };
     }
     function publishState(state) {
@@ -8137,15 +8550,15 @@ var TARGETING_ERROR = Object.freeze({
   noToken: "NO_TOKEN",
   fetchFailed: "TARGET_LINK_FETCH_FAILED"
 });
-function str2(v) {
+function str4(v) {
   const s = String(v ?? "").trim();
   return s || null;
 }
-function normalizeSource(raw) {
+function normalizeSource2(raw) {
   return {
-    tokenId: str2(raw?.tokenId),
-    characterId: str2(raw?.characterId),
-    characterName: str2(raw?.characterName)
+    tokenId: str4(raw?.tokenId),
+    characterId: str4(raw?.characterId),
+    characterName: str4(raw?.characterName)
   };
 }
 function isSourceReady(source) {
@@ -8177,15 +8590,15 @@ function cancelPicking(state) {
 }
 function applyResolvedTarget(state, candidate) {
   const s = state ?? createInitialTargetState();
-  if (!candidate || !str2(candidate.tokenId)) return s;
-  const profileId = str2(candidate.profileId) ?? DEFAULT_PROFILE_ID;
+  if (!candidate || !str4(candidate.tokenId)) return s;
+  const profileId = str4(candidate.profileId) ?? DEFAULT_PROFILE_ID;
   return {
     ...s,
     mode: TARGETING_MODE.idle,
     target: {
       tokenId: String(candidate.tokenId),
-      characterId: str2(candidate.characterId),
-      displayName: str2(candidate.displayName) ?? "Target",
+      characterId: str4(candidate.characterId),
+      displayName: str4(candidate.displayName) ?? "Target",
       profileId,
       selectedZoneId: getDefaultZoneId(profileId),
       distance: normalizeDistance(candidate.distance),
@@ -8212,14 +8625,14 @@ function clearTarget(state) {
 function selectZone(state, zoneId) {
   const s = state ?? createInitialTargetState();
   if (!s.target) return s;
-  const id = str2(zoneId);
+  const id = str4(zoneId);
   if (!id || !isValidZoneId(s.target.profileId, id)) return s;
   if (s.target.selectedZoneId === id) return s;
   return { ...s, target: { ...s.target, selectedZoneId: id } };
 }
 function applySource(state, rawSource) {
   const s = state ?? createInitialTargetState();
-  const source = normalizeSource(rawSource);
+  const source = normalizeSource2(rawSource);
   const prevCharId = s.source?.characterId ?? null;
   const nextCharId = source.characterId ?? null;
   const characterChanged = nextCharId !== prevCharId;
@@ -8238,14 +8651,14 @@ function applySource(state, rawSource) {
 function normalizeDistance(distance) {
   if (!distance || typeof distance !== "object") return null;
   const value = Number(distance.value);
-  const unit = str2(distance.unit);
+  const unit = str4(distance.unit);
   if (!Number.isFinite(value) || !unit) return null;
   return { value, unit };
 }
 function validateCandidate({ tokenId, sourceTokenId } = {}) {
-  const id = str2(tokenId);
+  const id = str4(tokenId);
   if (!id) return { ok: false, code: TARGETING_ERROR.noToken };
-  if (id === str2(sourceTokenId)) return { ok: false, code: TARGETING_ERROR.selfTarget };
+  if (id === str4(sourceTokenId)) return { ok: false, code: TARGETING_ERROR.selfTarget };
   return { ok: true };
 }
 function extractTokenLink(linkResult, tokenId) {
@@ -8256,8 +8669,8 @@ function extractTokenLink(linkResult, tokenId) {
   );
   if (!match || !match.character) return null;
   return {
-    characterId: str2(match.character.id),
-    characterName: str2(match.character.display_name) ?? str2(match.character.name)
+    characterId: str4(match.character.id),
+    characterName: str4(match.character.display_name) ?? str4(match.character.name)
   };
 }
 function buildTargetingBroadcast(state) {
@@ -8646,6 +9059,7 @@ var GUN_WEAPON_SELECTOR_POPOVER_ID = "odyssey-hud-gun-weapon-selector";
 var GUN_MAGAZINE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-magazine-selector";
 var GUN_FIRE_MODE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-fire-mode-selector";
 var GM_COMBAT_TRACKER_POPOVER_ID = "odyssey-hud-gm-combat-tracker";
+var QUICKBAR_EDITOR_POPOVER_ID = "odyssey-hud-quickbar-editor";
 var HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
 var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
 var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
@@ -8840,6 +9254,7 @@ var gunWeaponSelectorOpen = false;
 var gunMagazineSelectorOpen = false;
 var gunFireModeSelectorOpen = false;
 var gmTrackerOpen = false;
+var quickbarEditorOpen = false;
 var lastActiveCharacterId = null;
 var lastSelectionPayload = null;
 var cleanups = [];
@@ -9063,6 +9478,46 @@ async function setGmTrackerOpen(open) {
     }
   }
 }
+function quickbarEditorRect() {
+  if (!lastLayout.modules?.skills) return null;
+  const skRect = moduleRect("skills");
+  const width = 320;
+  const height = 380;
+  const gap = 4;
+  return {
+    left: Math.max(0, skRect.left + (skRect.width - width) / 2),
+    top: Math.max(0, skRect.top - height - gap),
+    width,
+    height
+  };
+}
+async function setQuickbarEditorOpen(open) {
+  const next = Boolean(open);
+  if (next === quickbarEditorOpen) return;
+  quickbarEditorOpen = next;
+  if (mode !== "modules") return;
+  if (next) {
+    const rect = quickbarEditorRect();
+    if (rect) {
+      try {
+        const url = new URL(pageUrl("quickbar-editor"));
+        const role = String(lastSelectionPayload?.viewer?.role ?? "").toLowerCase() === "gm" ? "gm" : "player";
+        url.searchParams.set("role", role);
+        await lib_default.popover.open({
+          id: QUICKBAR_EDITOR_POPOVER_ID,
+          url: url.toString(),
+          ...paramsForRect(rect)
+        });
+      } catch (_e) {
+      }
+    }
+  } else {
+    try {
+      await lib_default.popover.close(QUICKBAR_EDITOR_POPOVER_ID);
+    } catch (_e) {
+    }
+  }
+}
 function sendTargetingCommand(command) {
   try {
     lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, command, { destination: "LOCAL" });
@@ -9148,6 +9603,7 @@ async function applyMode() {
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
     gmTrackerOpen = false;
+    quickbarEditorOpen = false;
     await lib_default.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {
@@ -9155,6 +9611,8 @@ async function applyMode() {
     await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {
+    });
+    await lib_default.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {
     });
     await closeEditorPopover();
     await closeAllModules();
@@ -9164,6 +9622,7 @@ async function applyMode() {
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
     gmTrackerOpen = false;
+    quickbarEditorOpen = false;
     await lib_default.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {
@@ -9171,6 +9630,8 @@ async function applyMode() {
     await lib_default.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {
     });
     await lib_default.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {
+    });
+    await lib_default.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {
     });
     await closePill();
     await closeAllModules();
@@ -9269,6 +9730,16 @@ function setupCombatHudOverlay() {
             if (role !== "GM") return;
             logDebugEvent("popover", gmTrackerOpen ? "gm-tracker-closed" : "gm-tracker-opened", {});
             await setGmTrackerOpen(!gmTrackerOpen);
+          }
+          return;
+        }
+        if (data?.scope === "combat-hud" && data?.feature === "quickbar") {
+          const qType = String(data.type ?? "");
+          if (qType === "open-editor") {
+            logDebugEvent("quickbar", quickbarEditorOpen ? "editor-closed" : "editor-opened", {});
+            await setQuickbarEditorOpen(!quickbarEditorOpen);
+          } else if (qType === "close-editor") {
+            await setQuickbarEditorOpen(false);
           }
           return;
         }
