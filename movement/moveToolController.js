@@ -44,7 +44,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.53";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.52";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -165,77 +165,117 @@ function createInitialState() {
     autoSyncInFlightByKey: new Map(),
     gridRecoveryPromise: null,
     gridRecoveryKey: "",
-    blockedShapeCells: new Map(),
-    blockedShapeSignature: "",
+    obstructionDebugDone: false,
   };
 }
 
-function getShapeSceneBounds(item) {
-  const positionX = Number(item?.position?.x ?? 0);
-  const positionY = Number(item?.position?.y ?? 0);
-  const width = Number(item?.width ?? 0);
-  const height = Number(item?.height ?? 0);
-  const scaleX = Number(item?.scale?.x ?? 1) || 1;
-  const scaleY = Number(item?.scale?.y ?? 1) || 1;
-
-  if (!Number.isFinite(positionX) || !Number.isFinite(positionY)) return null;
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-  if (width <= 0 || height <= 0) return null;
-
-  const scaledWidth = Math.abs(width * scaleX);
-  const scaledHeight = Math.abs(height * scaleY);
-  if (scaledWidth <= 0 || scaledHeight <= 0) return null;
-
-  const left = positionX + Math.min(0, width * scaleX);
-  const top = positionY + Math.min(0, height * scaleY);
-
-  return {
-    left,
-    top,
-    right: left + scaledWidth,
-    bottom: top + scaledHeight,
-  };
+function normalizeMetadataKeys(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  return Object.keys(metadata)
+    .map((key) => String(key ?? "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
 }
 
-function collectBlockedCellsFromShapes(items, grid) {
-  const blocked = new Map();
-  const gridDpi = Number(grid?.gridDpi ?? 0) || 0;
-  const anchorX = Number(grid?.anchor?.x ?? 0) || 0;
-  const anchorY = Number(grid?.anchor?.y ?? 0) || 0;
-
-  if (grid?.gridType !== "square" || gridDpi <= 0) {
-    return blocked;
+function sanitizeObstructionMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
   }
 
-  for (const item of ensureArray(items)) {
-    if (String(item?.type ?? "").trim().toUpperCase() !== "SHAPE") continue;
-    if (item?.visible === false) continue;
-    if (item?.attachedTo) continue;
+  const result = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    const normalizedKey = String(key ?? "").trim();
+    if (!normalizedKey) continue;
+    if (normalizedKey.length > 80) continue;
 
-    const bounds = getShapeSceneBounds(item);
-    if (!bounds) continue;
+    if (value == null) {
+      result[normalizedKey] = null;
+      continue;
+    }
 
-    const minQ = Math.floor((bounds.left - anchorX) / gridDpi);
-    const maxQ = Math.floor((Math.max(bounds.right - 0.001, bounds.left) - anchorX) / gridDpi);
-    const minR = Math.floor((bounds.top - anchorY) / gridDpi);
-    const maxR = Math.floor((Math.max(bounds.bottom - 0.001, bounds.top) - anchorY) / gridDpi);
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      result[normalizedKey] = value;
+      continue;
+    }
 
-    for (let q = minQ; q <= maxQ; q += 1) {
-      for (let r = minR; r <= maxR; r += 1) {
-        const cellKey = getCellKey({ q, r });
-        if (!blocked.has(cellKey)) {
-          blocked.set(cellKey, {
-            shapeId: String(item?.id ?? "").trim(),
-            shapeName: String(item?.name ?? "").trim(),
-            q,
-            r,
-          });
-        }
-      }
+    try {
+      result[normalizedKey] = JSON.parse(JSON.stringify(value));
+    } catch {
+      result[normalizedKey] = String(value);
     }
   }
+  return result;
+}
 
-  return blocked;
+function isPotentialObstructionItem(item) {
+  const type = String(item?.type ?? "").trim().toUpperCase();
+  const name = String(item?.name ?? "").trim().toLowerCase();
+  const metadataKeys = normalizeMetadataKeys(item?.metadata).map((key) => key.toLowerCase());
+  const joinedKeys = metadataKeys.join(" ");
+
+  if (name.includes("obstruction") || name.includes("smoke") || name.includes("spectre")) {
+    return true;
+  }
+
+  if (
+    joinedKeys.includes("obstruction")
+    || joinedKeys.includes("smoke")
+    || joinedKeys.includes("spectre")
+    || joinedKeys.includes("passable")
+    || joinedKeys.includes("unpassable")
+  ) {
+    return true;
+  }
+
+  return ["LINE", "SHAPE", "PATH"].includes(type);
+}
+
+function buildObstructionDebugSnapshot(item) {
+  const metadata = sanitizeObstructionMetadata(item?.metadata);
+  return {
+    id: String(item?.id ?? "").trim(),
+    type: String(item?.type ?? "").trim(),
+    name: String(item?.name ?? "").trim(),
+    layer: String(item?.layer ?? "").trim(),
+    visible: item?.visible !== false,
+    locked: item?.locked === true,
+    position: item?.position
+      ? {
+          x: Number(item.position.x ?? 0) || 0,
+          y: Number(item.position.y ?? 0) || 0,
+        }
+      : null,
+    size:
+      Number.isFinite(Number(item?.width)) || Number.isFinite(Number(item?.height))
+        ? {
+            width: Number(item?.width ?? 0) || 0,
+            height: Number(item?.height ?? 0) || 0,
+          }
+        : null,
+    startPosition: item?.startPosition
+      ? {
+          x: Number(item.startPosition.x ?? 0) || 0,
+          y: Number(item.startPosition.y ?? 0) || 0,
+        }
+      : null,
+    endPosition: item?.endPosition
+      ? {
+          x: Number(item.endPosition.x ?? 0) || 0,
+          y: Number(item.endPosition.y ?? 0) || 0,
+        }
+      : null,
+    rotation: Number(item?.rotation ?? 0) || 0,
+    scale: item?.scale
+      ? {
+          x: Number(item.scale.x ?? 0) || 0,
+          y: Number(item.scale.y ?? 0) || 0,
+        }
+      : null,
+    metadataKeys: normalizeMetadataKeys(item?.metadata),
+    metadata,
+  };
 }
 
 function buildStatus(state, extras = {}) {
@@ -291,8 +331,6 @@ function buildStatus(state, extras = {}) {
             : null,
           blockedTokenId: String(preview.blockedTokenId ?? "").trim(),
           blockedCharacterId: String(preview.blockedCharacterId ?? "").trim(),
-          blockedShapeId: String(preview.blockedShapeId ?? "").trim(),
-          blockedShapeName: String(preview.blockedShapeName ?? "").trim(),
           blockReason: String(preview.blockReason ?? "").trim(),
           distanceCells: preview.distanceCells,
           moveCostM: preview.moveCostM,
@@ -395,32 +433,30 @@ export function setupTacticalMoveTool({ runtime }) {
     }
   }
 
-  async function refreshBlockedShapeCells(items = null, reason = "scene-sync") {
+  async function inspectSceneObstructionCandidates(reason = "manual") {
+    if (state.obstructionDebugDone) return;
+    state.obstructionDebugDone = true;
+
     try {
-      const sceneItems = Array.isArray(items) ? items : await getSceneItems();
-      const nextBlockedShapeCells = collectBlockedCellsFromShapes(sceneItems, state.grid);
-      const nextSignature = JSON.stringify({
-        sceneItemCount: sceneItems.length,
-        blockedCells: Array.from(nextBlockedShapeCells.keys()).sort(),
-      });
+      const sceneItems = await getSceneItems();
+      const candidates = ensureArray(sceneItems)
+        .filter((item) => isPotentialObstructionItem(item))
+        .slice(0, 40)
+        .map((item) => buildObstructionDebugSnapshot(item));
 
-      state.blockedShapeCells = nextBlockedShapeCells;
-
-      if (state.blockedShapeSignature !== nextSignature) {
-        state.blockedShapeSignature = nextSignature;
-        addDiagnosticEntry(
-          "info",
-          "Movement shape blockers updated",
-          JSON.stringify({
-            reason,
-            sceneItemCount: sceneItems.length,
-            blockedCellCount: state.blockedShapeCells.size,
-          }),
-        );
-      }
+      addDiagnosticEntry(
+        "info",
+        "Smoke obstruction candidates",
+        JSON.stringify({
+          reason,
+          sceneItemCount: sceneItems.length,
+          candidateCount: candidates.length,
+          candidates,
+        }),
+      );
     } catch (error) {
-      const normalized = normalizeError(error, "Unable to refresh shape blockers.");
-      addDiagnosticEntry("warn", "Movement shape blockers refresh failed", normalized.message);
+      const normalized = normalizeError(error, "Unable to inspect scene obstruction candidates.");
+      addDiagnosticEntry("warn", "Smoke obstruction inspect failed", normalized.message);
     }
   }
 
@@ -521,7 +557,6 @@ export function setupTacticalMoveTool({ runtime }) {
         throw new Error(runtimeResponse?.message || "Unable to read active combat runtime.");
       }
       updateRuntimeCache(runtimeResponse);
-      await refreshBlockedShapeCells(null, `${reason}-runtime`);
       addDiagnosticEntry(
         "info",
         "Authoritative runtime loaded",
@@ -803,21 +838,6 @@ export function setupTacticalMoveTool({ runtime }) {
     }
 
     for (const stepCell of path.slice(1)) {
-      const blockedShape = state.blockedShapeCells.get(getCellKey(stepCell));
-      if (blockedShape) {
-        return {
-          blockedCell: {
-            q: Number(stepCell?.q ?? 0) || 0,
-            r: Number(stepCell?.r ?? 0) || 0,
-          },
-          blockedTokenId: "",
-          blockedCharacterId: "",
-          blockReason: "shape",
-          blockedShapeId: blockedShape.shapeId,
-          blockedShapeName: blockedShape.shapeName,
-        };
-      }
-
       const occupant = occupiedByCell.get(getCellKey(stepCell));
       if (!occupant) continue;
       return {
@@ -828,8 +848,6 @@ export function setupTacticalMoveTool({ runtime }) {
         blockedTokenId: occupant.tokenId,
         blockedCharacterId: occupant.characterId,
         blockReason: "occupied",
-        blockedShapeId: "",
-        blockedShapeName: "",
       };
     }
 
@@ -933,8 +951,6 @@ export function setupTacticalMoveTool({ runtime }) {
       blockedCell: blockedRoute?.blockedCell ?? null,
       blockedTokenId: String(blockedRoute?.blockedTokenId ?? "").trim(),
       blockedCharacterId: String(blockedRoute?.blockedCharacterId ?? "").trim(),
-      blockedShapeId: String(blockedRoute?.blockedShapeId ?? "").trim(),
-      blockedShapeName: String(blockedRoute?.blockedShapeName ?? "").trim(),
       blockReason: String(blockedRoute?.blockReason ?? "").trim(),
       distanceCells,
       moveCostM,
@@ -1587,6 +1603,7 @@ export function setupTacticalMoveTool({ runtime }) {
 
   async function handleToolDragStart(_context, event) {
     if (!state.selectedToken || !state.selectedParticipant) return;
+    void inspectSceneObstructionCandidates("drag-start");
     const targetId = String(event?.target?.id ?? "").trim();
     const selectedTokenId = String(state.selectedToken.id ?? "").trim();
     if (!targetId || targetId !== selectedTokenId) return;
@@ -1695,7 +1712,6 @@ export function setupTacticalMoveTool({ runtime }) {
 
   async function handleSceneItemsChanged(items) {
     const sceneItems = ensureArray(items);
-    await refreshBlockedShapeCells(sceneItems, "scene-change");
     const indexed = new Map(
       sceneItems.map((item) => [String(item?.id ?? "").trim(), item]),
     );
@@ -1833,6 +1849,7 @@ export function setupTacticalMoveTool({ runtime }) {
   async function start() {
     try {
       await registerTool();
+      void inspectSceneObstructionCandidates("startup");
       unsubscribeBroadcast = await subscribeMoveToolMessages(handleBroadcastMessage);
       unsubscribeSceneItems = await subscribeSceneItems(handleSceneItemsChanged);
       unsubscribePlayer = await subscribePlayerChanges((player) => {
