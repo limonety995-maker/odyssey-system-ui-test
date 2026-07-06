@@ -10232,7 +10232,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.51";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.52";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
@@ -10331,7 +10331,86 @@ function createInitialState() {
     autoSyncedMarkerByTokenId: /* @__PURE__ */ new Map(),
     autoSyncInFlightByKey: /* @__PURE__ */ new Map(),
     gridRecoveryPromise: null,
-    gridRecoveryKey: ""
+    gridRecoveryKey: "",
+    obstructionDebugDone: false
+  };
+}
+function normalizeMetadataKeys(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  return Object.keys(metadata).map((key) => String(key ?? "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+function sanitizeObstructionMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    const normalizedKey = String(key ?? "").trim();
+    if (!normalizedKey) continue;
+    if (normalizedKey.length > 80) continue;
+    if (value == null) {
+      result[normalizedKey] = null;
+      continue;
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      result[normalizedKey] = value;
+      continue;
+    }
+    try {
+      result[normalizedKey] = JSON.parse(JSON.stringify(value));
+    } catch {
+      result[normalizedKey] = String(value);
+    }
+  }
+  return result;
+}
+function isPotentialObstructionItem(item) {
+  const type = String(item?.type ?? "").trim().toUpperCase();
+  const name = String(item?.name ?? "").trim().toLowerCase();
+  const metadataKeys = normalizeMetadataKeys(item?.metadata).map((key) => key.toLowerCase());
+  const joinedKeys = metadataKeys.join(" ");
+  if (name.includes("obstruction") || name.includes("smoke") || name.includes("spectre")) {
+    return true;
+  }
+  if (joinedKeys.includes("obstruction") || joinedKeys.includes("smoke") || joinedKeys.includes("spectre") || joinedKeys.includes("passable") || joinedKeys.includes("unpassable")) {
+    return true;
+  }
+  return ["LINE", "SHAPE", "PATH"].includes(type);
+}
+function buildObstructionDebugSnapshot(item) {
+  const metadata = sanitizeObstructionMetadata(item?.metadata);
+  return {
+    id: String(item?.id ?? "").trim(),
+    type: String(item?.type ?? "").trim(),
+    name: String(item?.name ?? "").trim(),
+    layer: String(item?.layer ?? "").trim(),
+    visible: item?.visible !== false,
+    locked: item?.locked === true,
+    position: item?.position ? {
+      x: Number(item.position.x ?? 0) || 0,
+      y: Number(item.position.y ?? 0) || 0
+    } : null,
+    size: Number.isFinite(Number(item?.width)) || Number.isFinite(Number(item?.height)) ? {
+      width: Number(item?.width ?? 0) || 0,
+      height: Number(item?.height ?? 0) || 0
+    } : null,
+    startPosition: item?.startPosition ? {
+      x: Number(item.startPosition.x ?? 0) || 0,
+      y: Number(item.startPosition.y ?? 0) || 0
+    } : null,
+    endPosition: item?.endPosition ? {
+      x: Number(item.endPosition.x ?? 0) || 0,
+      y: Number(item.endPosition.y ?? 0) || 0
+    } : null,
+    rotation: Number(item?.rotation ?? 0) || 0,
+    scale: item?.scale ? {
+      x: Number(item.scale.x ?? 0) || 0,
+      y: Number(item.scale.y ?? 0) || 0
+    } : null,
+    metadataKeys: normalizeMetadataKeys(item?.metadata),
+    metadata
   };
 }
 function buildStatus(state, extras = {}) {
@@ -10463,6 +10542,27 @@ function setupTacticalMoveTool({ runtime }) {
     try {
       await publishMoveToolEvent(MOVE_TOOL_EVENTS.Status, buildStatus(state, extras));
     } catch {
+    }
+  }
+  async function inspectSceneObstructionCandidates(reason = "manual") {
+    if (state.obstructionDebugDone) return;
+    state.obstructionDebugDone = true;
+    try {
+      const sceneItems = await getSceneItems();
+      const candidates = ensureArray3(sceneItems).filter((item) => isPotentialObstructionItem(item)).slice(0, 40).map((item) => buildObstructionDebugSnapshot(item));
+      addDiagnosticEntry(
+        "info",
+        "Smoke obstruction candidates",
+        JSON.stringify({
+          reason,
+          sceneItemCount: sceneItems.length,
+          candidateCount: candidates.length,
+          candidates
+        })
+      );
+    } catch (error) {
+      const normalized = normalizeError(error, "Unable to inspect scene obstruction candidates.");
+      addDiagnosticEntry("warn", "Smoke obstruction inspect failed", normalized.message);
     }
   }
   function clearRuntimeCache() {
@@ -11471,6 +11571,7 @@ function setupTacticalMoveTool({ runtime }) {
   }
   async function handleToolDragStart(_context, event) {
     if (!state.selectedToken || !state.selectedParticipant) return;
+    void inspectSceneObstructionCandidates("drag-start");
     const targetId = String(event?.target?.id ?? "").trim();
     const selectedTokenId = String(state.selectedToken.id ?? "").trim();
     if (!targetId || targetId !== selectedTokenId) return;
@@ -11684,6 +11785,7 @@ function setupTacticalMoveTool({ runtime }) {
   async function start() {
     try {
       await registerTool();
+      void inspectSceneObstructionCandidates("startup");
       unsubscribeBroadcast = await subscribeMoveToolMessages(handleBroadcastMessage);
       unsubscribeSceneItems = await subscribeSceneItems(handleSceneItemsChanged);
       unsubscribePlayer = await subscribePlayerChanges((player) => {
