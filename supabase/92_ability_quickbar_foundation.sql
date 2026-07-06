@@ -191,19 +191,18 @@ begin
     );
   end if;
 
-  -- Check character state eligibility.
-  select c.is_alive, c.is_conscious
+  -- Check character state eligibility. Alive/conscious live on the combat-state
+  -- table (odyssey_character_combat_state), NOT on odyssey_characters; a character
+  -- with no combat-state row yet is treated as alive + conscious (defaults).
+  select coalesce(cs.is_alive, true), coalesce(cs.is_conscious, true)
   into v_is_alive, v_is_conscious
   from public.odyssey_characters c
+  left join public.odyssey_character_combat_state cs on cs.character_id = c.id
   where c.id = p_character_id;
 
-  -- Check for skip_turn effect.
-  v_has_skip_turn_effect := exists(
-    select 1 from public.odyssey_character_effects
-    where character_id = p_character_id
-      and effect_flag = 'skip_turn'
-      and coalesce(remaining_turns, 0) > 0
-  );
+  -- Check for a skip_turn effect via the canonical engine helper (reads the
+  -- effect's data.flags.skip_turn — the same source the turn engine uses).
+  v_has_skip_turn_effect := public.odyssey_character_has_active_effect_flag(p_character_id, 'skip_turn');
 
   -- Fetch quickbar layout and version.
   select layout, version into v_layout, v_version

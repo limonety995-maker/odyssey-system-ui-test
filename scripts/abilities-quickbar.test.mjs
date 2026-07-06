@@ -343,6 +343,19 @@ test("SQL: migration 92 does not touch combat session (90) or perform_attack", (
   assert.ok(!/perform_attack|combat_start_encounter|odyssey_perform_weapon_attack/.test(sql92), "no unrelated combat fixes in 92");
 });
 
+test("SQL: alive/conscious come from the combat-state table, skip_turn from the engine helper (real schema)", () => {
+  // Regression: alive/conscious are NOT columns on odyssey_characters — they live
+  // on odyssey_character_combat_state. A prior version wrongly selected c.is_alive
+  // from odyssey_characters and crashed at runtime (42703 undefined column).
+  assert.ok(!/\bc\.is_alive\b|\bc\.is_conscious\b/.test(sql92), "never reads is_alive/is_conscious off odyssey_characters");
+  assert.ok(sql92.includes("odyssey_character_combat_state cs"), "joins the combat-state table");
+  assert.ok(/coalesce\(cs\.is_alive, true\)/.test(sql92), "missing combat-state row defaults to alive");
+  // skip_turn uses the canonical helper, not a hand-rolled effects query with
+  // wrong column names (effect_flag/remaining_turns do not exist).
+  assert.ok(sql92.includes("odyssey_character_has_active_effect_flag(p_character_id, 'skip_turn')"));
+  assert.ok(!/effect_flag|remaining_turns/.test(sql92.replace(/has_active_effect_flag/g, "")), "no non-existent effect columns");
+});
+
 setTimeout(() => {
   console.log(`\nAbilities & Quickbar Foundation: ${passed} passed, ${failed} failed`);
   if (failures.length) {
