@@ -3715,10 +3715,6 @@ var combatHudLayout_default = `/*
 .ohud-player-grid { display: grid; grid-template-columns: 46px 1fr; gap: 7px; align-items: center; flex: 1; min-height: 0; }
 .ohud-figure { position: relative; width: 46px; height: 100%; min-height: 50px; display: grid; place-items: center; }
 .ohud-figure-svg { width: 100%; height: 100%; }
-.ohud-figure-shield {
-  position: absolute; right: -4px; bottom: 0; width: 16px; height: 18px;
-  color: var(--odyssey-hud-shield); opacity: 0.85;
-}
 .ohud-figure--ghost { opacity: 0.4; }
 
 .ohud-player-stats { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -4374,8 +4370,21 @@ var combatHudModule_default = `/*\r
 \r
 /* Target column: a slightly shorter silhouette than the old column layout\r
  * needs, since it now shares its row with the text column instead of sitting\r
- * above it. */\r
+ * above it. Selected-target silhouette is 1.25x this base size (57.5x97.5 \u2014\r
+ * see the rule below); the crosshair placeholder in the EMPTY Target Area\r
+ * uses a completely different class (.ohud-target-crosshair) and is\r
+ * unaffected by either of these. */\r
 .ohud-cc-target .ohud-figure { width: 46px; height: 78px; }\r
+\r
+/* Selected-target silhouette only (.ohud-figure--targetable never renders in\r
+ * the empty/picking states \u2014 see TargetBlock.js). Sized via width/height, NOT\r
+ * transform:scale(): scale() wouldn't reflow the flex row layout (the figure\r
+ * would keep its OLD box for sibling positioning while visually overflowing\r
+ * into the name/zone/Clear text column) and would also scale stroke widths\r
+ * unevenly. width/height instead make the figure ACTUALLY occupy more layout\r
+ * space, so the meta column reflows to make room \u2014 the required "no overlap"\r
+ * behavior falls out of normal flex layout instead of needing extra rules. */\r
+.ohud-cc-target .ohud-figure--targetable { width: 57.5px; height: 97.5px; }\r
 \r
 /* Full-width action bar: two equal buttons, thin divider between them. */\r
 .ohud-cc-actionbar {\r
@@ -6224,7 +6233,6 @@ var ICON_CARET_DOWN = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidd
 var ICON_RELOAD = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 var ICON_GRIP = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></g></svg>`;
 var ICON_GRID = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></g></svg>`;
-var ICON_SHIELD = `<svg viewBox="0 0 24 28" width="100%" height="100%" aria-hidden="true"><path d="M12 2l9 3v8c0 6-4 9-9 11-5-2-9-5-9-11V5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 var ICON_MAGAZINE = `<svg viewBox="0 0 40 64" width="100%" height="100%" aria-hidden="true"><rect x="9" y="6" width="22" height="50" rx="5" fill="currentColor"/><rect x="13" y="2" width="14" height="7" rx="2.5" fill="currentColor"/></svg>`;
 function weaponSvg(svgRef) {
   if (svgRef === "pistol") {
@@ -6438,7 +6446,6 @@ function renderPlayerBlock(state) {
     <div class="ohud-player-grid">
       <div class="ohud-figure">
         <div class="ohud-figure-svg">${entitySilhouetteSvg(entity.summary, { zones: zonesMap(entity), zoneTips: zoneTipsMap(entity, authorized) })}</div>
-        <div class="ohud-figure-shield" aria-hidden="true">${ICON_SHIELD}</div>
       </div>
       <div class="ohud-player-stats">
         <div class="ohud-player-name" title="${esc(entity.summary.name)}">${esc(entity.summary.name)}</div>
@@ -6923,7 +6930,6 @@ function renderTargetBlock(state) {
   const body = `<div class="ohud-target">
     <div class="ohud-figure ohud-figure--targetable">
       <div class="ohud-figure-svg">${humanoidSvg({ zones: tv.zonesMap, highlight: svgPart, targetable: true })}</div>
-      <div class="ohud-figure-shield" aria-hidden="true"${tipAttr("Target shield", ["Defence detail hidden for non-owned entities"])}>${ICON_SHIELD}</div>
     </div>
     <div class="ohud-target-meta">
       <div class="ohud-target-name" title="${esc(tv.name)}">${esc(tv.name)}</div>

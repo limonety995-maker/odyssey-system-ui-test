@@ -5,7 +5,7 @@
 // the active zone highlighted and every body zone directly clickable.
 
 import { selectTargetView } from "../core/combatHudSelectors.js";
-import { humanoidSvg, ICON_SHIELD } from "./hudIcons.js";
+import { humanoidSvg } from "./hudIcons.js";
 import { panel } from "./HudPanel.js";
 import { esc, tipAttr } from "./hudDom.js";
 import { zoneIdToSvgPart } from "../targeting/targetProfiles.js";
@@ -48,7 +48,6 @@ export function renderTargetBlock(state) {
   const body = `<div class="ohud-target">
     <div class="ohud-figure ohud-figure--targetable">
       <div class="ohud-figure-svg">${humanoidSvg({ zones: tv.zonesMap, highlight: svgPart, targetable: true })}</div>
-      <div class="ohud-figure-shield" aria-hidden="true"${tipAttr("Target shield", ["Defence detail hidden for non-owned entities"])}>${ICON_SHIELD}</div>
     </div>
     <div class="ohud-target-meta">
       <div class="ohud-target-name" title="${esc(tv.name)}">${esc(tv.name)}</div>

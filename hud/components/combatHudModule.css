@@ -111,8 +111,21 @@
 
 /* Target column: a slightly shorter silhouette than the old column layout
  * needs, since it now shares its row with the text column instead of sitting
- * above it. */
+ * above it. Selected-target silhouette is 1.25x this base size (57.5x97.5 —
+ * see the rule below); the crosshair placeholder in the EMPTY Target Area
+ * uses a completely different class (.ohud-target-crosshair) and is
+ * unaffected by either of these. */
 .ohud-cc-target .ohud-figure { width: 46px; height: 78px; }
+
+/* Selected-target silhouette only (.ohud-figure--targetable never renders in
+ * the empty/picking states — see TargetBlock.js). Sized via width/height, NOT
+ * transform:scale(): scale() wouldn't reflow the flex row layout (the figure
+ * would keep its OLD box for sibling positioning while visually overflowing
+ * into the name/zone/Clear text column) and would also scale stroke widths
+ * unevenly. width/height instead make the figure ACTUALLY occupy more layout
+ * space, so the meta column reflows to make room — the required "no overlap"
+ * behavior falls out of normal flex layout instead of needing extra rules. */
+.ohud-cc-target .ohud-figure--targetable { width: 57.5px; height: 97.5px; }
 
 /* Full-width action bar: two equal buttons, thin divider between them. */
 .ohud-cc-actionbar {
