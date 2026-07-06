@@ -295,6 +295,26 @@ test("17. slots 0-9 are row 0; slot 10+ start row 1 (second row grows upward in 
   assert.equal(rowOfSlot(19), 1);
 });
 
+/* ── version-default consistency (regression) ─────────────────────────── */
+
+test("regression: 'no layout saved yet' means version 0 in BOTH the getter and the save-conflict check", () => {
+  // Bug reproduced live: the getter defaulted a missing layout to version 1
+  // while the save function's own missing-row default was 0. A client that
+  // read version 1 and saved with expected_version=1 was rejected against the
+  // save function's real default of 0 (QUICKBAR_VERSION_CONFLICT: expected 1,
+  // server has 0) on the very first save for a character with no prior layout.
+  const getterFn = sql92.slice(sql92.indexOf("function public.odyssey_get_character_quick_actions_runtime"));
+  const saveFn = sql92.slice(sql92.indexOf("function public.odyssey_save_character_quickbar_layout"), sql92.indexOf("function public.odyssey_quickbar_layout_update_timestamp"));
+  assert.match(getterFn, /v_version := coalesce\(v_version, 0\)/, "getter's missing-row default is 0");
+  assert.match(saveFn, /v_current_version := coalesce\(v_current_version, 0\)/, "save's missing-row default is 0");
+  assert.ok(!/coalesce\(v_version, 1\)/.test(getterFn), "getter must never default to 1 again");
+});
+
+test("regression: the client mapper's version fallback also defaults to 0, not 1", () => {
+  const noVersionField = mapQuickActionsRuntime({ ok: true, characterId: "c1", quickActions: [], quickbar: { slots: [] } });
+  assert.equal(noVersionField.quickbar.version, 0);
+});
+
 /* ── extra contract + honesty checks ──────────────────────────────────── */
 
 test("mapper returns honest empty runtime for null/garbage input (never throws)", () => {

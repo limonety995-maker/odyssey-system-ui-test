@@ -245,7 +245,10 @@ export function mapQuickActionsRuntime(runtime) {
     quickbar: {
       slots,
       maxSlots: num(rawQuickbar.maxSlots ?? rawQuickbar.max_slots, 20),
-      version: num(rawQuickbar.version, 1),
+      // 0 matches the server's own "no layout saved yet" version (never 1 —
+      // that would desync from odyssey_save_character_quickbar_layout's own
+      // "no row" default and falsely trigger QUICKBAR_VERSION_CONFLICT).
+      version: num(rawQuickbar.version, 0),
     },
   };
 }

@@ -210,7 +210,11 @@ begin
   where character_id = p_character_id;
 
   v_layout := coalesce(v_layout, jsonb_build_object('slots', '[]'::jsonb));
-  v_version := coalesce(v_version, 1);
+  -- No saved layout yet -> version 0, matching odyssey_save_character_quickbar_layout's
+  -- own "no row" default. A client that reads version 0 here and saves with
+  -- expected_version=0 must succeed (first insert bumps it to 1) — these two
+  -- functions must never disagree on what "nothing saved yet" means.
+  v_version := coalesce(v_version, 0);
 
   -- Build quick-actions list from odyssey_character_abilities.
   -- In Phase 4.0, only populate metadata; no execution.
