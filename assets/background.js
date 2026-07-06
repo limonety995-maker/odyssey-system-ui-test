@@ -3673,6 +3673,69 @@ var LineBuilder = class extends GenericItemBuilder {
   }
 };
 
+// node_modules/@owlbear-rodeo/sdk/lib/builders/ShapeBuilder.js
+var ShapeBuilder = class extends GenericItemBuilder {
+  constructor(player) {
+    super(player);
+    this._width = 0;
+    this._height = 0;
+    this._shapeType = "RECTANGLE";
+    this._style = {
+      fillColor: "black",
+      fillOpacity: 1,
+      strokeColor: "white",
+      strokeOpacity: 1,
+      strokeWidth: 5,
+      strokeDash: []
+    };
+    this._item.layer = "DRAWING";
+    this._item.name = "Shape";
+  }
+  width(width) {
+    this._width = width;
+    return this.self();
+  }
+  height(height) {
+    this._height = height;
+    return this.self();
+  }
+  shapeType(shapeType) {
+    this._shapeType = shapeType;
+    return this.self();
+  }
+  style(style) {
+    this._style = style;
+    return this.self();
+  }
+  fillColor(fillColor) {
+    this._style.fillColor = fillColor;
+    return this.self();
+  }
+  fillOpacity(fillOpacity) {
+    this._style.fillOpacity = fillOpacity;
+    return this.self();
+  }
+  strokeColor(strokeColor) {
+    this._style.strokeColor = strokeColor;
+    return this.self();
+  }
+  strokeOpacity(strokeOpacity) {
+    this._style.strokeOpacity = strokeOpacity;
+    return this.self();
+  }
+  strokeWidth(strokeWidth) {
+    this._style.strokeWidth = strokeWidth;
+    return this.self();
+  }
+  strokeDash(strokeDash) {
+    this._style.strokeDash = strokeDash;
+    return this.self();
+  }
+  build() {
+    return Object.assign(Object.assign({}, this._item), { type: "SHAPE", width: this._width, height: this._height, shapeType: this._shapeType, style: this._style });
+  }
+};
+
 // node_modules/@owlbear-rodeo/sdk/lib/builders/TextBuilder.js
 var TextBuilder = class extends GenericItemBuilder {
   constructor(player) {
@@ -3916,6 +3979,9 @@ function buildImage(image, grid) {
 }
 function buildLine() {
   return new LineBuilder(playerApi);
+}
+function buildShape() {
+  return new ShapeBuilder(playerApi);
 }
 function buildText() {
   return new TextBuilder(playerApi);
@@ -9011,6 +9077,321 @@ function setupTargetSelection(options = {}) {
   };
 }
 
+// hud/targeting/targetCursorSvg.js
+var CURSOR_CYAN_HEX = "%2334e1d6";
+function reticleSvgMarkup(size, colorToken) {
+  const c = size / 2;
+  const rOuter = size * 0.28;
+  const tickStart = size * 0.03;
+  const tickEnd = size * 0.22;
+  const tickStart2 = size * 0.78;
+  const tickEnd2 = size * 0.97;
+  return `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}' viewBox='0 0 ${size} ${size}'><circle cx='${c}' cy='${c}' r='${rOuter}' fill='none' stroke='${colorToken}' stroke-width='1.6'/><line x1='${c}' y1='${tickStart}' x2='${c}' y2='${tickEnd}' stroke='${colorToken}' stroke-width='1.6' stroke-linecap='round'/><line x1='${c}' y1='${tickStart2}' x2='${c}' y2='${tickEnd2}' stroke='${colorToken}' stroke-width='1.6' stroke-linecap='round'/><line x1='${tickStart}' y1='${c}' x2='${tickEnd}' y2='${c}' stroke='${colorToken}' stroke-width='1.6' stroke-linecap='round'/><line x1='${tickStart2}' y1='${c}' x2='${tickEnd2}' y2='${c}' stroke='${colorToken}' stroke-width='1.6' stroke-linecap='round'/></svg>`;
+}
+function buildTargetCursorValue() {
+  const svg = reticleSvgMarkup(32, CURSOR_CYAN_HEX);
+  return `url("data:image/svg+xml,${svg}") 16 16, crosshair`;
+}
+function buildTargetCursorToolIcon() {
+  const svg = reticleSvgMarkup(24, CURSOR_CYAN_HEX);
+  return `data:image/svg+xml,${svg}`;
+}
+
+// hud/targeting/visuals/targetingVisualPolicy.js
+var OUTLINE_GAP_RATIO = 0.1;
+var RING_GAP_RATIO = 0.18;
+var RING_ROTATION_PERIOD_MS = 3500;
+var RING_TICK_MS = 150;
+function shouldShowSourceOutline({ viewerRole, canView, sourceTokenId } = {}) {
+  if (!sourceTokenId) return false;
+  if (String(viewerRole ?? "").toLowerCase() === "gm") return false;
+  return canView === true;
+}
+function shouldShowTargetRing({ targetTokenId } = {}) {
+  return !!targetTokenId;
+}
+function isPickingActive(targetingMode) {
+  return targetingMode === "picking";
+}
+function num6(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function computeOverlayGeometry(bounds, gapRatio) {
+  const width = Math.max(1, num6(bounds?.width, 1));
+  const height = Math.max(1, num6(bounds?.height, 1));
+  const center = { x: num6(bounds?.center?.x, 0), y: num6(bounds?.center?.y, 0) };
+  const ratio = Math.max(0, num6(gapRatio, 0));
+  return {
+    width: width * (1 + ratio),
+    height: height * (1 + ratio),
+    position: center
+  };
+}
+function nextRingRotation(currentDeg, elapsedMs, periodMs = RING_ROTATION_PERIOD_MS) {
+  const period = Math.max(1, num6(periodMs, RING_ROTATION_PERIOD_MS));
+  const deltaDeg = num6(elapsedMs, 0) / period * 360;
+  const next = (num6(currentDeg, 0) + deltaDeg) % 360;
+  return next < 0 ? next + 360 : next;
+}
+
+// hud/targeting/visuals/targetingVisualRenderer.js
+var SOURCE_OUTLINE_ITEM_ID = "com.odyssey-system/targeting-source-outline";
+var TARGET_RING_ITEM_ID = "com.odyssey-system/targeting-target-ring";
+var SOURCE_OUTLINE_COLOR = "#34e1d6";
+var TARGET_RING_COLOR = "#ff5c6c";
+function buildSourceOutlineItem(tokenId, bounds) {
+  const geo = computeOverlayGeometry(bounds, OUTLINE_GAP_RATIO);
+  return buildShape().id(SOURCE_OUTLINE_ITEM_ID).name("Odyssey Source Outline (local only)").shapeType("RECTANGLE").width(geo.width).height(geo.height).position(geo.position).style({
+    fillColor: SOURCE_OUTLINE_COLOR,
+    fillOpacity: 0.03,
+    strokeColor: SOURCE_OUTLINE_COLOR,
+    strokeOpacity: 0.9,
+    strokeWidth: 6,
+    strokeDash: []
+  }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
+}
+function buildTargetRingItem(tokenId, bounds, rotationDeg = 0) {
+  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
+  return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).rotation(rotationDeg).style({
+    fillColor: TARGET_RING_COLOR,
+    fillOpacity: 0,
+    strokeColor: TARGET_RING_COLOR,
+    strokeOpacity: 0.95,
+    strokeWidth: 5,
+    strokeDash: [14, 10]
+  }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).disableAttachmentBehavior(["ROTATION"]).visible(true).build();
+}
+async function getTokenBounds(tokenId) {
+  const box = await lib_default.scene.items.getItemBounds([tokenId]);
+  return { width: box.width, height: box.height, center: box.center };
+}
+async function showSourceOutline(tokenId) {
+  const bounds = await getTokenBounds(tokenId);
+  await lib_default.scene.local.addItems([buildSourceOutlineItem(tokenId, bounds)]);
+}
+async function hideSourceOutline() {
+  await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID]);
+}
+async function showTargetRing(tokenId) {
+  const bounds = await getTokenBounds(tokenId);
+  await lib_default.scene.local.addItems([buildTargetRingItem(tokenId, bounds, 0)]);
+}
+async function hideTargetRing() {
+  await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
+}
+async function setTargetRingRotation(rotationDeg) {
+  await lib_default.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
+    for (const item of items) item.rotation = rotationDeg;
+  });
+}
+async function hideAllTargetingVisuals() {
+  await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID]);
+}
+
+// hud/targeting/visuals/targetingVisualController.js
+var TARGETING_CURSOR_TOOL_ID = "com.odyssey-system/targeting-cursor-tool";
+var TARGETING_CURSOR_MODE_ID = "com.odyssey-system/targeting-cursor-mode";
+function setupTargetingVisuals() {
+  if (typeof lib_default === "undefined" || lib_default.isAvailable === false) {
+    return { handleTargetingState() {
+    }, handleSelectionState() {
+    }, cleanup() {
+    } };
+  }
+  let disposed = false;
+  let toolRegistered = false;
+  let toolActive = false;
+  let previousToolId = "";
+  let previousModeId = "";
+  let sourceTokenId = null;
+  let targetTokenId = null;
+  let picking = false;
+  let viewerRole = "player";
+  let canView = false;
+  let outlineVisible = false;
+  let ringVisible = false;
+  let ringRotationDeg = 0;
+  let ringTimer = null;
+  let ringTickInFlight = false;
+  let unsubscribeSceneReady = null;
+  async function registerToolOnce() {
+    if (toolRegistered) return;
+    try {
+      try {
+        await lib_default.tool.removeMode(TARGETING_CURSOR_MODE_ID);
+      } catch (_e) {
+      }
+      try {
+        await lib_default.tool.remove(TARGETING_CURSOR_TOOL_ID);
+      } catch (_e) {
+      }
+      const toolIcon = buildTargetCursorToolIcon();
+      await lib_default.tool.createMode({
+        id: TARGETING_CURSOR_MODE_ID,
+        icons: [{ icon: toolIcon, label: "Odyssey Target Picker" }],
+        cursors: [{ cursor: buildTargetCursorValue() }]
+      });
+      await lib_default.tool.create({
+        id: TARGETING_CURSOR_TOOL_ID,
+        icons: [{ icon: toolIcon, label: "Odyssey Target Picker" }],
+        defaultMode: TARGETING_CURSOR_MODE_ID
+      });
+      toolRegistered = true;
+    } catch (_e) {
+      toolRegistered = false;
+    }
+  }
+  async function activatePickingCursor() {
+    if (!toolRegistered) await registerToolOnce();
+    if (!toolRegistered || toolActive) return;
+    try {
+      const [activeTool, activeMode] = await Promise.all([getActiveTool(), getActiveToolMode()]);
+      if (activeTool && activeTool !== TARGETING_CURSOR_TOOL_ID) {
+        previousToolId = activeTool;
+        previousModeId = activeMode || "";
+      }
+      await activateTool(TARGETING_CURSOR_TOOL_ID);
+      await activateToolMode(TARGETING_CURSOR_TOOL_ID, TARGETING_CURSOR_MODE_ID);
+      toolActive = true;
+    } catch (_e) {
+    }
+  }
+  async function restorePickingCursor() {
+    if (!toolActive) return;
+    toolActive = false;
+    try {
+      if (previousToolId) {
+        await activateTool(previousToolId);
+        if (previousModeId) await activateToolMode(previousToolId, previousModeId).catch(() => {
+        });
+      }
+    } catch (_e) {
+    } finally {
+      previousToolId = "";
+      previousModeId = "";
+    }
+  }
+  function stopRingTimer() {
+    if (ringTimer) {
+      clearInterval(ringTimer);
+      ringTimer = null;
+    }
+  }
+  function startRingTimer() {
+    if (ringTimer) return;
+    let lastTick = Date.now();
+    ringTimer = setInterval(async () => {
+      if (disposed || !ringVisible || ringTickInFlight) return;
+      const now = Date.now();
+      const elapsed = now - lastTick;
+      lastTick = now;
+      ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
+      ringTickInFlight = true;
+      try {
+        await setTargetRingRotation(ringRotationDeg);
+      } catch (_e) {
+      }
+      ringTickInFlight = false;
+    }, RING_TICK_MS);
+  }
+  async function reconcileOutline() {
+    const wanted = shouldShowSourceOutline({ viewerRole, canView, sourceTokenId });
+    if (wanted === outlineVisible) return;
+    outlineVisible = wanted;
+    try {
+      if (wanted) await showSourceOutline(sourceTokenId);
+      else await hideSourceOutline();
+    } catch (_e) {
+      outlineVisible = false;
+    }
+  }
+  async function reconcileRing() {
+    const wanted = shouldShowTargetRing({ targetTokenId });
+    if (wanted === ringVisible) return;
+    ringVisible = wanted;
+    if (wanted) {
+      ringRotationDeg = 0;
+      try {
+        await showTargetRing(targetTokenId);
+        startRingTimer();
+      } catch (_e) {
+        ringVisible = false;
+      }
+    } else {
+      stopRingTimer();
+      try {
+        await hideTargetRing();
+      } catch (_e) {
+      }
+    }
+  }
+  async function reconcileCursor() {
+    if (picking) await activatePickingCursor();
+    else await restorePickingCursor();
+  }
+  function handleTargetingState(payload) {
+    if (disposed) return;
+    const nextSource = payload?.source?.tokenId ?? null;
+    const nextTarget = payload?.target?.tokenId ?? null;
+    const nextPicking = isPickingActive(payload?.mode);
+    const sourceChanged = nextSource !== sourceTokenId;
+    const targetChanged = nextTarget !== targetTokenId;
+    const pickingChanged = nextPicking !== picking;
+    sourceTokenId = nextSource;
+    targetTokenId = nextTarget;
+    picking = nextPicking;
+    if (pickingChanged) void reconcileCursor();
+    if (sourceChanged) void reconcileOutline();
+    if (targetChanged) void reconcileRing();
+  }
+  function handleSelectionState(payload) {
+    if (disposed) return;
+    const nextRole = String(payload?.viewer?.role ?? "player").toLowerCase();
+    const nextCanView = payload?.access?.canView === true;
+    if (nextRole === viewerRole && nextCanView === canView) return;
+    viewerRole = nextRole;
+    canView = nextCanView;
+    void reconcileOutline();
+  }
+  lib_default.onReady(() => {
+    if (disposed) return;
+    unsubscribeSceneReady = lib_default.scene.onReadyChange((ready) => {
+      if (disposed || ready) return;
+      stopRingTimer();
+      outlineVisible = false;
+      ringVisible = false;
+      picking = false;
+      toolActive = false;
+    });
+  });
+  return {
+    handleTargetingState,
+    handleSelectionState,
+    async cleanup() {
+      if (disposed) return;
+      disposed = true;
+      stopRingTimer();
+      unsubscribeSceneReady?.();
+      await restorePickingCursor();
+      try {
+        await hideAllTargetingVisuals();
+      } catch (_e) {
+      }
+      if (toolRegistered) {
+        try {
+          await lib_default.tool.removeMode(TARGETING_CURSOR_MODE_ID);
+        } catch (_e) {
+        }
+        try {
+          await lib_default.tool.remove(TARGETING_CURSOR_TOOL_ID);
+        } catch (_e) {
+        }
+      }
+    }
+  };
+}
+
 // hud/core/combatHudSelectors.js
 function selectVisibleReserveMagazines(state) {
   const weapon = state?.snapshot?.weapon?.primary ?? null;
@@ -9253,6 +9634,7 @@ var pollTimer = null;
 var lastSelectionStatus = SELECTION_STATUS.loading;
 var sceneCleanup = null;
 var targetSelection = null;
+var targetingVisuals = null;
 var gunWeaponSelectorOpen = false;
 var gunMagazineSelectorOpen = false;
 var gunFireModeSelectorOpen = false;
@@ -9676,10 +10058,15 @@ function setupCombatHudOverlay() {
       mode = isCollapsed() ? "collapsed" : "modules";
       await applyMode();
       startViewportPoll();
+      targetingVisuals = setupTargetingVisuals();
       targetSelection = setupTargetSelection({
         onTargetingState: (payload) => {
           try {
             sceneCleanup?.applyTargetingPayload?.(payload);
+          } catch (_e) {
+          }
+          try {
+            targetingVisuals?.handleTargetingState?.(payload);
           } catch (_e) {
           }
         }
@@ -9690,6 +10077,10 @@ function setupCombatHudOverlay() {
           lastSelectionPayload = payload ?? null;
           try {
             targetSelection?.handleActiveSelection?.(payload);
+          } catch (_e) {
+          }
+          try {
+            targetingVisuals?.handleSelectionState?.(payload);
           } catch (_e) {
           }
           try {

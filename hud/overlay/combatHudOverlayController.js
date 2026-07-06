@@ -31,6 +31,7 @@ import {
 import { logDebugEvent } from "../debug/debugLogStore.js";
 import { setupSceneSelection } from "../scene/sceneSelectionController.js";
 import { setupTargetSelection } from "../targeting/targetSelectionController.js";
+import { setupTargetingVisuals } from "../targeting/visuals/targetingVisualController.js";
 import {
   SELECTION_STATUS,
   SECONDARY_MODULE_IDS,
@@ -84,6 +85,7 @@ let pollTimer = null;
 let lastSelectionStatus = SELECTION_STATUS.loading;
 let sceneCleanup = null;
 let targetSelection = null;
+let targetingVisuals = null;
 let gunWeaponSelectorOpen = false;
 let gunMagazineSelectorOpen = false;
 let gunFireModeSelectorOpen = false;
@@ -512,6 +514,12 @@ export function setupCombatHudOverlay() {
       await applyMode();
       startViewportPoll();
 
+      // Phase 4.0g: local-only map visuals (source outline, target ring, the
+      // picking cursor). A pure CONSUMER of the same two broadcasts below —
+      // it never sends targeting commands itself and never mutates canonical
+      // combat state; see hud/targeting/visuals/targetingVisualController.js.
+      targetingVisuals = setupTargetingVisuals();
+
       // Phase 3A: scene-selection layer. The scene controller broadcasts the
       // trimmed selection payload to the iframes (and replays it on request);
       // here we only reconcile which popovers are open when the selection
@@ -519,6 +527,7 @@ export function setupCombatHudOverlay() {
       targetSelection = setupTargetSelection({
         onTargetingState: (payload) => {
           try { sceneCleanup?.applyTargetingPayload?.(payload); } catch (_e) { /* bridge best-effort */ }
+          try { targetingVisuals?.handleTargetingState?.(payload); } catch (_e) { /* visuals are best-effort */ }
         },
       });
 
@@ -527,6 +536,7 @@ export function setupCombatHudOverlay() {
         onSelectionState: async (payload) => {
           lastSelectionPayload = payload ?? null;
           try { targetSelection?.handleActiveSelection?.(payload); } catch (_e) { /* targeting owns its errors */ }
+          try { targetingVisuals?.handleSelectionState?.(payload); } catch (_e) { /* visuals are best-effort */ }
           try {
             const nextCharId = payload?.characterId ?? null;
             if (characterChangeClosesCompanions(lastActiveCharacterId, nextCharId)) {
@@ -656,6 +666,7 @@ export async function teardownCombatHudOverlay() {
   for (const fn of cleanups.splice(0)) { try { fn(); } catch (_e) { /* ignore */ } }
   if (typeof sceneCleanup === "function") { try { sceneCleanup(); } catch (_e) { /* ignore */ } sceneCleanup = null; }
   if (targetSelection?.cleanup) { try { targetSelection.cleanup(); } catch (_e) { /* ignore */ } targetSelection = null; }
+  if (targetingVisuals?.cleanup) { await targetingVisuals.cleanup().catch(() => {}); targetingVisuals = null; }
   started = false;
   lastUiState = { ...DEFAULT_HUD_UI_STATE };
   lastLayout = defaultLayoutState();

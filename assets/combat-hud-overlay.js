@@ -3861,12 +3861,26 @@ var combatHudLayout_default = `/*
   border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
 }
 .ohud-target-clear:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }
-.ohud-target.is-empty .ohud-target-hint { font-size: 9px; font-weight: 700; color: var(--odyssey-hud-dim); }
-.ohud-target-pick {
-  padding: 2px 10px; font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text);
-  background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+/* Phase 4.0g: the WHOLE empty-Target area is either a button ("Pick target on
+ * map", idle) or a static status ("Selecting target\u2026", picking) \u2014 no
+ * humanoid silhouette, no separate small Pick/Cancel button. */
+.ohud-target-pickarea {
+  appearance: none; margin: 0; padding: 6px; width: 100%; height: 100%;
+  font: inherit; color: inherit; text-align: center;
+  background: transparent; border: 1px dashed var(--odyssey-hud-border);
+  border-radius: var(--odyssey-hud-radius-inner);
+  cursor: pointer;
 }
-.ohud-target-pick:hover { border-color: var(--odyssey-hud-border-strong); }
+.ohud-target-pickarea:hover, .ohud-target-pickarea:focus-visible {
+  border-color: var(--odyssey-hud-implant); background: rgba(52, 225, 214, 0.06); outline: none;
+}
+.ohud-target-pickarea.is-picking { cursor: default; border-style: solid; border-color: var(--odyssey-hud-implant); }
+.ohud-target-crosshair {
+  width: 30px; height: 30px; display: inline-flex;
+  color: var(--odyssey-hud-implant); opacity: 0.82; /* calmer than the Attack button's solid fill */
+}
+.ohud-target.is-empty .ohud-target-hint { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); letter-spacing: 0.2px; }
+.ohud-target-subhint { font-size: 8.5px; color: var(--odyssey-hud-dim); }
 
 /* ===================== Mod + Action column ===================== */
 .ohud-panel--modact { gap: 3px; }
@@ -6886,18 +6900,22 @@ var SVG_PART_TO_ZONE = Object.freeze(
   Object.fromEntries(Object.entries(ZONE_TO_SVG_PART).map(([zoneId, svgPart]) => [svgPart, zoneId]))
 );
 
+// hud/targeting/targetCursorSvg.js
+var TARGET_CROSSHAIR_ICON = `<svg viewBox="0 0 48 48" width="100%" height="100%" aria-hidden="true"><circle cx="24" cy="24" r="14" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="24" y1="2" x2="24" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="24" y1="38" x2="24" y2="46" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="2" y1="24" x2="10" y2="24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="38" y1="24" x2="46" y2="24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+
 // hud/components/TargetBlock.js
 function renderTargetBlock(state) {
   const tv = selectTargetView(state);
   if (!tv.hasTarget) {
     const picking = tv.isPicking;
-    const body2 = `<div class="ohud-target is-empty">
-      <div class="ohud-figure ohud-figure--ghost"><div class="ohud-figure-svg">${humanoidSvg({ neutral: true })}</div></div>
-      <div class="ohud-target-hint">${picking ? "PICK A TARGET" : "No target selected"}</div>
-      <button type="button" class="ohud-target-pick" data-action="${picking ? "cancel-target" : "pick-target"}">
-        ${picking ? "Cancel" : "Pick target"}
-      </button>
-    </div>`;
+    const body2 = picking ? `<div class="ohud-target is-empty ohud-target-pickarea is-picking" role="status" aria-live="polite">
+          <span class="ohud-target-crosshair" aria-hidden="true">${TARGET_CROSSHAIR_ICON}</span>
+          <div class="ohud-target-hint">Selecting target\u2026</div>
+          <div class="ohud-target-subhint">Press Esc to cancel</div>
+        </div>` : `<button type="button" class="ohud-target is-empty ohud-target-pickarea" data-action="pick-target" role="button" tabindex="0" aria-label="Pick target on map">
+          <span class="ohud-target-crosshair" aria-hidden="true">${TARGET_CROSSHAIR_ICON}</span>
+          <div class="ohud-target-hint">Pick target on map</div>
+        </button>`;
     return panel({ key: "target", label: "Target", bodyHtml: body2 });
   }
   const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : null;
@@ -7797,6 +7815,9 @@ function mountCombatHudModule(options) {
     if (e.key === "Escape" && moduleId === "gun") {
       integration.onCommand && integration.onCommand({ type: "close-weapon-selector" });
       integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "fire-mode", type: "close-selector" });
+    }
+    if (e.key === "Escape" && moduleId === "combatControl") {
+      integration.onCommand && integration.onCommand({ type: "cancel-target" });
     }
   }
   el.addEventListener("keydown", onKeyDown);

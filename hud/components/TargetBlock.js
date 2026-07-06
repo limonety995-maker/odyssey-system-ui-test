@@ -9,19 +9,31 @@ import { humanoidSvg, ICON_SHIELD } from "./hudIcons.js";
 import { panel } from "./HudPanel.js";
 import { esc, tipAttr } from "./hudDom.js";
 import { zoneIdToSvgPart } from "../targeting/targetProfiles.js";
+import { TARGET_CROSSHAIR_ICON } from "../targeting/targetCursorSvg.js";
 
 export function renderTargetBlock(state) {
   const tv = selectTargetView(state);
 
   if (!tv.hasTarget) {
     const picking = tv.isPicking;
-    const body = `<div class="ohud-target is-empty">
-      <div class="ohud-figure ohud-figure--ghost"><div class="ohud-figure-svg">${humanoidSvg({ neutral: true })}</div></div>
-      <div class="ohud-target-hint">${picking ? "PICK A TARGET" : "No target selected"}</div>
-      <button type="button" class="ohud-target-pick" data-action="${picking ? "cancel-target" : "pick-target"}">
-        ${picking ? "Cancel" : "Pick target"}
-      </button>
-    </div>`;
+    // Phase 4.0g: no humanoid silhouette here at all while there is no target
+    // — the WHOLE area is either the "Pick target on map" button (idle) or a
+    // static "Selecting target…" status (picking). Reuses the SAME existing
+    // pick-target/cancel-target commands (see CombatHudModule.js) — this is
+    // only a layout/markup change, never a new target-selection mechanism.
+    // While picking, this is deliberately a plain <div> (no data-action at
+    // all) so a stray click can never re-dispatch "pick" a second time; Esc
+    // (handled once at the module level) is the only way to cancel.
+    const body = picking
+      ? `<div class="ohud-target is-empty ohud-target-pickarea is-picking" role="status" aria-live="polite">
+          <span class="ohud-target-crosshair" aria-hidden="true">${TARGET_CROSSHAIR_ICON}</span>
+          <div class="ohud-target-hint">Selecting target…</div>
+          <div class="ohud-target-subhint">Press Esc to cancel</div>
+        </div>`
+      : `<button type="button" class="ohud-target is-empty ohud-target-pickarea" data-action="pick-target" role="button" tabindex="0" aria-label="Pick target on map">
+          <span class="ohud-target-crosshair" aria-hidden="true">${TARGET_CROSSHAIR_ICON}</span>
+          <div class="ohud-target-hint">Pick target on map</div>
+        </button>`;
     return panel({ key: "target", label: "Target", bodyHtml: body });
   }
 

@@ -300,6 +300,14 @@ export function mountCombatHudModule(options) {
       integration.onCommand && integration.onCommand({ type: "close-weapon-selector" });
       integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "fire-mode", type: "close-selector" });
     }
+    // Phase 4.0g: Esc cancels an in-progress target pick. Reuses the EXACT
+    // existing "cancel-target" command — targetSelectionController's onCancel()
+    // already no-ops when not currently picking, so this is safe to dispatch
+    // unconditionally (mirrors the gun-module Escape handler above, which
+    // does the same for its own selectors).
+    if (e.key === "Escape" && moduleId === "combatControl") {
+      integration.onCommand && integration.onCommand({ type: "cancel-target" });
+    }
   }
   el.addEventListener("keydown", onKeyDown);
 

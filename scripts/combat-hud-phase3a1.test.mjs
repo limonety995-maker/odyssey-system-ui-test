@@ -326,10 +326,13 @@ test("5. no abilities section in bundle → empty library; Skills block shows no
 });
 
 // ── Test 6: no combat session → target hasTarget = false ────────────────────
-test("6. no target in runtime bundle → Combat Control shows 'No target'", () => {
+test("6. no target in runtime bundle → Combat Control shows the Pick-target area", () => {
+  // Phase 4.0g: the empty-target copy changed from "No target selected" to the
+  // big Target Area button ("Pick target on map") — this pins the NEW, real
+  // copy rather than the old placeholder text.
   const payload = payloadFromBundle(minimalBundle());
   const html = renderSelectionModule("combatControl", payload);
-  assert.ok(html.includes("No target"), "shows neutral 'No target' when session absent");
+  assert.ok(html.includes("Pick target on map"), "shows the Pick-target area when no session/target exists");
   assert.ok(!html.includes("Scrap Raider"), "no mock target name");
 });
 
