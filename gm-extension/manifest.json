@@ -1,14 +1,14 @@
 {
   "name": "Odyssey GM Tools",
-  "version": "1.8.50",
+  "version": "1.8.51",
   "manifest_version": 1,
   "description": "Minimal GM bridge shell for future Odyssey UI slices.",
   "author": "Codex",
-  "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.50",
+  "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.51",
   "action": {
     "title": "Odyssey GM Tools",
-    "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.50",
-    "popover": "https://limonety995-maker.github.io/odyssey-system-ui-test/gm-extension/index.html?v=1.8.50",
+    "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.51",
+    "popover": "https://limonety995-maker.github.io/odyssey-system-ui-test/gm-extension/index.html?v=1.8.51",
     "height": 900,
     "width": 560
   }

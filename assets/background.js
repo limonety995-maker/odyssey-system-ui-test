@@ -6685,7 +6685,10 @@ function mapQuickActionsRuntime(runtime) {
     quickbar: {
       slots,
       maxSlots: num2(rawQuickbar.maxSlots ?? rawQuickbar.max_slots, 20),
-      version: num2(rawQuickbar.version, 1)
+      // 0 matches the server's own "no layout saved yet" version (never 1 —
+      // that would desync from odyssey_save_character_quickbar_layout's own
+      // "no row" default and falsely trigger QUICKBAR_VERSION_CONFLICT).
+      version: num2(rawQuickbar.version, 0)
     }
   };
 }
@@ -9481,15 +9484,16 @@ async function setGmTrackerOpen(open) {
 function quickbarEditorRect() {
   if (!lastLayout.modules?.skills) return null;
   const skRect = moduleRect("skills");
-  const width = 320;
-  const height = 380;
+  const width = 780;
+  const height = 560;
   const gap = 4;
-  return {
-    left: Math.max(0, skRect.left + (skRect.width - width) / 2),
-    top: Math.max(0, skRect.top - height - gap),
+  const rect = {
+    left: skRect.left + (skRect.width - width) / 2,
+    top: skRect.top - height - gap,
     width,
     height
   };
+  return clampRect(rect, lastVW, lastVH);
 }
 async function setQuickbarEditorOpen(open) {
   const next = Boolean(open);

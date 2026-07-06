@@ -3941,79 +3941,218 @@ var combatHudLayout_default = `/*\r
 .ohud-hud[data-mode="mini"] .ohud-panel--skills { flex: 1 1 100%; min-width: 0; }\r
 .ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }\r
 .ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }\r
-
-/* ===================== Quickbar (Phase 4.0b) ===================== */
-/* Skills-module strip: slot tiles in rows; row 0 (slots 1-10) on the bottom,
- * higher rows stacked above (second row grows upward). */
-.ohud-qb-wrap { display: flex; flex-direction: column; gap: 3px; height: 100%; min-height: 0; }
-.ohud-qb { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; justify-content: flex-end; }
-.ohud-qb--empty { justify-content: center; }
-.ohud-qb-row { display: flex; gap: 3px; flex-wrap: nowrap; }
-.ohud-qb-slot {
-  position: relative; width: 34px; height: 34px; flex: 0 0 auto;
-  display: grid; place-items: center; padding: 0;
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
-  background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);
-  cursor: pointer; overflow: hidden;
-}
-.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.5; background: transparent; }
-.ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
-.ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
-.ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
-.ohud-qb-icon { width: 18px; height: 18px; display: block; }
-.ohud-qb-name {
-  position: absolute; bottom: 0; left: 0; right: 0; font-size: 6px; line-height: 1.1;
-  text-align: center; padding: 0 1px 1px; background: rgba(0,0,0,0.35);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ohud-qb-type { position: absolute; top: 1px; left: 2px; font-size: 5.5px; font-weight: 800; opacity: 0.8; letter-spacing: 0.3px; }
-.ohud-qb-cd { position: absolute; top: 1px; right: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-hud-warning); }
-.ohud-qb-active { position: absolute; top: 1px; right: 2px; font-size: 6px; font-weight: 800; color: var(--odyssey-hud-state-active); }
-.ohud-qb-missing { font-size: 14px; font-weight: 800; }
-.ohud-qb-edit {
-  flex: 0 0 auto; align-self: flex-end; padding: 0 8px; height: 16px;
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;
-  color: var(--odyssey-hud-text); background: transparent;
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
-}
-
-/* Quickbar editor companion popover. */
-.ohud-qbe { display: flex; flex-direction: column; height: 100%; overflow: hidden; gap: 5px; padding: 6px 8px; }
-.ohud-qbe-head { flex: 0 0 auto; }
-.ohud-qbe-title { font-size: 12px; font-weight: 800; }
-.ohud-qbe-section-label { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }
-.ohud-qbe-library { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 4px; max-height: 110px; overflow-y: auto; padding: 2px; }
-.ohud-qbe-lib-empty, .ohud-qbe-empty { font-size: 10px; color: var(--odyssey-hud-muted); padding: 4px; }
-.ohud-qbe-card {
-  display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 4px;
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: grab;
-  background: var(--odyssey-hud-panel, rgba(255,255,255,0.05)); max-width: 140px;
-}
-.ohud-qbe-card.is-disabled { opacity: 0.6; }
-.ohud-qbe-card-icon { width: 15px; height: 15px; flex: 0 0 auto; }
-.ohud-qbe-card-name { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ohud-qbe-card-type { font-size: 6.5px; font-weight: 800; opacity: 0.7; }
-.ohud-qbe-card-off { font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
-.ohud-qbe-slots { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
-.ohud-qbe-slot-row { display: flex; gap: 4px; flex-wrap: wrap; }
-.ohud-qbe-slot {
-  position: relative; width: 40px; height: 40px; flex: 0 0 auto;
-  display: grid; place-items: center; border: 1px solid var(--odyssey-hud-border);
-  border-radius: 6px; background: var(--odyssey-hud-panel, rgba(255,255,255,0.04));
-}
-.ohud-qbe-slot.is-empty { border-style: dashed; opacity: 0.6; }
-.ohud-qbe-slot.is-filled { cursor: grab; }
-.ohud-qbe-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
-.ohud-qbe-slot-idx { position: absolute; top: 1px; left: 2px; font-size: 6.5px; font-weight: 800; opacity: 0.6; }
-.ohud-qbe-slot-icon { width: 18px; height: 18px; }
-.ohud-qbe-slot-name { position: absolute; bottom: 0; left: 0; right: 0; font-size: 6px; text-align: center; background: rgba(0,0,0,0.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 1px; }
-.ohud-qbe-remove { position: absolute; top: -4px; right: -4px; width: 14px; height: 14px; font-size: 10px; line-height: 1; border-radius: 50%; border: none; background: var(--odyssey-hud-danger, #a33); color: #fff; cursor: pointer; padding: 0; }
-.ohud-qbe-conflict { font-size: 10px; color: #2a1c00; background: var(--odyssey-hud-warning); border-radius: 6px; padding: 4px 6px; display: flex; align-items: center; gap: 6px; }
-.ohud-qbe-reload { font-size: 9px; font-weight: 800; border: 1px solid rgba(0,0,0,0.3); background: transparent; border-radius: 5px; padding: 1px 5px; cursor: pointer; }
-.ohud-qbe-actions { flex: 0 0 auto; display: flex; gap: 6px; }
-.ohud-qbe-btn { flex: 1 1 auto; padding: 4px 8px; font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer; }
-.ohud-qbe-btn.is-primary { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }
-.ohud-qbe-btn[disabled] { opacity: 0.5; cursor: default; }
+\r
+/* ===================== Quickbar (Phase 4.0b) ===================== */\r
+/* Skills-module strip: slot tiles in rows; row 0 (slots 1-10) on the bottom,\r
+ * higher rows stacked above (second row grows upward). */\r
+.ohud-qb-wrap { display: flex; flex-direction: column; gap: 3px; height: 100%; min-height: 0; }\r
+.ohud-qb { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; justify-content: flex-end; }\r
+.ohud-qb--empty { justify-content: center; }\r
+.ohud-qb-row { display: flex; gap: 3px; flex-wrap: nowrap; }\r
+.ohud-qb-slot {\r
+  position: relative; width: 34px; height: 34px; flex: 0 0 auto;\r
+  display: grid; place-items: center; padding: 0;\r
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;\r
+  background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);\r
+  cursor: pointer; overflow: hidden;\r
+}\r
+.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.5; background: transparent; }\r
+.ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }\r
+.ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }\r
+.ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }\r
+.ohud-qb-icon { width: 18px; height: 18px; display: block; }\r
+.ohud-qb-name {\r
+  position: absolute; bottom: 0; left: 0; right: 0; font-size: 6px; line-height: 1.1;\r
+  text-align: center; padding: 0 1px 1px; background: rgba(0,0,0,0.35);\r
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;\r
+}\r
+.ohud-qb-type { position: absolute; top: 1px; left: 2px; font-size: 5.5px; font-weight: 800; opacity: 0.8; letter-spacing: 0.3px; }\r
+.ohud-qb-cd { position: absolute; top: 1px; right: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-hud-warning); }\r
+.ohud-qb-active { position: absolute; top: 1px; right: 2px; font-size: 6px; font-weight: 800; color: var(--odyssey-hud-state-active); }\r
+.ohud-qb-missing { font-size: 14px; font-weight: 800; }\r
+.ohud-qb-edit {\r
+  flex: 0 0 auto; align-self: flex-end; padding: 0 8px; height: 16px;\r
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;\r
+  color: var(--odyssey-hud-text); background: transparent;\r
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;\r
+}\r
+\r
+/* ===================== Quickbar editor companion popover (Phase 4.0c) =====================\r
+ * A standalone sci-fi window: dark surface, thin glowing border, header / body\r
+ * / footer. Slots 1-10 render on the TOP row, 11-20 on the BOTTOM row \u2014 a\r
+ * deliberate, fixed departure from the visual reference used to design this. */\r
+.ohud-qbe {\r
+  position: relative;\r
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;\r
+  background: linear-gradient(180deg, rgba(22, 31, 52, 0.98), rgba(12, 16, 27, 0.98));\r
+  border: 1px solid var(--odyssey-hud-border-strong);\r
+  border-radius: var(--odyssey-hud-radius);\r
+  box-shadow: 0 0 0 1px rgba(93, 169, 255, 0.12), 0 0 36px rgba(64, 140, 255, 0.22), var(--odyssey-hud-shadow);\r
+}\r
+/* Sci-fi corner accents on the outer window (decorative only). */\r
+.ohud-qbe::before, .ohud-qbe::after {\r
+  content: ""; position: absolute; width: 16px; height: 16px; pointer-events: none; opacity: 0.55;\r
+  border-color: var(--odyssey-hud-implant); z-index: 1;\r
+}\r
+.ohud-qbe::before { top: 6px; left: 6px; border-top: 2px solid; border-left: 2px solid; border-radius: 4px 0 0 0; }\r
+.ohud-qbe::after { bottom: 6px; right: 6px; border-bottom: 2px solid; border-right: 2px solid; border-radius: 0 0 4px 0; }\r
+\r
+/* ---- Header ---- */\r
+.ohud-qbe-header {\r
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;\r
+  padding: 10px 14px; background: rgba(60, 120, 220, 0.08);\r
+  border-bottom: 1px solid var(--odyssey-hud-border);\r
+}\r
+.ohud-qbe-header-icon {\r
+  flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center;\r
+  color: var(--odyssey-hud-implant); filter: drop-shadow(0 0 6px rgba(52, 225, 214, 0.55));\r
+}\r
+.ohud-qbe-header-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }\r
+.ohud-qbe-header-title {\r
+  font-size: 14px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase;\r
+  color: var(--odyssey-hud-text); text-shadow: 0 0 10px rgba(93, 169, 255, 0.3);\r
+}\r
+.ohud-qbe-header-subtitle {\r
+  font-size: 10px; color: var(--odyssey-hud-muted);\r
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r
+}\r
+.ohud-qbe-close {\r
+  flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center;\r
+  font-size: 15px; line-height: 1; color: var(--odyssey-hud-muted);\r
+  background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;\r
+}\r
+.ohud-qbe-close:hover { color: var(--odyssey-hud-negative); border-color: var(--odyssey-hud-negative); }\r
+\r
+/* ---- Body: two columns ---- */\r
+.ohud-qbe-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; overflow: hidden; }\r
+.ohud-qbe-cols { flex: 1 1 auto; min-height: 0; display: flex; gap: 14px; }\r
+.ohud-qbe-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 6px; }\r
+.ohud-qbe-col--library { flex: 0 0 250px; }\r
+.ohud-qbe-col--slots { flex: 1 1 auto; }\r
+\r
+.ohud-qbe-section-label {\r
+  flex: 0 0 auto; font-size: 10px; font-weight: 800; letter-spacing: 0.8px;\r
+  color: var(--odyssey-hud-muted); text-transform: uppercase;\r
+}\r
+.ohud-qbe-hint { flex: 0 0 auto; font-size: 9.5px; color: var(--odyssey-hud-dim); margin-top: -3px; }\r
+.ohud-qbe-lib-empty, .ohud-qbe-empty { font-size: 10px; color: var(--odyssey-hud-muted); padding: 8px 4px; }\r
+\r
+/* Available-actions library (left column). */\r
+.ohud-qbe-library {\r
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;\r
+  display: flex; flex-direction: column; gap: 6px; padding-right: 3px;\r
+}\r
+.ohud-qbe-card {\r
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px;\r
+  border: 1px solid var(--odyssey-hud-border); border-left-width: 3px; border-radius: 8px; cursor: grab;\r
+  background: var(--odyssey-hud-panel-raised); transition: border-color .12s ease, background .12s ease;\r
+}\r
+.ohud-qbe-card:hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }\r
+.ohud-qbe-card.is-disabled { opacity: 0.55; cursor: default; }\r
+.ohud-qbe-card-icon {\r
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;\r
+  border-radius: 6px; background: rgba(255, 255, 255, 0.05);\r
+}\r
+.ohud-qbe-card-icon svg { width: 16px; height: 16px; }\r
+.ohud-qbe-card-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }\r
+.ohud-qbe-card-name {\r
+  font-size: 11.5px; font-weight: 700; color: var(--odyssey-hud-text);\r
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r
+}\r
+.ohud-qbe-card-type { font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); }\r
+.ohud-qbe-card-badges { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }\r
+.ohud-qbe-badge {\r
+  font-size: 8px; font-weight: 800; letter-spacing: 0.2px; white-space: nowrap;\r
+  padding: 1px 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.06);\r
+  border: 1px solid var(--odyssey-hud-border); color: var(--odyssey-hud-muted);\r
+}\r
+.ohud-qbe-badge--cooldown { color: var(--odyssey-hud-warning); border-color: rgba(255, 194, 75, 0.4); }\r
+.ohud-qbe-badge--resource { color: var(--odyssey-purple); border-color: rgba(167, 139, 250, 0.4); }\r
+.ohud-qbe-card-off { flex: 0 0 auto; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }\r
+\r
+/* Card accent stripe by semantic kind (attack/psionic/implant/intervention/neutral). */\r
+.ohud-qbe-card.ohud-accent--attack { border-left-color: var(--odyssey-hud-attack); }\r
+.ohud-qbe-card.ohud-accent--psionic { border-left-color: var(--odyssey-purple); }\r
+.ohud-qbe-card.ohud-accent--implant { border-left-color: var(--odyssey-cyan); }\r
+.ohud-qbe-card.ohud-accent--intervention { border-left-color: var(--odyssey-hud-intervention); }\r
+.ohud-qbe-card.ohud-accent--neutral { border-left-color: var(--odyssey-hud-border-strong); }\r
+\r
+/* Quickbar slots grid (right column). Row 0 (slots 1-10) is emitted first in\r
+ * the DOM, so it naturally lands on top; row 1 (11-20) follows, on the bottom. */\r
+.ohud-qbe-slots { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }\r
+.ohud-qbe-slot-row { display: flex; gap: 5px; }\r
+.ohud-qbe-slot {\r
+  position: relative; flex: 1 1 0; max-width: 54px; aspect-ratio: 1 / 1;\r
+  display: grid; place-items: center;\r
+  border: 1px dashed var(--odyssey-hud-border); border-radius: 8px;\r
+  background: rgba(255, 255, 255, 0.02); transition: border-color .12s ease, background .12s ease;\r
+}\r
+.ohud-qbe-slot.is-empty::after { content: "+"; font-size: 17px; color: var(--odyssey-hud-dim); opacity: 0.5; }\r
+.ohud-qbe-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.045); }\r
+.ohud-qbe-slot.is-filled {\r
+  cursor: grab; border-style: solid; background: var(--odyssey-hud-panel-raised);\r
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.35);\r
+}\r
+.ohud-qbe-slot.is-filled:hover { box-shadow: 0 0 0 1px var(--odyssey-hud-border-strong), 0 0 14px rgba(93, 169, 255, 0.25); }\r
+.ohud-qbe-slot.is-missing { border-style: solid; border-color: var(--odyssey-hud-negative); color: var(--odyssey-hud-negative); }\r
+.ohud-qbe-slot-idx { position: absolute; top: 2px; left: 3px; font-size: 7px; font-weight: 800; color: var(--odyssey-hud-dim); }\r
+.ohud-qbe-slot-type { position: absolute; top: 2px; right: 3px; font-size: 6px; font-weight: 800; opacity: 0.75; }\r
+.ohud-qbe-slot-icon { width: 18px; height: 18px; }\r
+.ohud-qbe-slot-name {\r
+  position: absolute; bottom: 1px; left: 1px; right: 1px; font-size: 5.5px; text-align: center;\r
+  background: rgba(0, 0, 0, 0.45); border-radius: 0 0 6px 6px; padding: 0 1px;\r
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r
+}\r
+.ohud-qbe-missing { font-size: 15px; font-weight: 800; }\r
+.ohud-qbe-remove {\r
+  position: absolute; top: -5px; right: -5px; width: 14px; height: 14px; padding: 0;\r
+  display: grid; place-items: center; font-size: 10px; line-height: 1; border-radius: 50%;\r
+  border: none; background: var(--odyssey-hud-negative); color: #fff; cursor: pointer;\r
+  opacity: 0; transition: opacity .12s ease;\r
+}\r
+.ohud-qbe-slot.is-filled:hover .ohud-qbe-remove,\r
+.ohud-qbe-slot.is-missing .ohud-qbe-remove { opacity: 1; }\r
+\r
+/* Accent border/glow on filled slots, by semantic kind. */\r
+.ohud-qbe-slot.is-filled.ohud-accent--attack { border-color: var(--odyssey-hud-attack); box-shadow: 0 0 10px rgba(255, 92, 108, 0.28); }\r
+.ohud-qbe-slot.is-filled.ohud-accent--psionic { border-color: var(--odyssey-purple); box-shadow: 0 0 10px rgba(167, 139, 250, 0.28); }\r
+.ohud-qbe-slot.is-filled.ohud-accent--implant { border-color: var(--odyssey-cyan); box-shadow: 0 0 10px rgba(52, 225, 214, 0.28); }\r
+.ohud-qbe-slot.is-filled.ohud-accent--intervention { border-color: var(--odyssey-hud-intervention); box-shadow: 0 0 10px rgba(255, 194, 75, 0.28); }\r
+.ohud-qbe-slot.is-filled.ohud-accent--neutral { border-color: var(--odyssey-hud-border-strong); }\r
+\r
+/* ---- Conflict banner ---- */\r
+.ohud-qbe-conflict {\r
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;\r
+  font-size: 10px; color: var(--odyssey-hud-warning);\r
+  background: rgba(255, 194, 75, 0.12); border: 1px solid rgba(255, 194, 75, 0.4);\r
+  border-radius: 8px; padding: 6px 10px;\r
+}\r
+.ohud-qbe-reload {\r
+  flex: 0 0 auto; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning);\r
+  border: 1px solid rgba(255, 194, 75, 0.5); background: transparent; border-radius: 5px;\r
+  padding: 2px 7px; cursor: pointer;\r
+}\r
+\r
+/* ---- Footer ---- */\r
+.ohud-qbe-footer {\r
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px;\r
+  padding: 10px 14px; border-top: 1px solid var(--odyssey-hud-border); background: rgba(8, 11, 20, 0.4);\r
+}\r
+.ohud-qbe-status { font-size: 10px; font-weight: 600; color: var(--odyssey-hud-dim); }\r
+.ohud-qbe-status--warning { color: var(--odyssey-hud-warning); }\r
+.ohud-qbe-status--busy { color: var(--odyssey-hud-muted); }\r
+.ohud-qbe-actions { flex: 0 0 auto; display: flex; gap: 8px; }\r
+.ohud-qbe-btn {\r
+  padding: 6px 14px; font-size: 11px; font-weight: 700; border-radius: 7px; cursor: pointer;\r
+  color: var(--odyssey-hud-text); background: transparent; border: 1px solid var(--odyssey-hud-border);\r
+}\r
+.ohud-qbe-btn:hover:not([disabled]) { border-color: var(--odyssey-hud-border-strong); }\r
+.ohud-qbe-btn.is-primary {\r
+  color: #052421; font-weight: 800; border-color: transparent;\r
+  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac);\r
+  box-shadow: 0 0 14px rgba(52, 225, 214, 0.4);\r
+}\r
+.ohud-qbe-btn[disabled] { opacity: 0.45; cursor: default; box-shadow: none; }\r
 `;
 
 // hud/components/combatHudModule.css
@@ -7680,6 +7819,27 @@ var SEMANTIC_ACCENT2 = {
   intervention: "intervention"
 };
 var TYPE_MARK2 = { attack_technique: "ATK", directed: "DIR", instant: "INS", toggle: "TGL" };
+var SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
+var SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
+function categoryLabel(action) {
+  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
+  const src = SOURCE_LABEL[action.sourceType] ?? null;
+  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
+  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
+}
+function costBadges(action) {
+  const badges = [];
+  const c = action.costs ?? {};
+  if (c.main > 0) badges.push({ text: `MAIN ${c.main}`, kind: "cost" });
+  else if (c.move > 0) badges.push({ text: `MOVE ${c.move}`, kind: "cost" });
+  else if (c.charges > 0) badges.push({ text: `CHG ${c.charges}`, kind: "cost" });
+  if (c.psi > 0) badges.push({ text: `PSI ${c.psi}`, kind: "resource" });
+  if (action.cooldown?.max > 0) badges.push({ text: `CD ${action.cooldown.max}`, kind: "cooldown" });
+  return badges;
+}
+function badgeHtml(badge) {
+  return `<span class="${cls("ohud-qbe-badge", `ohud-qbe-badge--${badge.kind}`)}">${esc(badge.text)}</span>`;
+}
 function actionById2(runtime, id) {
   if (!id) return null;
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
@@ -7687,12 +7847,15 @@ function actionById2(runtime, id) {
 function libraryCard(action) {
   const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
   const disabled = action.state?.available === false;
-  const mark = TYPE_MARK2[action.type] ?? "";
   const tip = tipAttr(action.name, abilityTooltipLines(action));
+  const badges = costBadges(action).map(badgeHtml).join("");
   return `<div class="${cls("ohud-qbe-card", `ohud-accent--${accent}`, disabled ? "is-disabled" : "")}" draggable="true" data-qbe-action="${esc(action.characterActionId)}"${tip}>
     <span class="ohud-qbe-card-icon">${skillIconSvg(action.iconKey)}</span>
-    <span class="ohud-qbe-card-name">${esc(action.name)}</span>
-    ${mark ? `<span class="ohud-qbe-card-type">${esc(mark)}</span>` : ""}
+    <span class="ohud-qbe-card-main">
+      <span class="ohud-qbe-card-name">${esc(action.name)}</span>
+      <span class="ohud-qbe-card-type">${esc(categoryLabel(action))}</span>
+    </span>
+    <span class="ohud-qbe-card-badges">${badges}</span>
     ${disabled ? `<span class="ohud-qbe-card-off" ${tipAttr("Currently unavailable", [String(action.state.disabledReason ?? "")])}>!</span>` : ""}
   </div>`;
 }
@@ -7711,13 +7874,21 @@ function editorSlot(slot, action) {
     </div>`;
   }
   const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const mark = TYPE_MARK2[action.type] ?? "";
   const tip = tipAttr(action.name, abilityTooltipLines(action));
   return `<div class="${cls("ohud-qbe-slot", "is-filled", `ohud-accent--${accent}`)}" draggable="true" data-qbe-slot="${idx}" data-qbe-action="${esc(action.characterActionId)}"${tip}>
     <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+    ${mark ? `<span class="ohud-qbe-slot-type">${esc(mark)}</span>` : ""}
     <span class="ohud-qbe-slot-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qbe-slot-name">${esc(action.name)}</span>
     <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
   </div>`;
+}
+function footerStatus({ busy, conflict, dirty }) {
+  if (busy) return { text: "Saving\u2026", tone: "busy" };
+  if (conflict) return { text: "Resolve the conflict to continue", tone: "warning" };
+  if (dirty) return { text: "Unsaved changes", tone: "warning" };
+  return { text: "All changes saved", tone: "neutral" };
 }
 function renderQuickbarEditor(args = {}) {
   const runtime = args.runtime && typeof args.runtime === "object" ? args.runtime : null;
@@ -7727,11 +7898,19 @@ function renderQuickbarEditor(args = {}) {
   const dirty = !!args.dirty;
   const conflict = !!args.conflict;
   const name = String(args.characterName ?? "Character");
+  const header = `<div class="ohud-qbe-header">
+    <span class="ohud-qbe-header-icon">${ICON_GRID}</span>
+    <span class="ohud-qbe-header-text">
+      <span class="ohud-qbe-header-title">Quickbar Editor</span>
+      <span class="ohud-qbe-header-subtitle">Assign combat abilities to quick slots \u2014 ${esc(name)}</span>
+    </span>
+    <button type="button" class="ohud-qbe-close" data-action="qbe-cancel" aria-label="Close">\xD7</button>
+  </div>`;
   if (!runtime) {
-    return `<div class="ohud-qbe"><div class="ohud-qbe-empty">Loading quickbar\u2026</div></div>`;
+    return `<div class="ohud-qbe">${header}<div class="ohud-qbe-empty">Loading quickbar\u2026</div></div>`;
   }
   const conflictBar = conflict ? `<div class="ohud-qbe-conflict" role="alert">
-        Layout changed on the server. Your edits were not saved.
+        <span>Layout changed on the server. Your edits were not saved.</span>
         <button type="button" class="ohud-qbe-reload" data-action="qbe-reload">Reload layout</button>
       </div>` : "";
   const libraryHtml = library.length ? library.map(libraryCard).join("") : `<div class="ohud-qbe-lib-empty">All actions are placed.</div>`;
@@ -7741,23 +7920,36 @@ function renderQuickbarEditor(args = {}) {
     if (!rows.has(r)) rows.set(r, []);
     rows.get(r).push(slot);
   }
-  const slotsHtml = [...rows.keys()].sort((a, b) => b - a).map((r) => {
+  const slotsHtml = [...rows.keys()].sort((a, b) => a - b).map((r) => {
     const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => editorSlot(slot, actionById2(runtime, slot.characterActionId))).join("");
     return `<div class="ohud-qbe-slot-row" data-row="${r}">${tiles}</div>`;
   }).join("");
   const saveDisabled = busy || !dirty;
+  const resetDisabled = busy || !dirty && !conflict;
+  const status2 = footerStatus({ busy, conflict, dirty });
   return `<div class="${cls("ohud-qbe", busy ? "is-busy" : "")}">
-    <div class="ohud-qbe-head">
-      <span class="ohud-qbe-title">Quickbar \u2014 ${esc(name)}</span>
+    ${header}
+    <div class="ohud-qbe-body">
+      ${conflictBar}
+      <div class="ohud-qbe-cols">
+        <div class="ohud-qbe-col ohud-qbe-col--library">
+          <div class="ohud-qbe-section-label">Available actions</div>
+          <div class="ohud-qbe-library" data-qbe-library>${libraryHtml}</div>
+        </div>
+        <div class="ohud-qbe-col ohud-qbe-col--slots">
+          <div class="ohud-qbe-section-label">Quickbar slots</div>
+          <div class="ohud-qbe-hint">Drag an action onto a slot to assign it, or drag between slots to swap.</div>
+          <div class="ohud-qbe-slots">${slotsHtml}</div>
+        </div>
+      </div>
     </div>
-    ${conflictBar}
-    <div class="ohud-qbe-section-label">Available actions</div>
-    <div class="ohud-qbe-library" data-qbe-library>${libraryHtml}</div>
-    <div class="ohud-qbe-section-label">Quickbar slots</div>
-    <div class="ohud-qbe-slots">${slotsHtml}</div>
-    <div class="ohud-qbe-actions">
-      <button type="button" class="ohud-qbe-btn is-primary" data-action="qbe-save" ${saveDisabled ? "disabled" : ""}>Save</button>
-      <button type="button" class="ohud-qbe-btn" data-action="qbe-cancel" ${busy ? "disabled" : ""}>Cancel</button>
+    <div class="ohud-qbe-footer">
+      <span class="${cls("ohud-qbe-status", `ohud-qbe-status--${status2.tone}`)}">${esc(status2.text)}</span>
+      <div class="ohud-qbe-actions">
+        <button type="button" class="ohud-qbe-btn" data-action="qbe-reset" ${resetDisabled ? "disabled" : ""}>Reset</button>
+        <button type="button" class="ohud-qbe-btn" data-action="qbe-cancel" ${busy ? "disabled" : ""}>Cancel</button>
+        <button type="button" class="ohud-qbe-btn is-primary" data-action="qbe-save" ${saveDisabled ? "disabled" : ""}>Save</button>
+      </div>
     </div>
   </div>`;
 }
@@ -8095,7 +8287,7 @@ function start() {
         });
       } else if (action === "qbe-cancel") {
         send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "close-editor" });
-      } else if (action === "qbe-reload") {
+      } else if (action === "qbe-reload" || action === "qbe-reset") {
         conflict = false;
         rebuildDraftFromRuntime();
         renderEditor();

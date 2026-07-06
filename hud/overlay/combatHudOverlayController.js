@@ -330,20 +330,23 @@ async function setGmTrackerOpen(open) {
   }
 }
 
-/** Phase 4.0b: Quickbar editor companion popover — anchored above the Skills
- *  module. Wider/taller than the selectors (it hosts a library + slot grid). */
+/** Phase 4.0c: Quickbar editor companion popover — anchored above the Skills
+ *  module. A two-column layout (library + a 10-wide slot row) needs real
+ *  width, so this is deliberately much larger than the other selectors;
+ *  clampRect keeps it fully on-screen regardless of where Skills sits. */
 function quickbarEditorRect() {
   if (!lastLayout.modules?.skills) return null;
   const skRect = moduleRect("skills");
-  const width = 320;
-  const height = 380;
+  const width = 780;
+  const height = 560;
   const gap = 4;
-  return {
-    left: Math.max(0, skRect.left + (skRect.width - width) / 2),
-    top: Math.max(0, skRect.top - height - gap),
+  const rect = {
+    left: skRect.left + (skRect.width - width) / 2,
+    top: skRect.top - height - gap,
     width,
     height,
   };
+  return clampRect(rect, lastVW, lastVH);
 }
 
 async function setQuickbarEditorOpen(open) {

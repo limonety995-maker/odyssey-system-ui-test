@@ -197,6 +197,84 @@ test("editor slot has a remove control; missing slot is flagged", () => {
   assert.match(renderQuickbarEditor({ runtime: rt, draft: missDraft, library: [], dirty: true }), /is-missing/);
 });
 
+/* ── Phase 4.0c visual rework: header, footer, row order, badges ─────── */
+
+test("4.0c: editor has a header (title, subtitle, close) and a footer with Reset/Cancel/Save", () => {
+  const rt = runtime();
+  const draft = buildDraft(rt.quickbar.slots, new Set(rt.quickActions.map((a) => a.characterActionId)), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: true });
+  assert.match(html, /ohud-qbe-header-title">Quickbar Editor</);
+  assert.match(html, /ohud-qbe-header-subtitle"/);
+  assert.match(html, /class="ohud-qbe-close" data-action="qbe-cancel"/, "header close reuses the safe close-editor action");
+  assert.match(html, /data-action="qbe-reset"/);
+  assert.match(html, /data-action="qbe-cancel"/);
+  assert.match(html, /data-action="qbe-save"/);
+  // DOM order left-to-right: Reset, Cancel, Save (Save stays the strongest/primary action).
+  const idxReset = html.indexOf('data-action="qbe-reset"');
+  const idxCancel = html.indexOf('data-action="qbe-cancel"', idxReset);
+  const idxSave = html.indexOf('data-action="qbe-save"');
+  assert.ok(idxReset > -1 && idxCancel > idxReset && idxSave > idxCancel, "Reset, then Cancel, then Save");
+  assert.match(html, /ohud-qbe-btn is-primary"[^>]*data-action="qbe-save"/, "Save is the primary/strongest action");
+});
+
+test("4.0c: header title/loading state render even before the runtime arrives (no blank popover)", () => {
+  const html = renderQuickbarEditor({ runtime: null });
+  assert.match(html, /ohud-qbe-header-title">Quickbar Editor</);
+  assert.match(html, /Loading quickbar/);
+});
+
+test("4.0c: Reset is disabled when there is nothing to reset (not dirty, no conflict); enabled when dirty", () => {
+  const rt = runtime();
+  const draft = buildDraft(rt.quickbar.slots, new Set(rt.quickActions.map((a) => a.characterActionId)), 20);
+  const clean = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false, conflict: false });
+  assert.match(clean, /data-action="qbe-reset"[^>]*disabled/);
+  const dirtyHtml = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: true, conflict: false });
+  assert.ok(!/data-action="qbe-reset"[^>]*disabled/.test(dirtyHtml), "Reset enabled once the draft is dirty");
+});
+
+test("4.0c: footer status reflects busy/conflict/dirty/clean", () => {
+  const rt = runtime();
+  const draft = buildDraft(rt.quickbar.slots, new Set(rt.quickActions.map((a) => a.characterActionId)), 20);
+  assert.match(renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false }), /All changes saved/);
+  assert.match(renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: true }), /Unsaved changes/);
+  assert.match(renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: true, conflict: true }), /Resolve the conflict/);
+  assert.match(renderQuickbarEditor({ runtime: rt, draft, library: [], busy: true }), /Saving…/);
+});
+
+test("4.0c: REQUIRED layout — slots 1-10 (row 0) render BEFORE 11-20 (row 1) in the DOM (top row first)", () => {
+  // This is the one deliberate departure from the visual reference: the main
+  // HUD strip (QuickbarView) grows UPWARD (higher row first); the editor must
+  // do the OPPOSITE — row 0 (slots 1-10) on top, row 1 (11-20) on the bottom.
+  const slots = [
+    { slotIndex: 0, characterActionId: "act-1", empty: false },
+    { slotIndex: 10, characterActionId: "act-2", empty: false },
+  ];
+  const rt = runtime(slots, [action({ id: "act-1" }), action({ id: "act-2" })]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["act-1", "act-2"]), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: true });
+  const row0 = html.indexOf('data-row="0"');
+  const row1 = html.indexOf('data-row="1"');
+  assert.ok(row0 > -1 && row1 > -1, "both rows present");
+  assert.ok(row0 < row1, "row 0 (slots 1-10) must come BEFORE row 1 (11-20) — top row first");
+});
+
+test("4.0c: library cards show a category label and cost/cooldown badges (never fabricated zeros)", () => {
+  const withCost = action({ id: "a1", semanticKind: "attack", sourceType: "psi", costs: { main: 1, move: 0, psi: 3, charges: 0 }, cooldown: { current: 0, max: 2, unit: "turn" } });
+  const rt = runtime([], [withCost]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [withCost], dirty: false });
+  assert.match(html, /ohud-qbe-card-type">ATTACK \/ PSI</, "category label combines semantic + source");
+  assert.match(html, /ohud-qbe-badge[^>]*>MAIN 1</);
+  assert.match(html, /ohud-qbe-badge--resource[^>]*>PSI 3</);
+  assert.match(html, /ohud-qbe-badge--cooldown[^>]*>CD 2</);
+  // A zero-cost field must never render a fabricated "0" badge.
+  const noCost = action({ id: "a2", costs: { main: 0, move: 0, psi: 0, charges: 0 }, cooldown: { current: 0, max: 0, unit: "turn" } });
+  const rt2 = runtime([], [noCost]);
+  const draft2 = buildDraft(rt2.quickbar.slots, new Set(["a2"]), 20);
+  const htmlNoCost = renderQuickbarEditor({ runtime: rt2, draft: draft2, library: [noCost], dirty: false });
+  assert.ok(!/ohud-qbe-badge/.test(htmlNoCost), "no badges when every cost/cooldown field is honestly zero");
+});
+
 /* ── Wiring contract (spec 14, 15) ────────────────────────────────────── */
 
 test("14. a normal click on an ability does NOT fire a combat RPC (only a benign toast)", () => {
@@ -231,6 +309,18 @@ test("scene controller wires the quickbar controller (setup + selection change +
   assert.ok(sceneControllerSrc.includes("abilitiesRuntime,"), "passed into the broadcast ephemeral");
 });
 
+test("4.0c: the editor popover is sized for a real two-column layout, and stays clamped on-screen", () => {
+  // The two-column body (library + a 10-wide slot row) cannot fit in the old
+  // 320x380 footprint; the rect must be large enough, and clamped to the
+  // viewport so it can't render off-screen when Skills sits near an edge.
+  const fnSrc = overlayControllerSrc.slice(overlayControllerSrc.indexOf("function quickbarEditorRect"), overlayControllerSrc.indexOf("async function setQuickbarEditorOpen"));
+  const width = Number((/const width = (\d+)/.exec(fnSrc) ?? [])[1]);
+  const height = Number((/const height = (\d+)/.exec(fnSrc) ?? [])[1]);
+  assert.ok(width >= 700, `editor width (${width}) must be wide enough for library + a 10-wide slot row`);
+  assert.ok(height >= 480, `editor height (${height}) must fit header + two rows of slots + footer`);
+  assert.ok(fnSrc.includes("clampRect("), "rect is clamped to the viewport");
+});
+
 test("overlay controller owns the editor popover lifecycle (open/close, mode + teardown cleanup)", () => {
   assert.ok(overlayControllerSrc.includes("QUICKBAR_EDITOR_POPOVER_ID"));
   assert.ok(overlayControllerSrc.includes("setQuickbarEditorOpen"));
@@ -252,6 +342,14 @@ test("editor save sends the expected version from the layout the draft was built
   assert.ok(overlayPageSrc.includes("expectedVersion: baseVersion"), "optimistic version travels with save");
   // Conflict handling: a server version change while editing sets conflict, not a silent overwrite.
   assert.ok(overlayPageSrc.includes("conflict = true"));
+});
+
+test("4.0c: Reset (footer) reuses the exact same safe rebuild path as Reload (conflict banner) — no new save/RPC surface", () => {
+  const idx = overlayPageSrc.indexOf('action === "qbe-reload" || action === "qbe-reset"');
+  assert.ok(idx > -1, "Reset and Reload share one branch");
+  const block = overlayPageSrc.slice(idx, overlayPageSrc.indexOf("}", overlayPageSrc.indexOf("renderEditor();", idx)));
+  assert.ok(block.includes("rebuildDraftFromRuntime()"), "rebuilds from the last-known server layout, never invents one");
+  assert.ok(!/send\(BC_HUD_COMMAND/.test(block), "Reset never sends a save/RPC command by itself");
 });
 
 setTimeout(() => {

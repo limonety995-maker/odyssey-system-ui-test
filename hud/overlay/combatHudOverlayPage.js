@@ -413,7 +413,10 @@ function start() {
       } else if (action === "qbe-cancel") {
         // Discard only the local draft, then close the popover.
         send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "close-editor" });
-      } else if (action === "qbe-reload") {
+      } else if (action === "qbe-reload" || action === "qbe-reset") {
+        // Reset (footer) and Reload (conflict banner) share the exact same safe
+        // rebuild: re-sync the draft to the last-known server layout, discarding
+        // any local edits. Reset is just reachable without a conflict first.
         conflict = false;
         rebuildDraftFromRuntime();
         renderEditor();
