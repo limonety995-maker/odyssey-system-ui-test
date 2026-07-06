@@ -7,7 +7,7 @@
 // real HUD components (CombatHudModule.js, GunBlock.js, etc.) and stays
 // trivially unit-testable.
 
-export const FILTERS = ["ALL", "HUD", "TARGET", "GUN", "ATTACK", "RPC", "ERROR"];
+export const FILTERS = ["ALL", "HUD", "TARGET", "GUN", "ATTACK", "ABILITIES", "RPC", "ERROR"];
 
 /** Which filter groups a stored entry belongs to (an entry can match more than
  *  one — e.g. a failed reload is both GUN and ERROR). View-only: never
@@ -21,6 +21,7 @@ export function groupsForEntry(entry) {
   if (category === "refresh") { groups.add("TARGET"); groups.add("ATTACK"); }
   if (category === "weapon" || category === "magazine" || category === "fire-mode") groups.add("GUN");
   if (category === "attack") groups.add("ATTACK");
+  if (category === "abilities" || category === "quickbar") groups.add("ABILITIES");
   if (action.includes("result") || action.includes("rpc")) groups.add("RPC");
   if (entry?.success === false) groups.add("ERROR");
   return groups;
