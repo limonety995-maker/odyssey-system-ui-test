@@ -30,10 +30,15 @@ import { buildAttackPayload } from "../screens/resolveAttack/resolveAttackServic
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const sql90 = fs.readFileSync(path.join(repoRoot, "supabase", "90_combat_session_foundation.sql"), "utf8");
-const sql64 = fs.readFileSync(path.join(repoRoot, "supabase", "64_combat_hud_turn_engine_and_action_executor.sql"), "utf8");
-const sceneControllerSrc = fs.readFileSync(path.join(repoRoot, "hud", "scene", "sceneSelectionController.js"), "utf8");
-const sessionControllerSrc = fs.readFileSync(path.join(repoRoot, "hud", "session", "combatSessionController.js"), "utf8");
+// Read sources with line endings normalized to LF: the multi-line indexOf()
+// contract checks below use "\n"-joined patterns, so a checkout that stored a
+// file with CRLF (Windows/git autocrlf) must not break the string match.
+const readText = (...segments) =>
+  fs.readFileSync(path.join(repoRoot, ...segments), "utf8").replace(/\r\n/g, "\n");
+const sql90 = readText("supabase", "90_combat_session_foundation.sql");
+const sql64 = readText("supabase", "64_combat_hud_turn_engine_and_action_executor.sql");
+const sceneControllerSrc = readText("hud", "scene", "sceneSelectionController.js");
+const sessionControllerSrc = readText("hud", "session", "combatSessionController.js");
 
 let passed = 0;
 let failed = 0;
