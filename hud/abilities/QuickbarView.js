@@ -1,9 +1,10 @@
-// HUD Abilities — Phase 4.0b: quickbar strip render for the Skills module (PURE).
+// HUD Abilities — Phase 4.0b/4.0e: quickbar strip render for the Skills module (PURE).
 //
-// Renders the persisted quickbar as slot tiles: slots 0-9 fill the bottom row,
-// slots 10+ start a second row that grows UPWARD (row 1 sits above row 0). Each
-// occupied tile shows icon / short name / type marker / cooldown / ACTIVE /
-// disabled; empty slots are calm but visible. An EDIT button opens the editor.
+// Renders the persisted quickbar as slot tiles: slots 0-9 (1-10) fill the TOP
+// row, slots 10-19 (11-20) fill the row BELOW it — matching the Quickbar
+// Editor's fixed row order (Phase 4.0c). Each occupied tile shows icon / short
+// name / type marker / cooldown / ACTIVE / disabled; empty slots are calm but
+// visible. An EDIT button opens the editor, pinned to the block's corner.
 //
 // This is the ONLY place the Skills module learns about abilities, and it only
 // consumes the already-mapped, already-SAFE runtime (hud/abilities/*). Clicking
@@ -50,12 +51,17 @@ function occupiedTile(slot, action) {
   const mark = TYPE_MARK[action.type] ?? "";
   const tip = tipAttr(action.name, abilityTooltipLines(action));
 
+  // cd and active share the top-right corner — wrapped together (rather than
+  // each absolutely positioned on its own) so a toggle that's BOTH active and
+  // on its own cooldown never renders one on top of the other.
+  const badges = cd > 0 || active
+    ? `<span class="ohud-qb-badges">${cd > 0 ? `<span class="ohud-qb-cd">${cd}</span>` : ""}${active ? `<span class="ohud-qb-active">ON</span>` : ""}</span>`
+    : "";
   return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "")}" data-action="show-ability-detail" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}"${tip}>
     <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qb-name">${esc(action.name)}</span>
     ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
-    ${cd > 0 ? `<span class="ohud-qb-cd">${cd}</span>` : ""}
-    ${active ? `<span class="ohud-qb-active">ON</span>` : ""}
+    ${badges}
   </button>`;
 }
 
@@ -74,15 +80,17 @@ export function renderQuickbarStrip(runtime, opts = {}) {
   const slots = Array.isArray(rt.quickbar?.slots) ? rt.quickbar.slots : [];
   const canEdit = opts.canEdit !== false;
 
-  // Group slots by row; render rows in DESCENDING order so higher rows sit on
-  // top (second row grows upward). Within a row, ascending slot index.
+  // Group slots by row; render rows in ASCENDING order so row 0 (slots 1-10)
+  // is on TOP and row 1 (slots 11-20) is BELOW it — matching the Quickbar
+  // Editor's fixed row order. A second row only appears here at all when the
+  // runtime actually has slots in it (rows.get(1) is simply absent otherwise).
   const rows = new Map();
   for (const slot of slots) {
     const r = rowOfSlot(slot.slotIndex);
     if (!rows.has(r)) rows.set(r, []);
     rows.get(r).push(slot);
   }
-  const rowKeys = [...rows.keys()].sort((a, b) => b - a);
+  const rowKeys = [...rows.keys()].sort((a, b) => a - b);
 
   const rowsHtml = rowKeys.map((r) => {
     const tiles = rows.get(r)

@@ -288,7 +288,7 @@ test("16. every action exposes server reason, cost, cooldown, targeting for the 
 
 /* ── 17. Row layout: 1-10 first row, 11+ upward ───────────────────────── */
 
-test("17. slots 0-9 are row 0; slot 10+ start row 1 (second row grows upward in the panel)", () => {
+test("17. slots 0-9 are row 0; slot 10+ start row 1 (display order is the view layer's job, not this pure math)", () => {
   assert.equal(rowOfSlot(0), 0);
   assert.equal(rowOfSlot(9), 0);
   assert.equal(rowOfSlot(10), 1);

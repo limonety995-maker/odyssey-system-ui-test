@@ -96,7 +96,13 @@
 /* block footprints (desktop) */
 .ohud-panel--player { flex: 0 0 144px; height: 146px; }
 .ohud-panel--gun { flex: 0 0 240px; height: 95px; }
-.ohud-panel--skills { flex: 1 1 auto; min-width: 280px; height: 95px; }
+/* NOTE: in the live single-module-per-popover HUD, `.ohud-module > .ohud-panel`
+ * (combatHudModule.css) always wins with height:100%/width:100% — this rule's
+ * own height is inert there and only matters for other, non-modular render
+ * paths. Kept truthful to the module's actual 165px popover allocation
+ * (hudLayout.js DEFAULT_HUD_LAYOUT_V2.skills.height) rather than an arbitrary
+ * smaller number, so it can never mislead a reader about the real footprint. */
+.ohud-panel--skills { flex: 1 1 auto; min-width: 280px; height: 165px; }
 .ohud-panel--target { flex: 0 0 100px; height: 95px; }
 .ohud-panel--modact { flex: 0 0 126px; height: 95px; }
 
@@ -419,40 +425,56 @@
 .ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }
 .ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }
 
-/* ===================== Quickbar (Phase 4.0b) ===================== */
-/* Skills-module strip: slot tiles in rows; row 0 (slots 1-10) on the bottom,
- * higher rows stacked above (second row grows upward). */
-.ohud-qb-wrap { display: flex; flex-direction: column; gap: 3px; height: 100%; min-height: 0; }
-.ohud-qb { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; justify-content: flex-end; }
+/* ===================== Quickbar (Phase 4.0b, visual pass 4.0e) =====================
+ * Skills-module strip: dense action-card rows. Row 0 (slots 1-10) is on TOP,
+ * row 1 (slots 11-20) is BELOW it — matching the Quickbar Editor's fixed row
+ * order (a second row only renders at all when the runtime actually has slots
+ * in it). Content is TOP-aligned (no vertical centering) so the grid doesn't
+ * float in a sea of empty space; EDIT is pinned to the block's own bottom-right
+ * corner, independent of whether one or two rows are showing. */
+.ohud-qb-wrap { position: relative; display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; padding-top: 4px; }
+.ohud-qb { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; justify-content: flex-start; }
 .ohud-qb--empty { justify-content: center; }
-.ohud-qb-row { display: flex; gap: 3px; flex-wrap: nowrap; }
+.ohud-qb-row { display: flex; gap: 4px; flex-wrap: nowrap; }
 .ohud-qb-slot {
-  position: relative; width: 34px; height: 34px; flex: 0 0 auto;
+  /* Width fills the row evenly (flex-basis 0 + grow), capped at 56px so ten
+   * slots stay dense rather than stretching to fill a very wide container.
+   * Height is a fixed 50px — independent of width — so two rows fit the
+   * block's own vertical budget with room for the corner EDIT button. */
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 56px; height: 50px;
   display: grid; place-items: center; padding: 0;
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 8px;
   background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);
-  cursor: pointer; overflow: hidden;
+  cursor: pointer; overflow: hidden; transition: border-color .12s ease, background .12s ease;
 }
-.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.5; background: transparent; }
+.ohud-qb-slot:not(.is-empty):not(.is-disabled):hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }
+.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.6; background: transparent; }
+.ohud-qb-slot.is-empty::after { content: "+"; font-size: 15px; color: var(--odyssey-hud-dim); opacity: 0.5; }
+.ohud-qb-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.03); }
 .ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
 .ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
 .ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
-.ohud-qb-icon { width: 18px; height: 18px; display: block; }
+.ohud-qb-icon { width: 28px; height: 28px; display: block; }
 .ohud-qb-name {
-  position: absolute; bottom: 0; left: 0; right: 0; font-size: 6px; line-height: 1.1;
-  text-align: center; padding: 0 1px 1px; background: rgba(0,0,0,0.35);
+  position: absolute; bottom: 0; left: 0; right: 0; font-size: 7.5px; line-height: 1.2;
+  text-align: center; padding: 1px 2px; background: rgba(0, 0, 0, 0.4);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ohud-qb-type { position: absolute; top: 1px; left: 2px; font-size: 5.5px; font-weight: 800; opacity: 0.8; letter-spacing: 0.3px; }
-.ohud-qb-cd { position: absolute; top: 1px; right: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-hud-warning); }
-.ohud-qb-active { position: absolute; top: 1px; right: 2px; font-size: 6px; font-weight: 800; color: var(--odyssey-hud-state-active); }
-.ohud-qb-missing { font-size: 14px; font-weight: 800; }
+.ohud-qb-type { position: absolute; top: 2px; left: 3px; font-size: 6.5px; font-weight: 800; opacity: 0.85; letter-spacing: 0.3px; }
+/* cd + active share one top-right badge group so a toggle that's BOTH active
+ * and on cooldown never renders one marker on top of the other. */
+.ohud-qb-badges { position: absolute; top: 2px; right: 3px; display: flex; align-items: center; gap: 3px; }
+.ohud-qb-cd { font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qb-active { font-size: 7px; font-weight: 800; color: var(--odyssey-hud-state-active); }
+.ohud-qb-missing { font-size: 20px; font-weight: 800; }
 .ohud-qb-edit {
-  flex: 0 0 auto; align-self: flex-end; padding: 0 8px; height: 16px;
+  position: absolute; right: 10px; bottom: 8px;
+  padding: 0 9px; height: 18px;
   font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;
-  color: var(--odyssey-hud-text); background: transparent;
+  color: var(--odyssey-hud-text); background: rgba(10, 14, 24, 0.55);
   border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
 }
+.ohud-qb-edit:hover { border-color: var(--odyssey-hud-implant); color: var(--odyssey-hud-implant); }
 
 /* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
  * A standalone sci-fi window: dark surface, thin glowing border, header / body

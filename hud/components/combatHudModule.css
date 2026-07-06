@@ -77,10 +77,17 @@
 .ohud-module[data-module="player"] .ohud-pip { font-size: 9px; padding: 2px 8px; }
 .ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }
 
-/* Skills (600×165): centred content, larger tiles, wrap past one row. */
+/* Skills (600×165): centred content, larger tiles, wrap past one row. This
+ * centering is for the LEGACY category-grouped view (.ohud-skill-groups,
+ * mock/Phase-2 fallback when no quickbar runtime is present). */
 .ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }
 .ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }
 .ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }
+/* Phase 4.0e: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE —
+ * full width (so 10 slots can divide it evenly) and top-aligned (so the grid
+ * doesn't float centered in empty space). Scoped narrowly so it never touches
+ * the legacy category view above. */
+.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: flex-start; align-items: stretch; }
 .ohud-module .ohud-gun { position: relative; }
 
 /* ---------- Combat Control composite (330×165) ---------- */
