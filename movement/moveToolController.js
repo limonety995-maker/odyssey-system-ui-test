@@ -44,7 +44,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.52";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.54";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -135,6 +135,7 @@ function createInitialState() {
     viewerControlledCharacterIds: new Set(),
     authoritativeByTokenId: new Map(),
     selectedToken: null,
+    selectedCombatTokenIds: new Set(),
     selectedParticipant: null,
     permission: null,
     preview: null,
@@ -166,6 +167,7 @@ function createInitialState() {
     gridRecoveryPromise: null,
     gridRecoveryKey: "",
     obstructionDebugDone: false,
+    lastVanillaMoveBlockAt: 0,
   };
 }
 
@@ -277,6 +279,7 @@ function buildObstructionDebugSnapshot(item) {
     metadata,
   };
 }
+
 
 function buildStatus(state, extras = {}) {
   const participant = state.selectedParticipant ?? null;
@@ -431,6 +434,15 @@ export function setupTacticalMoveTool({ runtime }) {
     } catch {
       // ignore local broadcast failures
     }
+  }
+
+  function shouldThrottleVanillaMoveBlockNotice() {
+    const now = Date.now();
+    if (now - state.lastVanillaMoveBlockAt < 1500) {
+      return true;
+    }
+    state.lastVanillaMoveBlockAt = now;
+    return false;
   }
 
   async function inspectSceneObstructionCandidates(reason = "manual") {
@@ -1117,8 +1129,32 @@ export function setupTacticalMoveTool({ runtime }) {
   async function syncSelectionState(reason = "selection-sync", options = {}) {
     state.player = await getPlayerInfo().catch(() => state.player);
     const selectedTokens = await getSelectedOwlbearTokens().catch(() => []);
+    const selectedCombatTokens = selectedTokens.filter((token) =>
+      state.participantsByTokenId.has(String(token?.id ?? "").trim()),
+    );
+    state.selectedCombatTokenIds = new Set(
+      selectedCombatTokens
+        .map((token) => String(token?.id ?? "").trim())
+        .filter(Boolean),
+    );
     const selectedToken = selectedTokens.length === 1 ? selectedTokens[0] : null;
     const runtimeResponse = options.runtimeResponse ?? state.runtime;
+
+    if (selectedCombatTokens.length > 1) {
+      state.selectedToken = null;
+      state.selectedParticipant = null;
+      state.permission = null;
+      await clearPreview({ reason: `${reason}-multi-combat-selection`, silent: true });
+      await restorePreviousTool(`${reason}-multi-combat-selection`);
+      if (!shouldThrottleVanillaMoveBlockNotice()) {
+        await notify("Multiple combat tokens cannot be dragged together. Select only one token and use Tactical Move.", "WARNING");
+      }
+      await publishStatus({
+        reason: `${reason}-multi-combat-selection`,
+        error: "Multiple combat tokens cannot be moved together.",
+      });
+      return;
+    }
 
     if (!selectedToken) {
       state.selectedToken = null;
@@ -1214,7 +1250,13 @@ export function setupTacticalMoveTool({ runtime }) {
         authoritative.movementVersion,
         "combat-movement-revert",
       );
-      await notify(message, "WARNING");
+      const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
+      if (selectedTokenId && selectedTokenId === String(tokenId ?? "").trim()) {
+        void ensureToolActivated("vanilla-move-blocked").catch(() => {});
+      }
+      if (!shouldThrottleVanillaMoveBlockNotice()) {
+        await notify(message, "WARNING");
+      }
     } catch (error) {
       const normalized = normalizeError(error, "Unable to restore authoritative combat position.");
       addDiagnosticEntry("warn", "Combat movement revert failed", normalized.message);
@@ -1860,8 +1902,15 @@ export function setupTacticalMoveTool({ runtime }) {
         if (disposed) return;
         const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
         const hasSelectedCombatToken = !!selectedTokenId && state.participantsByTokenId.has(selectedTokenId);
-        if (!hasSelectedCombatToken) return;
+        const hasMultipleCombatSelection = state.selectedCombatTokenIds.size > 1;
+        if (!hasSelectedCombatToken && !hasMultipleCombatSelection) return;
         if (toolId === TACTICAL_MOVE_TOOL_ID) return;
+        if (!shouldThrottleVanillaMoveBlockNotice()) {
+          const message = hasMultipleCombatSelection
+            ? "Multiple combat tokens cannot be dragged together during combat."
+            : "Vanilla token dragging is disabled during combat. Use Tactical Move.";
+          void notify(message, "WARNING");
+        }
         void ensureToolActivated("tool-reclaim").catch(() => {});
       });
       unsubscribeSession = OBR.broadcast.onMessage(BC_HUD_SESSION, (event) => {
