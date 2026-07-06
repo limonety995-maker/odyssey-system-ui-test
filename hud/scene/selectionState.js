@@ -365,6 +365,14 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         },
       };
     }
+    // Phase 4.0b: the persisted quickbar runtime (already SAFE + mapped by the
+    // quickbar controller — quickActions library + slot layout + version). The
+    // Skills block renders the real quickbar from this; ability parsing stays in
+    // hud/abilities/* and never smears into SkillBlock/selectionState. Absent →
+    // SkillBlock falls back to its legacy category view (keeps Phase 2 tests).
+    if (ephemeral.abilitiesRuntime && ephemeral.abilitiesRuntime.ok !== false) {
+      hudSnapshot = { ...hudSnapshot, quickbar: ephemeral.abilitiesRuntime };
+    }
   }
   const debug = ready && s.runtimeBundle
     ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {

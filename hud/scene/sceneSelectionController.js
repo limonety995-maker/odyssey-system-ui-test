@@ -40,6 +40,7 @@ import {
 import { getZoneLabel, DEFAULT_PROFILE_ID } from "../targeting/targetProfiles.js";
 import { logDebugEvent } from "../debug/debugLogStore.js";
 import { setupCombatSessionController } from "../session/combatSessionController.js";
+import { setupQuickbarController } from "../abilities/quickbarController.js";
 import { mapCombatRuntimeToSession } from "../session/combatSessionMapper.js";
 import { sessionAttackGate, sessionReloadGate, expectedVersionOf } from "../session/combatSessionPolicy.js";
 import { BC_HUD_COMMAND, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_TARGETING_COMMAND } from "../overlay/overlayConstants.js";
@@ -146,6 +147,25 @@ export function setupSceneSelection(hooks = {}) {
       : null;
     if (sessionController) cleanups.push(() => sessionController.cleanup());
 
+    // Phase 4.0b: abilities/quickbar layer. The quickbar controller owns the
+    // per-character quick-actions runtime (library + persisted layout); this
+    // controller only keeps the latest SAFE mapped runtime so buildBroadcastPayload
+    // folds it into snapshot.quickbar for the Skills block. The editor iframe gets
+    // the same runtime via the controller's own BC_HUD_ABILITIES broadcast.
+    let abilitiesRuntime = null;
+    const quickbarController = configured
+      ? setupQuickbarController({
+          settings,
+          getViewer: () => viewer,
+          getSelectedCharacterId: () => ephemeral.characterId ?? null,
+          onRuntime: (runtime) => {
+            abilitiesRuntime = runtime;
+            if (lastState) publishState(lastState);
+          },
+        })
+      : null;
+    if (quickbarController) cleanups.push(() => quickbarController.cleanup());
+
     /** Latest mapped session for the currently selected character — used only
      *  for the client-side pre-gates + request payload context; the server
      *  re-checks everything. */
@@ -214,6 +234,10 @@ export function setupSceneSelection(hooks = {}) {
       // target signature captured at request time) is what actually protects
       // against a stale result applying to a new character; see "execute".
       ephemeral.basicAttackResult = null;
+      // Phase 4.0b: load the new character's quickbar runtime. Cleared first so
+      // the Skills block doesn't briefly show the previous character's quickbar.
+      abilitiesRuntime = null;
+      if (quickbarController) quickbarController.onSelectionChanged(characterId ?? null);
       return true;
     }
 
@@ -253,6 +277,7 @@ export function setupSceneSelection(hooks = {}) {
         basicAttackResult: ephemeral.basicAttackResult,
         combatLog,
         sessionRuntime,
+        abilitiesRuntime,
       };
     }
 

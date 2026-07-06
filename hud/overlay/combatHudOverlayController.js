@@ -51,6 +51,7 @@ import {
   GUN_MAGAZINE_SELECTOR_POPOVER_ID,
   GUN_FIRE_MODE_SELECTOR_POPOVER_ID,
   GM_COMBAT_TRACKER_POPOVER_ID,
+  QUICKBAR_EDITOR_POPOVER_ID,
   HUD_EDITOR_POPOVER_ID,
   HUD_PILL_POPOVER_ID,
   DEFAULT_HUD_LAYOUT_V2,
@@ -87,6 +88,7 @@ let gunWeaponSelectorOpen = false;
 let gunMagazineSelectorOpen = false;
 let gunFireModeSelectorOpen = false;
 let gmTrackerOpen = false;
+let quickbarEditorOpen = false;
 let lastActiveCharacterId = null;
 /** Latest full trimmed selection payload (the same one module iframes get),
  *  kept ONLY to size the magazine-selector companion popover to its content
@@ -328,6 +330,46 @@ async function setGmTrackerOpen(open) {
   }
 }
 
+/** Phase 4.0b: Quickbar editor companion popover — anchored above the Skills
+ *  module. Wider/taller than the selectors (it hosts a library + slot grid). */
+function quickbarEditorRect() {
+  if (!lastLayout.modules?.skills) return null;
+  const skRect = moduleRect("skills");
+  const width = 320;
+  const height = 380;
+  const gap = 4;
+  return {
+    left: Math.max(0, skRect.left + (skRect.width - width) / 2),
+    top: Math.max(0, skRect.top - height - gap),
+    width,
+    height,
+  };
+}
+
+async function setQuickbarEditorOpen(open) {
+  const next = Boolean(open);
+  if (next === quickbarEditorOpen) return;
+  quickbarEditorOpen = next;
+  if (mode !== "modules") return;
+  if (next) {
+    const rect = quickbarEditorRect();
+    if (rect) {
+      try {
+        const url = new URL(pageUrl("quickbar-editor"));
+        const role = String(lastSelectionPayload?.viewer?.role ?? "").toLowerCase() === "gm" ? "gm" : "player";
+        url.searchParams.set("role", role);
+        await OBR.popover.open({
+          id: QUICKBAR_EDITOR_POPOVER_ID,
+          url: url.toString(),
+          ...paramsForRect(rect),
+        });
+      } catch (_e) { /* best effort */ }
+    }
+  } else {
+    try { await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID); } catch (_e) { /* ignore */ }
+  }
+}
+
 function sendTargetingCommand(command) {
   try { OBR.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, command, { destination: "LOCAL" }); } catch (_e) { /* ignore */ }
 }
@@ -411,10 +453,12 @@ async function applyMode() {
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
     gmTrackerOpen = false;
+    quickbarEditorOpen = false;
     await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {});
+    await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {});
     await closeEditorPopover();
     await closeAllModules();
     await openPill();
@@ -423,10 +467,12 @@ async function applyMode() {
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
     gmTrackerOpen = false;
+    quickbarEditorOpen = false;
     await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {});
+    await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {});
     await closePill();
     await closeAllModules();
     await openEditor();
@@ -535,6 +581,20 @@ export function setupCombatHudOverlay() {
           return;
         }
 
+        // Phase 4.0b: Quickbar editor popover lifecycle. The quickbar controller
+        // handles save/refresh/draft commands itself; here we only open/close the
+        // editor companion popover. open-editor toggles; close-editor closes.
+        if (data?.scope === "combat-hud" && data?.feature === "quickbar") {
+          const qType = String(data.type ?? "");
+          if (qType === "open-editor") {
+            logDebugEvent("quickbar", quickbarEditorOpen ? "editor-closed" : "editor-opened", {});
+            await setQuickbarEditorOpen(!quickbarEditorOpen);
+          } else if (qType === "close-editor") {
+            await setQuickbarEditorOpen(false);
+          }
+          return;
+        }
+
         const type = String(data.type ?? "");
         if (type === "toggle-weapon-selector") await setGunWeaponSelectorOpen(!gunWeaponSelectorOpen);
         else if (type === "close-weapon-selector") await setGunWeaponSelectorOpen(false);
@@ -601,6 +661,7 @@ export async function teardownCombatHudOverlay() {
   gunMagazineSelectorOpen = false;
   gunFireModeSelectorOpen = false;
   gmTrackerOpen = false;
+  quickbarEditorOpen = false;
   lastActiveCharacterId = null;
   lastSelectionPayload = null;
   mode = "modules";
@@ -611,5 +672,6 @@ export async function teardownCombatHudOverlay() {
   await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
   await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
   await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {});
+  await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {});
   await closeLegacyPopovers();
 }

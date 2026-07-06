@@ -270,6 +270,17 @@ export function mountCombatHudModule(options) {
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
         break;
+      case "open-quickbar-editor":
+        // Phase 4.0b: open the editor companion popover (overlay controller owns
+        // the popover lifecycle, exactly like the GM tracker toggle).
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "quickbar", type: "open-editor" });
+        break;
+      case "show-ability-detail":
+        // Phase 4.0b: a normal-mode click only surfaces detail — it must NEVER
+        // execute, change Target/Action, or spend resources. The rich hover
+        // tooltip already carries the detail; a click just nudges it visible.
+        if (!t.classList.contains("is-disabled")) showToast("Ability details — execution arrives in Phase 4.1");
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the

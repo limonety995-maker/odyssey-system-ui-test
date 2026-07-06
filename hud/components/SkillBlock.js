@@ -14,6 +14,7 @@ import { accentClass } from "./hudLayoutModel.js";
 import { skillIconSvg } from "./hudIcons.js";
 import { panel } from "./HudPanel.js";
 import { esc, tipAttr, cls } from "./hudDom.js";
+import { renderQuickbarStrip } from "../abilities/QuickbarView.js";
 
 const COST_ABBR = { FREE: "F", MOVE: "Mv", MAIN: "M", TURN: "T" };
 
@@ -53,6 +54,18 @@ function skillTile(skill, selectedId) {
 }
 
 export function renderSkillBlock(state) {
+  // Phase 4.0b: when the live snapshot carries the persisted quickbar runtime
+  // (folded in by selectionState.buildBroadcastPayload), render the real
+  // server-backed quickbar. Absent (mock/legacy) → the category view below.
+  const quickbar = state?.snapshot?.quickbar ?? null;
+  if (quickbar && quickbar.ok !== false) {
+    const role = String(state?.viewer?.role ?? "").toLowerCase();
+    // UX-only edit gate (full ownership enforcement is Phase B0): the module is
+    // only shown for a character the viewer may view, so allow EDIT here.
+    const canEdit = role === "gm" || role === "player";
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit }) });
+  }
+
   const slots = selectQuickSlots(state);
   const selectedId = selectSelectedSkill(state)?.id ?? null;
 

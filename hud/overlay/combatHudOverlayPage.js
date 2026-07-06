@@ -20,7 +20,7 @@ import moduleStyles from "../components/combatHudModule.css";
 
 import { mountCombatHudModule } from "../components/CombatHudModule.js";
 import { mountCombatHudLayoutEditor } from "../components/CombatHudLayoutEditor.js";
-import { BC_HUD_COMMAND, BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_SESSION, BC_HUD_SESSION_REQUEST, parseHudUiState } from "./overlayConstants.js";
+import { BC_HUD_COMMAND, BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_SESSION, BC_HUD_SESSION_REQUEST, BC_HUD_ABILITIES, BC_HUD_ABILITIES_REQUEST, parseHudUiState } from "./overlayConstants.js";
 import {
   HUD_MODULE_IDS,
   BC_HUD_LAYOUT,
@@ -33,6 +33,16 @@ import { renderWeaponSelectorPanel } from "../components/WeaponSelectorPanel.js"
 import { renderMagazineSelectorPanel } from "../components/MagazineSelectorPanel.js";
 import { renderFireModeSelectorPanel } from "../components/FireModeSelectorPanel.js";
 import { renderGmCombatTracker } from "../session/GmCombatTrackerPanel.js";
+import { renderQuickbarEditor } from "../abilities/QuickbarEditorPanel.js";
+import {
+  buildDraft,
+  assignActionToSlot,
+  moveSlot,
+  removeSlot,
+  unassignedActions,
+  draftToSavePayload,
+  isDraftDirty,
+} from "../abilities/quickbarLayoutPolicy.js";
 import { buildCompanionSelectorState } from "../scene/selectionView.js";
 
 const COMPANION_DEBUG = (() => {
@@ -297,6 +307,152 @@ function start() {
       } catch (_e) { /* standalone */ }
     }
     renderTracker();
+    return;
+  }
+
+  // --- Quickbar editor companion popover (Phase 4.0b) ---
+  // Receives the pre-mapped SAFE abilities runtime on BC_HUD_ABILITIES; builds a
+  // local draft (quickbarLayoutPolicy) that is edited by drag-and-drop and never
+  // treated as authoritative — Save sends the draft + expected version to the
+  // quickbar controller, which the server validates. A server version bump while
+  // editing surfaces a conflict + Reload; Cancel discards only the local draft.
+  if (moduleParam === "quickbar-editor") {
+    let runtime = null;      // mapped abilities runtime (library + layout + version)
+    let draft = [];          // dense working draft
+    let originalDraft = [];  // baseline for the dirty/cancel guard
+    let baseVersion = null;  // layout version this draft was built from
+    let busy = false;
+    let conflict = false;
+
+    function actionIdSet() {
+      return new Set((runtime?.quickActions ?? []).map((a) => a.characterActionId).filter(Boolean));
+    }
+
+    function rebuildDraftFromRuntime() {
+      const ids = actionIdSet();
+      const maxSlots = runtime?.quickbar?.maxSlots ?? 20;
+      draft = buildDraft(runtime?.quickbar?.slots ?? [], ids, maxSlots);
+      originalDraft = draft.map((s) => ({ ...s }));
+      baseVersion = runtime?.quickbar?.version ?? null;
+    }
+
+    function renderEditor() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-module";
+      host.setAttribute("data-module", "quickbar-editor");
+      const library = runtime ? unassignedActions(runtime.quickActions, draft) : [];
+      host.innerHTML = renderQuickbarEditor({
+        runtime,
+        draft,
+        library,
+        characterName: runtime?.characterName ?? "",
+        busy,
+        dirty: isDraftDirty(draft, originalDraft),
+        conflict,
+      });
+      root.appendChild(host);
+      wireDragAndDrop();
+    }
+
+    function notifyDraftChanged() {
+      const occupied = draft.filter((s) => s.characterActionId && !s.empty).length;
+      send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "draft-changed", occupiedSlots: occupied });
+    }
+
+    // Read the drag source from the dataTransfer payload we set on dragstart.
+    function wireDragAndDrop() {
+      const ids = actionIdSet();
+      root.querySelectorAll("[draggable='true']").forEach((el) => {
+        el.addEventListener("dragstart", (e) => {
+          const actionId = el.getAttribute("data-qbe-action");
+          const fromSlot = el.getAttribute("data-qbe-slot");
+          const payload = JSON.stringify({ actionId: actionId ?? null, fromSlot: fromSlot != null ? Number(fromSlot) : null });
+          try { e.dataTransfer.setData("text/plain", payload); e.dataTransfer.effectAllowed = "move"; } catch (_e) { /* ignore */ }
+        });
+      });
+      root.querySelectorAll("[data-qbe-slot]").forEach((slotEl) => {
+        slotEl.addEventListener("dragover", (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = "move"; } catch (_e) { /* ignore */ } });
+        slotEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const targetIdx = Number(slotEl.getAttribute("data-qbe-slot"));
+          let data = {};
+          try { data = JSON.parse(e.dataTransfer.getData("text/plain") || "{}"); } catch (_e) { data = {}; }
+          if (data.fromSlot != null && !Number.isNaN(data.fromSlot)) {
+            draft = moveSlot(draft, data.fromSlot, targetIdx);
+          } else if (data.actionId) {
+            draft = assignActionToSlot(draft, data.actionId, targetIdx, ids);
+          } else {
+            return;
+          }
+          notifyDraftChanged();
+          renderEditor();
+        });
+      });
+    }
+
+    root.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("[data-qbe-remove]");
+      if (removeBtn && !busy) {
+        draft = removeSlot(draft, Number(removeBtn.getAttribute("data-qbe-remove")));
+        notifyDraftChanged();
+        renderEditor();
+        return;
+      }
+      const target = e.target.closest("[data-action]");
+      if (!target || busy) return;
+      const action = target.getAttribute("data-action");
+      if (action === "qbe-save") {
+        busy = true;
+        renderEditor();
+        send(BC_HUD_COMMAND, {
+          scope: "combat-hud", feature: "quickbar", type: "save-layout",
+          expectedVersion: baseVersion,
+          slots: draftToSavePayload(draft),
+        });
+      } else if (action === "qbe-cancel") {
+        // Discard only the local draft, then close the popover.
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "close-editor" });
+      } else if (action === "qbe-reload") {
+        conflict = false;
+        rebuildDraftFromRuntime();
+        renderEditor();
+      }
+    });
+
+    if (available) {
+      try {
+        OBR.broadcast.onMessage(BC_HUD_ABILITIES, (event) => {
+          const nextRuntime = event?.data?.runtime ?? null;
+          const nextVersion = nextRuntime?.quickbar?.version ?? null;
+          const wasBusy = busy;
+          busy = false;
+          if (!runtime) {
+            // First load → build the initial draft.
+            runtime = nextRuntime;
+            rebuildDraftFromRuntime();
+          } else if (wasBusy) {
+            // A save just completed → adopt the fresh server layout as truth.
+            runtime = nextRuntime;
+            conflict = false;
+            rebuildDraftFromRuntime();
+          } else if (nextVersion != null && baseVersion != null && nextVersion !== baseVersion) {
+            // Server layout changed under us while editing → surface a conflict
+            // and keep the user's draft until they Reload (never silent clobber).
+            runtime = nextRuntime;
+            conflict = true;
+          } else {
+            // Same version, non-save refresh (e.g. library metadata) → refresh the
+            // library view without disturbing the working draft.
+            runtime = nextRuntime;
+          }
+          renderEditor();
+        });
+        send(BC_HUD_ABILITIES_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "editor-opened" });
+      } catch (_e) { /* standalone */ }
+    }
+    renderEditor();
     return;
   }
 
