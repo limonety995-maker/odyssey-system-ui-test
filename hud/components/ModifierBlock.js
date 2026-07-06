@@ -10,7 +10,7 @@ import { esc, tipAttr, cls } from "./hudDom.js";
 
 const MAX_CHIPS = 4;
 
-function chipAccent(mod) {
+export function chipAccent(mod) {
   if (mod.source === "intervention") return "intervention";
   if (mod.kind === "narrative" || mod.requiresGMApproval) return "narrative";
   if (mod.polarity === "negative") return "negative";
@@ -18,7 +18,7 @@ function chipAccent(mod) {
   return "neutral";
 }
 
-function modChip(mod) {
+export function modChip(mod) {
   const accent = chipAccent(mod);
   const sign = mod.value > 0 ? `+${mod.value}` : (mod.value < 0 ? `${mod.value}` : "");
   const tip = tipAttr(mod.name, [

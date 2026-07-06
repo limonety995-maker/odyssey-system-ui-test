@@ -3837,14 +3837,36 @@ var combatHudLayout_default = `/*
 .ohud-slot-cd { position: absolute; top: 2px; right: 3px; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
 .ohud-slot-toggle { position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--odyssey-purple); }
 
-/* ===================== Target block ===================== */
-.ohud-target { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; min-height: 0; justify-content: center; }
-.ohud-target .ohud-figure { width: 42px; }
-.ohud-target-meta { text-align: center; min-width: 0; width: 100%; }
-.ohud-target-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ohud-target-zone { display: inline-block; margin-top: 1px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
-  color: var(--odyssey-cyan); border: 1px solid rgba(52, 225, 214, 0.4); border-radius: 6px; padding: 0 6px; }
+/* ===================== Target block (Phase 4.0f: row layout) =====================
+ * Silhouette LEFT, a vertical text column RIGHT of it \u2014 name / zone badge /
+ * Clear each on their own line, so a long name can never crowd the figure and
+ * the zone badge never has to share a line with anything else. The empty/
+ * picking state stays its own centered-column look (nothing to lay out beside
+ * a ghost silhouette yet). */
+.ohud-target { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; flex: 1; min-height: 0; min-width: 0; }
+.ohud-target.is-empty { flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; }
+.ohud-target .ohud-figure { width: 44px; flex: 0 0 auto; }
+.ohud-target-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; padding-top: 1px; }
+.ohud-target-name { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-target-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ohud-target-zone {
+  display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.5px;
+  color: var(--odyssey-cyan); background: rgba(52, 225, 214, 0.1);
+  border: 1px solid rgba(52, 225, 214, 0.4); border-radius: 6px; padding: 1px 6px;
+}
+.ohud-target-dist { font-size: 8.5px; font-weight: 700; color: var(--odyssey-hud-dim); }
+.ohud-target-clear {
+  align-self: flex-start; margin-top: 1px; padding: 1px 8px; font-size: 8.5px; font-weight: 700;
+  color: var(--odyssey-hud-muted); background: transparent;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-target-clear:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }
 .ohud-target.is-empty .ohud-target-hint { font-size: 9px; font-weight: 700; color: var(--odyssey-hud-dim); }
+.ohud-target-pick {
+  padding: 2px 10px; font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text);
+  background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-target-pick:hover { border-color: var(--odyssey-hud-border-strong); }
 
 /* ===================== Mod + Action column ===================== */
 .ohud-panel--modact { gap: 3px; }
@@ -4317,62 +4339,35 @@ var combatHudModule_default = `/*\r
 .ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: flex-start; align-items: stretch; }\r
 .ohud-module .ohud-gun { position: relative; }\r
 \r
-/* ---------- Combat Control composite (330\xD7165) ---------- */\r
-/* Outer panel carries the frame; the grid fills it edge-to-edge. */\r
+/* ---------- Combat Control composite (330\xD7165, reworked Phase 4.0f) ---------- */\r
+/* Outer panel carries the frame; the grid fills it edge-to-edge.\r
+ *   \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\r
+ *   \u2502 Target       \u2502 AUTO / ARMED \u2502   \u2190 .ohud-cc-top (two columns)\r
+ *   \u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\r
+ *   \u2502  ATTACK      \u2502   END TURN   \u2502   \u2190 .ohud-cc-actionbar (full width, always)\r
+ *   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\r
+ * Dead zone-chip-grid CSS from an earlier Target design (no JS renders\r
+ * .ohud-zone-chip anymore \u2014 TargetBlock.js uses the clickable humanoid SVG)\r
+ * was removed here; it was silently shadowing the real .ohud-target-clear/\r
+ * .ohud-target-pick rules now owned by combatHudLayout.css. */\r
 .ohud-panel--cc { padding: 0; gap: 0; overflow: hidden; }\r
-.ohud-cc { display: grid; grid-template-columns: 1fr 1fr; width: 100%; height: 100%; min-height: 0; }\r
-.ohud-cc-target { min-width: 0; min-height: 0; border-right: 1px solid var(--odyssey-hud-border); }\r
-.ohud-cc-right { display: grid; grid-template-rows: 1fr 40px; min-width: 0; min-height: 0; }\r
-/* Inner section panels are seamless \u2014 the outer .ohud-panel--cc owns the frame. */\r
-.ohud-cc .ohud-panel { background: transparent; border: none; box-shadow: none; border-radius: 0; width: 100%; height: 100%; padding: 6px 7px; }\r
-/* Action strip: thin divider + tight padding (rule after the line above to win). */\r
-.ohud-cc .ohud-cc-action { border-top: 1px solid var(--odyssey-hud-border); padding: 3px 6px; }\r
+.ohud-cc { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }\r
+.ohud-cc-top { display: grid; grid-template-columns: 1fr 1fr; flex: 1 1 auto; min-height: 0; }\r
+.ohud-cc-target { min-width: 0; min-height: 0; border-right: 1px solid var(--odyssey-hud-border); padding: 6px 7px; }\r
+.ohud-cc-mod { min-width: 0; min-height: 0; padding: 6px 7px; display: flex; flex-direction: column; gap: 5px; overflow: hidden; }\r
+/* Inner Target panel is seamless \u2014 the outer .ohud-panel--cc owns the frame. */\r
+.ohud-cc-target .ohud-panel { background: transparent; border: none; box-shadow: none; border-radius: 0; width: 100%; height: 100%; padding: 0; }\r
 \r
-/* Target section \u2014 prominent silhouette (~56% height) + name / zone / distance. */\r
-.ohud-cc-target .ohud-target { justify-content: center; gap: 4px; }\r
-.ohud-cc-target .ohud-figure { width: 64px; height: 92px; }\r
-.ohud-cc-target .ohud-target-name { font-size: 11px; }\r
-.ohud-target-sub { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px; }\r
-.ohud-target-dist { font-size: 8.5px; font-weight: 700; color: var(--odyssey-hud-muted); }\r
-.ohud-target-dist--none { opacity: 0.7; }\r
-.ohud-target-pick {\r
-  margin-top: 2px; height: 20px; padding: 0 8px;\r
-  border: 1px solid var(--odyssey-purple); border-radius: 6px;\r
-  background: rgba(112, 80, 255, 0.22); color: var(--odyssey-hud-text);\r
-  font: inherit; font-size: 9px; font-weight: 800; cursor: pointer;\r
-  pointer-events: auto;\r
-}\r
-.ohud-target-pick:hover { border-color: var(--odyssey-cyan); }\r
+/* Target column: a slightly shorter silhouette than the old column layout\r
+ * needs, since it now shares its row with the text column instead of sitting\r
+ * above it. */\r
+.ohud-cc-target .ohud-figure { width: 46px; height: 78px; }\r
 \r
-/* Zone chip grid \u2014 6 clickable body-zone buttons (3 \xD7 2). */\r
-.ohud-zone-chips {\r
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;\r
-  margin-top: 3px;\r
+/* Full-width action bar: two equal buttons, thin divider between them. */\r
+.ohud-cc-actionbar {\r
+  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; height: 34px;\r
+  border-top: 1px solid var(--odyssey-hud-border);\r
 }\r
-.ohud-zone-chip {\r
-  height: 16px; padding: 0 2px;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 4px;\r
-  background: transparent; color: var(--odyssey-hud-muted);\r
-  font: inherit; font-size: 7.5px; font-weight: 700; text-transform: uppercase;\r
-  cursor: pointer; pointer-events: auto; overflow: hidden;\r
-  white-space: nowrap; text-overflow: ellipsis;\r
-  transition: border-color 80ms, color 80ms;\r
-}\r
-.ohud-zone-chip:hover { border-color: var(--odyssey-cyan); color: var(--odyssey-hud-text); }\r
-.ohud-zone-chip.is-selected {\r
-  border-color: var(--odyssey-purple); background: rgba(112, 80, 255, 0.22);\r
-  color: var(--odyssey-hud-text);\r
-}\r
-\r
-/* Clear-target button \u2014 small muted link style. */\r
-.ohud-target-clear {\r
-  margin-top: 4px; height: 16px; padding: 0 6px;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 4px;\r
-  background: transparent; color: var(--odyssey-hud-muted);\r
-  font: inherit; font-size: 8px; font-weight: 700; cursor: pointer;\r
-  pointer-events: auto;\r
-}\r
-.ohud-target-clear:hover { border-color: var(--odyssey-red, #e74c3c); color: var(--odyssey-hud-text); }\r
 \r
 .ohud-gun-caret,\r
 .ohud-ammo-reload,\r
@@ -4490,15 +4485,39 @@ var combatHudModule_default = `/*\r
 }\r
 .ohud-debuglog-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }\r
 \r
-/* Modifier section \u2014 dense 2-column chip grid, \u22646 then +N, no horizontal overflow. */\r
-.ohud-cc-mod .ohud-panel-head { min-height: 10px; }\r
-.ohud-cc-mod .ohud-mods { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; align-content: start; overflow: hidden; }\r
-.ohud-cc-mod .ohud-mod { height: auto; min-height: 16px; font-size: 9px; padding: 1px 5px; }\r
-.ohud-cc-mod .ohud-mod--more { justify-content: center; }\r
+/* Modifiers \u2014 two mini-sections (AUTO, ARMED) instead of one flat chip wall.\r
+ * AUTO = passive + narrative (armor/weapon/implant/passive ability/status/GM\r
+ * effect) \u2014 server-applied, never toggleable here. ARMED = active (attack\r
+ * modifiers already prepared for the next attack) \u2014 display-only in Phase\r
+ * 4.0f; no selector, no validation, no spend logic lives here yet. */\r
+.ohud-cc-mod .ohud-panel-head { min-height: 10px; flex: 0 0 auto; }\r
+.ohud-cc-modsec { display: flex; flex-direction: column; gap: 2px; min-height: 0; }\r
+.ohud-cc-modsec-head { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }\r
+.ohud-cc-modsec[data-modifier-state="empty"] .ohud-cc-modsec-head { opacity: 0.65; }\r
+.ohud-cc-modsec-empty { font-size: 8.5px; color: var(--odyssey-hud-dim); }\r
+.ohud-cc-modsec-chips { display: flex; gap: 3px; flex-wrap: nowrap; overflow: hidden; }\r
+.ohud-cc-modsec-chips .ohud-mod { flex: 1 1 0; min-width: 0; height: auto; min-height: 16px; font-size: 8.5px; padding: 1px 5px; }\r
+.ohud-cc-modsec-chips .ohud-mod--more { flex: 0 0 auto; justify-content: center; }\r
 \r
-/* Action section \u2014 compact button fills the 165\xD740 strip. */\r
-.ohud-cc-action .ohud-action { height: 100%; gap: 5px; }\r
-.ohud-cc-action .ohud-action-btn { height: 100%; }\r
+/* Full-width action bar \u2014 ATTACK (primary, cyan) | END TURN (secondary, amber).\r
+ * Equal width via the 1fr/1fr grid on .ohud-cc-actionbar; a 1px divider (the\r
+ * attack button's own right border) separates them. Disabled state dims via\r
+ * opacity only \u2014 it must keep its hue, never turn generic/grayscale, since\r
+ * End Turn is a normal tactical action, not an error state. */\r
+.ohud-cc-abtn {\r
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;\r
+  font-size: 11px; font-weight: 800; letter-spacing: 0.4px;\r
+  border: none; cursor: pointer;\r
+}\r
+.ohud-cc-abtn--attack {\r
+  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac); color: #052421;\r
+  border-right: 1px solid var(--odyssey-hud-border);\r
+}\r
+.ohud-cc-abtn--attack:hover:not(.is-disabled) { filter: brightness(1.08); }\r
+.ohud-cc-abtn--attack.is-disabled { opacity: 0.42; cursor: not-allowed; }\r
+.ohud-cc-abtn--endturn { background: rgba(255, 194, 75, 0.18); color: var(--odyssey-hud-warning); }\r
+.ohud-cc-abtn--endturn:hover:not(.is-disabled) { background: rgba(255, 194, 75, 0.3); }\r
+.ohud-cc-abtn--endturn.is-disabled { opacity: 0.42; cursor: not-allowed; }\r
 \r
 /* ===================== Phase 3A - scene-selection binding ===================== */\r
 /* Ready identity card (Player module) - shows REAL bound character only. */\r
@@ -6165,14 +6184,6 @@ function selectTargetView(state) {
     distance: Number.isFinite(enemy.distance) ? enemy.distance : null
   };
 }
-function selectModifierChips(state) {
-  const groups = selectModifierGroups(state);
-  return [
-    ...groups.passive ?? [],
-    ...groups.active ?? [],
-    ...groups.narrative ?? []
-  ];
-}
 
 // utils/json.js
 function escapeHtml(value) {
@@ -6889,7 +6900,7 @@ function renderTargetBlock(state) {
     </div>`;
     return panel({ key: "target", label: "Target", bodyHtml: body2 });
   }
-  const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : "\u2014";
+  const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : null;
   const svgPart = zoneIdToSvgPart(tv.bodyPartId);
   const body = `<div class="ohud-target">
     <div class="ohud-figure ohud-figure--targetable">
@@ -6900,7 +6911,7 @@ function renderTargetBlock(state) {
       <div class="ohud-target-name" title="${esc(tv.name)}">${esc(tv.name)}</div>
       <div class="ohud-target-sub">
         <span class="ohud-target-zone"${tipAttr("Aimed zone", ["Click a body zone on the silhouette"])}>${esc(tv.bodyPartLabel)}</span>
-        <span class="ohud-target-dist"${tipAttr("Distance to target", [])}>${esc(distLabel)}</span>
+        ${distLabel ? `<span class="ohud-target-dist"${tipAttr("Distance to target", [])}>${esc(distLabel)}</span>` : ""}
       </div>
       <button type="button" class="ohud-target-clear" data-action="clear-target"${tipAttr("Clear target", [])}>Clear</button>
     </div>
@@ -6908,53 +6919,7 @@ function renderTargetBlock(state) {
   return panel({ key: "target", label: "Target", bodyHtml: body });
 }
 
-// hud/components/ActionBlock.js
-function titleCase(word) {
-  if (!word) return "";
-  return word.charAt(0) + word.slice(1).toLowerCase();
-}
-function renderEndTurnButton(state) {
-  const session = state?.snapshot?.combatSession ?? null;
-  if (!canEndTurn(session, state?.viewer?.role)) return "";
-  return `<button type="button" class="ohud-action-btn ohud-endturn-btn" data-action="end-turn"
-    ${tipAttr("End turn", ["Unspent MAIN/MOVE are lost"])}>END TURN</button>`;
-}
-function renderBasicAttackButton(state) {
-  const ba = state?.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." };
-  const disabled = ba.inFlight || !ba.uiAllowed;
-  const tip = disabled ? tipAttr("Action unavailable", [esc(ba.uiBlockReason || (ba.inFlight ? "Attack is resolving." : "Not available"))]) : tipAttr("Attack", ["Costs: MAIN"]);
-  return `<div class="ohud-action">
-    <span class="ohud-action-econ">
-      <span class="ohud-econ-pip is-spend">M</span>
-      <span class="ohud-econ-pip">Mv</span>
-    </span>
-    <button type="button" class="${cls("ohud-action-btn", disabled ? "is-disabled" : "is-ready")}"
-      data-action="basic-attack"${disabled ? ' aria-disabled="true"' : ""}${tip}>Attack</button>
-    ${renderEndTurnButton(state)}
-  </div>`;
-}
-function renderActionButton(state) {
-  if (!selectSelectedSkill(state)) return renderBasicAttackButton(state);
-  const label = titleCase(selectActionLabel(state));
-  const can = selectCanAct(state);
-  const reason = selectDisabledReason(state);
-  const disabled = !can || Boolean(reason);
-  const cost = selectCurrentActionCost(state);
-  const displayLabel = reason === "Select a target." ? "Select target" : label;
-  const tip = disabled ? tipAttr("Action unavailable", [esc(reason || "Not available")]) : tipAttr(label, [`Costs: ${cost}`, "Resolution arrives in a later phase"]);
-  return `<div class="ohud-action">
-    <span class="ohud-action-econ">
-      <span class="${cls("ohud-econ-pip", cost === "MAIN" ? "is-spend" : "")}">M</span>
-      <span class="${cls("ohud-econ-pip", cost === "MOVE" ? "is-spend" : "")}">Mv</span>
-    </span>
-    <button type="button" class="${cls("ohud-action-btn", disabled ? "is-disabled" : "is-ready")}"
-      data-action="primary"${disabled ? ' aria-disabled="true"' : ""}${tip}>${esc(displayLabel)}</button>
-    ${renderEndTurnButton(state)}
-  </div>`;
-}
-
 // hud/components/ModifierBlock.js
-var MAX_CHIPS = 4;
 function chipAccent(mod) {
   if (mod.source === "intervention") return "intervention";
   if (mod.kind === "narrative" || mod.requiresGMApproval) return "narrative";
@@ -6976,34 +6941,89 @@ function modChip(mod) {
     <span class="ohud-mod-name">${esc(mod.name)}</span>${sign ? `<span class="ohud-mod-val">${esc(sign)}</span>` : ""}
   </span>`;
 }
-function renderModifierChips(state, limit = MAX_CHIPS) {
-  const all = selectModifierChips(state);
-  const shown = all.slice(0, limit);
-  let html = shown.map(modChip).join("");
-  if (all.length > shown.length) {
-    const hidden = all.slice(limit);
-    const tip = tipAttr(`${hidden.length} more`, hidden.map((m) => m.name));
-    html += `<span class="ohud-mod ohud-mod--more"${tip}>+${hidden.length}</span>`;
-  }
-  return `<div class="ohud-mods">${html}</div>`;
-}
 
 // hud/components/CombatControlBlock.js
-var COMBAT_CONTROL_MAX_CHIPS = 6;
-function renderCombatControlBlock(state) {
+var MAX_SECTION_CHIPS = 2;
+function titleCase(word) {
+  if (!word) return "";
+  return word.charAt(0) + word.slice(1).toLowerCase();
+}
+function modifierSection({ key, title, mods, emptyText }) {
+  const list = Array.isArray(mods) ? mods : [];
+  const shown = list.slice(0, MAX_SECTION_CHIPS);
+  const hidden = list.slice(MAX_SECTION_CHIPS);
+  const state = list.length ? "active" : "empty";
+  let body;
+  if (!list.length) {
+    body = `<div class="ohud-cc-modsec-empty">${esc(emptyText)}</div>`;
+  } else {
+    const chips = shown.map(modChip).join("");
+    const overflow = hidden.length ? `<span class="ohud-mod ohud-mod--more"${tipAttr(`${hidden.length} more`, hidden.map((m) => m.name))}>+${hidden.length}</span>` : "";
+    body = `<div class="ohud-cc-modsec-chips">${chips}${overflow}</div>`;
+  }
+  return `<div class="ohud-cc-modsec" data-modifier-section="${key}" data-modifier-state="${state}">
+    <div class="ohud-cc-modsec-head">${esc(title)} \xB7 ${list.length}</div>
+    ${body}
+  </div>`;
+}
+function renderModifiers(state) {
+  const groups = selectModifierGroups(state);
+  const auto = [...groups.passive ?? [], ...groups.narrative ?? []];
+  const armed = groups.active ?? [];
   const combatButton = state?.viewer?.role === "gm" ? `<button type="button" class="ohud-cc-combat-btn" data-action="toggle-gm-tracker" title="GM Combat Tracker">COMBAT</button>` : "";
+  return `<section class="ohud-cc-mod" data-block="modifiers">
+    <div class="ohud-panel-head"><span class="ohud-panel-label">Modifiers</span>${combatButton}</div>
+    ${modifierSection({ key: "auto", title: "AUTO", mods: auto, emptyText: "No automatic effects" })}
+    ${modifierSection({ key: "armed", title: "ARMED", mods: armed, emptyText: "None selected" })}
+  </section>`;
+}
+function endTurnDisabledReason(session, viewerRole) {
+  if (!session || session.exists !== true || session.status !== "active" || session.currentParticipantId == null) {
+    return "No active combat session";
+  }
+  const isGm = String(viewerRole ?? "").toLowerCase() === "gm";
+  if (isGm && session.isSelectedCharacterTurn) return null;
+  if (session.isCurrentPlayerTurn === true) return null;
+  return "Not your turn";
+}
+function resolveAttackSlot(state) {
+  if (!selectSelectedSkill(state)) {
+    const ba = state?.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." };
+    const disabled2 = ba.inFlight || !ba.uiAllowed;
+    const tip2 = disabled2 ? tipAttr("Action unavailable", [esc(ba.uiBlockReason || (ba.inFlight ? "Attack is resolving." : "Not available"))]) : tipAttr("Attack", ["Costs: MAIN"]);
+    return { label: "Attack", action: "basic-attack", disabled: disabled2, tip: tip2 };
+  }
+  const label = titleCase(selectActionLabel(state));
+  const can = selectCanAct(state);
+  const reason = selectDisabledReason(state);
+  const disabled = !can || Boolean(reason);
+  const cost = selectCurrentActionCost(state);
+  const displayLabel = reason === "Select a target." ? "Select target" : label;
+  const tip = disabled ? tipAttr("Action unavailable", [esc(reason || "Not available")]) : tipAttr(label, [`Costs: ${cost}`, "Resolution arrives in a later phase"]);
+  return { label: displayLabel, action: "primary", disabled, tip };
+}
+function renderActionBar(state) {
+  const attack = resolveAttackSlot(state);
+  const session = state?.snapshot?.combatSession ?? null;
+  const role = state?.viewer?.role;
+  const endTurnDisabled = !canEndTurn(session, role);
+  const endTurnReason = endTurnDisabled ? endTurnDisabledReason(session, role) : null;
+  const endTurnTip = endTurnDisabled ? tipAttr("End turn unavailable", [esc(endTurnReason || "Not available")]) : tipAttr("End turn", ["Unspent MAIN/MOVE are lost"]);
+  return `<div class="ohud-cc-actionbar" data-block="action">
+    <button type="button" class="${cls("ohud-cc-abtn", "ohud-cc-abtn--attack", attack.disabled ? "is-disabled" : "")}"
+      data-action="${attack.action}"${attack.disabled ? ' aria-disabled="true"' : ""}${attack.tip}>${esc(attack.label)}</button>
+    <button type="button" class="${cls("ohud-cc-abtn", "ohud-cc-abtn--endturn", endTurnDisabled ? "is-disabled" : "")}"
+      data-action="end-turn"${endTurnDisabled ? ' aria-disabled="true"' : ""}${endTurnTip}>END TURN</button>
+  </div>`;
+}
+function renderCombatControlBlock(state) {
   return `<section class="ohud-panel ohud-panel--cc" data-block="combatControl">
     <div class="ohud-cc">
-      <div class="ohud-cc-target">${renderTargetBlock(state)}</div>
-      <div class="ohud-cc-right">
-        <section class="ohud-panel ohud-panel--modifiers ohud-cc-mod" data-block="modifiers">
-          <div class="ohud-panel-head"><span class="ohud-panel-label">Mod</span>${combatButton}</div>
-          ${renderModifierChips(state, COMBAT_CONTROL_MAX_CHIPS)}
-        </section>
-        <section class="ohud-panel ohud-panel--action ohud-panel--bare ohud-cc-action" data-block="action">
-          ${renderActionButton(state)}
-        </section>
+      <div class="ohud-cc-top">
+        <div class="ohud-cc-target">${renderTargetBlock(state)}</div>
+        ${renderModifiers(state)}
       </div>
+      ${renderActionBar(state)}
     </div>
   </section>`;
 }

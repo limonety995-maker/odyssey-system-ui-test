@@ -25,9 +25,14 @@ export function renderTargetBlock(state) {
     return panel({ key: "target", label: "Target", bodyHtml: body });
   }
 
-  const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : "—";
+  const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : null;
   const svgPart = zoneIdToSvgPart(tv.bodyPartId);
 
+  // Phase 4.0f (Combat Control visual pass): silhouette LEFT, a vertical text
+  // column to its RIGHT — name / zone badge / Clear each on their own line, so
+  // a long name never overlaps the figure and never needs to share a line with
+  // the zone badge. Distance (when the server actually provides it) rides as a
+  // small secondary chip next to the zone badge rather than its own row.
   const body = `<div class="ohud-target">
     <div class="ohud-figure ohud-figure--targetable">
       <div class="ohud-figure-svg">${humanoidSvg({ zones: tv.zonesMap, highlight: svgPart, targetable: true })}</div>
@@ -37,7 +42,7 @@ export function renderTargetBlock(state) {
       <div class="ohud-target-name" title="${esc(tv.name)}">${esc(tv.name)}</div>
       <div class="ohud-target-sub">
         <span class="ohud-target-zone"${tipAttr("Aimed zone", ["Click a body zone on the silhouette"])}>${esc(tv.bodyPartLabel)}</span>
-        <span class="ohud-target-dist"${tipAttr("Distance to target", [])}>${esc(distLabel)}</span>
+        ${distLabel ? `<span class="ohud-target-dist"${tipAttr("Distance to target", [])}>${esc(distLabel)}</span>` : ""}
       </div>
       <button type="button" class="ohud-target-clear" data-action="clear-target"${tipAttr("Clear target", [])}>Clear</button>
     </div>
