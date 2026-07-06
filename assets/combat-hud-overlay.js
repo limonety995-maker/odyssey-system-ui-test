@@ -4037,6 +4037,53 @@ var combatHudLayout_default = `/*\r
 .ohud-qbe-hint { flex: 0 0 auto; font-size: 9.5px; color: var(--odyssey-hud-dim); margin-top: -3px; }\r
 .ohud-qbe-lib-empty, .ohud-qbe-empty { font-size: 10px; color: var(--odyssey-hud-muted); padding: 8px 4px; }\r
 \r
+/* ---- Ability Description Panel (Phase 4.0d) \u2014 right column, above the slot\r
+ * grid. Shows the currently selected library card or quickbar slot; a\r
+ * placeholder when nothing is selected yet. */\r
+.ohud-qbe-desc {\r
+  flex: 0 0 auto; min-height: 128px; max-height: 220px; overflow-y: auto;\r
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;\r
+  border: 1px solid var(--odyssey-hud-border); border-left-width: 3px; border-radius: 8px;\r
+  background: rgba(10, 14, 24, 0.55); box-shadow: inset 0 0 18px rgba(52, 225, 214, 0.05);\r
+}\r
+.ohud-qbe-desc-placeholder {\r
+  flex: 1 1 auto; display: grid; place-items: center; text-align: center;\r
+  font-size: 10.5px; color: var(--odyssey-hud-dim); padding: 10px;\r
+}\r
+.ohud-qbe-desc-head { display: flex; align-items: center; gap: 8px; }\r
+.ohud-qbe-desc-icon {\r
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;\r
+  border-radius: 6px; background: rgba(255, 255, 255, 0.05);\r
+}\r
+.ohud-qbe-desc-icon svg { width: 16px; height: 16px; }\r
+.ohud-qbe-desc-head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }\r
+.ohud-qbe-desc-name { font-size: 13px; font-weight: 800; color: var(--odyssey-hud-text); }\r
+.ohud-qbe-desc-type { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); }\r
+.ohud-qbe-desc-text { font-size: 10.5px; line-height: 1.4; color: var(--odyssey-hud-muted); }\r
+.ohud-qbe-desc-pills { display: flex; flex-wrap: wrap; gap: 5px; }\r
+.ohud-qbe-desc-pill {\r
+  font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px;\r
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--odyssey-hud-border);\r
+  color: var(--odyssey-hud-text); white-space: nowrap;\r
+}\r
+.ohud-qbe-desc-pill-label { color: var(--odyssey-hud-muted); font-weight: 800; margin-right: 4px; }\r
+.ohud-qbe-desc-status { font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px; }\r
+.ohud-qbe-desc-status.is-warning { color: var(--odyssey-hud-warning); background: rgba(255, 194, 75, 0.12); border: 1px solid rgba(255, 194, 75, 0.35); }\r
+.ohud-qbe-desc-status.is-active { color: var(--odyssey-hud-state-active); background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.35); }\r
+\r
+/* Accent stripe on the description panel, matching the selected ability's kind. */\r
+.ohud-qbe-desc.ohud-accent--attack { border-left-color: var(--odyssey-hud-attack); }\r
+.ohud-qbe-desc.ohud-accent--psionic { border-left-color: var(--odyssey-purple); }\r
+.ohud-qbe-desc.ohud-accent--implant { border-left-color: var(--odyssey-cyan); }\r
+.ohud-qbe-desc.ohud-accent--intervention { border-left-color: var(--odyssey-hud-intervention); }\r
+.ohud-qbe-desc.ohud-accent--neutral { border-left-color: var(--odyssey-hud-border-strong); }\r
+\r
+/* Selection ring \u2014 a neutral cyan ring distinct from the semantic accent\r
+ * colors, so "this is selected" always reads clearly regardless of type. */\r
+.ohud-qbe-card.is-selected, .ohud-qbe-slot.is-selected {\r
+  box-shadow: 0 0 0 2px var(--odyssey-cyan), 0 0 14px rgba(52, 225, 214, 0.35);\r
+}\r
+\r
 /* Available-actions library (left column). */\r
 .ohud-qbe-library {\r
   flex: 1 1 auto; min-height: 0; overflow-y: auto;\r
@@ -7844,12 +7891,12 @@ function actionById2(runtime, id) {
   if (!id) return null;
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
 }
-function libraryCard(action) {
+function libraryCard(action, selected) {
   const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
   const disabled = action.state?.available === false;
   const tip = tipAttr(action.name, abilityTooltipLines(action));
   const badges = costBadges(action).map(badgeHtml).join("");
-  return `<div class="${cls("ohud-qbe-card", `ohud-accent--${accent}`, disabled ? "is-disabled" : "")}" draggable="true" data-qbe-action="${esc(action.characterActionId)}"${tip}>
+  return `<div class="${cls("ohud-qbe-card", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", selected ? "is-selected" : "")}" draggable="true" data-qbe-action="${esc(action.characterActionId)}"${tip}>
     <span class="ohud-qbe-card-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qbe-card-main">
       <span class="ohud-qbe-card-name">${esc(action.name)}</span>
@@ -7859,15 +7906,15 @@ function libraryCard(action) {
     ${disabled ? `<span class="ohud-qbe-card-off" ${tipAttr("Currently unavailable", [String(action.state.disabledReason ?? "")])}>!</span>` : ""}
   </div>`;
 }
-function editorSlot(slot, action) {
+function editorSlot(slot, action, selected) {
   const idx = slot.slotIndex;
   if (slot.empty || slot.characterActionId == null) {
-    return `<div class="${cls("ohud-qbe-slot", "is-empty")}" data-qbe-slot="${idx}">
+    return `<div class="${cls("ohud-qbe-slot", "is-empty", selected ? "is-selected" : "")}" data-qbe-slot="${idx}">
       <span class="ohud-qbe-slot-idx">${idx + 1}</span>
     </div>`;
   }
   if (slot.missing || !action) {
-    return `<div class="${cls("ohud-qbe-slot", "is-missing")}" data-qbe-slot="${idx}" ${tipAttr("Missing action", ["No longer available \u2014 remove it."])}>
+    return `<div class="${cls("ohud-qbe-slot", "is-missing", selected ? "is-selected" : "")}" data-qbe-slot="${idx}" ${tipAttr("Missing action", ["No longer available \u2014 remove it."])}>
       <span class="ohud-qbe-slot-idx">${idx + 1}</span>
       <span class="ohud-qbe-missing">?</span>
       <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
@@ -7876,7 +7923,7 @@ function editorSlot(slot, action) {
   const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
   const mark = TYPE_MARK2[action.type] ?? "";
   const tip = tipAttr(action.name, abilityTooltipLines(action));
-  return `<div class="${cls("ohud-qbe-slot", "is-filled", `ohud-accent--${accent}`)}" draggable="true" data-qbe-slot="${idx}" data-qbe-action="${esc(action.characterActionId)}"${tip}>
+  return `<div class="${cls("ohud-qbe-slot", "is-filled", `ohud-accent--${accent}`, selected ? "is-selected" : "")}" draggable="true" data-qbe-slot="${idx}" data-qbe-action="${esc(action.characterActionId)}"${tip}>
     <span class="ohud-qbe-slot-idx">${idx + 1}</span>
     ${mark ? `<span class="ohud-qbe-slot-type">${esc(mark)}</span>` : ""}
     <span class="ohud-qbe-slot-icon">${skillIconSvg(action.iconKey)}</span>
@@ -7890,6 +7937,52 @@ function footerStatus({ busy, conflict, dirty }) {
   if (dirty) return { text: "Unsaved changes", tone: "warning" };
   return { text: "All changes saved", tone: "neutral" };
 }
+function resolveSelection(selection, runtime, draft) {
+  if (!selection) return null;
+  if (selection.kind === "action") {
+    const action = actionById2(runtime, selection.actionId);
+    return action ? { kind: "action", action } : null;
+  }
+  if (selection.kind === "slot") {
+    const slot = draft.find((s) => s.slotIndex === selection.slotIndex);
+    if (!slot || slot.empty || slot.characterActionId == null) return { kind: "empty-slot" };
+    if (slot.missing) return { kind: "missing-slot" };
+    const action = actionById2(runtime, slot.characterActionId);
+    return action ? { kind: "action", action } : { kind: "missing-slot" };
+  }
+  return null;
+}
+function renderDescriptionPanel(resolved) {
+  if (!resolved) {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">Select an ability to view details.</div></div>`;
+  }
+  if (resolved.kind === "empty-slot") {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">Empty slot \u2014 drag an action here to assign it.</div></div>`;
+  }
+  if (resolved.kind === "missing-slot") {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">This action is no longer available. Remove it from the slot.</div></div>`;
+  }
+  const action = resolved.action;
+  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const model = abilityTooltipModel(action);
+  const descLine = model.lines.find((l) => l.label === "Description");
+  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
+  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
+  const pillsHtml = pillLines.map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`).join("");
+  const statusHtml = statusLine ? `<div class="${cls("ohud-qbe-desc-status", statusLine.label === "Unavailable" ? "is-warning" : "is-active")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>` : "";
+  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
+    <div class="ohud-qbe-desc-head">
+      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
+      <div class="ohud-qbe-desc-head-text">
+        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
+        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
+      </div>
+    </div>
+    ${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
+    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>
+    ${statusHtml}
+  </div>`;
+}
 function renderQuickbarEditor(args = {}) {
   const runtime = args.runtime && typeof args.runtime === "object" ? args.runtime : null;
   const draft = Array.isArray(args.draft) ? args.draft : [];
@@ -7898,6 +7991,7 @@ function renderQuickbarEditor(args = {}) {
   const dirty = !!args.dirty;
   const conflict = !!args.conflict;
   const name = String(args.characterName ?? "Character");
+  const selection = args.selection ?? null;
   const header = `<div class="ohud-qbe-header">
     <span class="ohud-qbe-header-icon">${ICON_GRID}</span>
     <span class="ohud-qbe-header-text">
@@ -7913,7 +8007,10 @@ function renderQuickbarEditor(args = {}) {
         <span>Layout changed on the server. Your edits were not saved.</span>
         <button type="button" class="ohud-qbe-reload" data-action="qbe-reload">Reload layout</button>
       </div>` : "";
-  const libraryHtml = library.length ? library.map(libraryCard).join("") : `<div class="ohud-qbe-lib-empty">All actions are placed.</div>`;
+  const resolvedSelection = resolveSelection(selection, runtime, draft);
+  const highlightActionId = resolvedSelection?.kind === "action" ? resolvedSelection.action.characterActionId : null;
+  const highlightSlotIndex = selection?.kind === "slot" ? selection.slotIndex : null;
+  const libraryHtml = library.length ? library.map((action) => libraryCard(action, action.characterActionId === highlightActionId)).join("") : `<div class="ohud-qbe-lib-empty">All actions are placed.</div>`;
   const rows = /* @__PURE__ */ new Map();
   for (const slot of draft) {
     const r = rowOfSlot(slot.slotIndex);
@@ -7921,9 +8018,13 @@ function renderQuickbarEditor(args = {}) {
     rows.get(r).push(slot);
   }
   const slotsHtml = [...rows.keys()].sort((a, b) => a - b).map((r) => {
-    const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => editorSlot(slot, actionById2(runtime, slot.characterActionId))).join("");
+    const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
+      const isSelected = slot.slotIndex === highlightSlotIndex || highlightActionId != null && slot.characterActionId === highlightActionId;
+      return editorSlot(slot, actionById2(runtime, slot.characterActionId), isSelected);
+    }).join("");
     return `<div class="ohud-qbe-slot-row" data-row="${r}">${tiles}</div>`;
   }).join("");
+  const descriptionHtml = renderDescriptionPanel(resolvedSelection);
   const saveDisabled = busy || !dirty;
   const resetDisabled = busy || !dirty && !conflict;
   const status2 = footerStatus({ busy, conflict, dirty });
@@ -7938,7 +8039,8 @@ function renderQuickbarEditor(args = {}) {
         </div>
         <div class="ohud-qbe-col ohud-qbe-col--slots">
           <div class="ohud-qbe-section-label">Quickbar slots</div>
-          <div class="ohud-qbe-hint">Drag an action onto a slot to assign it, or drag between slots to swap.</div>
+          <div class="ohud-qbe-hint">Drag an action onto a slot to assign it, or drag between slots to swap. Click a card or slot to see its details.</div>
+          ${descriptionHtml}
           <div class="ohud-qbe-slots">${slotsHtml}</div>
         </div>
       </div>
@@ -8208,7 +8310,8 @@ function start() {
         characterName: runtime?.characterName ?? "",
         busy,
         dirty: isDraftDirty(draft, originalDraft),
-        conflict
+        conflict,
+        selection
       });
       root.appendChild(host);
       wireDragAndDrop();
@@ -8264,11 +8367,24 @@ function start() {
     let baseVersion = null;
     let busy = false;
     let conflict = false;
+    let selection = null;
     root.addEventListener("click", (e) => {
       const removeBtn = e.target.closest("[data-qbe-remove]");
       if (removeBtn && !busy) {
         draft = removeSlot(draft, Number(removeBtn.getAttribute("data-qbe-remove")));
         notifyDraftChanged();
+        renderEditor();
+        return;
+      }
+      const slotEl = e.target.closest(".ohud-qbe-slot");
+      const cardEl = !slotEl ? e.target.closest(".ohud-qbe-card") : null;
+      if (slotEl) {
+        selection = { kind: "slot", slotIndex: Number(slotEl.getAttribute("data-qbe-slot")) };
+        renderEditor();
+        return;
+      }
+      if (cardEl) {
+        selection = { kind: "action", actionId: cardEl.getAttribute("data-qbe-action") };
         renderEditor();
         return;
       }

@@ -323,6 +323,12 @@ function start() {
     let baseVersion = null;  // layout version this draft was built from
     let busy = false;
     let conflict = false;
+    // What the user last clicked in the Ability Description Panel: a library
+    // card or a quickbar slot (any state — empty/missing/filled). Content is
+    // re-resolved from the LIVE draft/runtime on every render (see
+    // resolveSelection in QuickbarEditorPanel.js), so it never goes stale
+    // when drag-drop moves things around underneath it.
+    let selection = null;
 
     function actionIdSet() {
       return new Set((runtime?.quickActions ?? []).map((a) => a.characterActionId).filter(Boolean));
@@ -350,6 +356,7 @@ function start() {
         busy,
         dirty: isDraftDirty(draft, originalDraft),
         conflict,
+        selection,
       });
       root.appendChild(host);
       wireDragAndDrop();
@@ -396,6 +403,23 @@ function start() {
       if (removeBtn && !busy) {
         draft = removeSlot(draft, Number(removeBtn.getAttribute("data-qbe-remove")));
         notifyDraftChanged();
+        renderEditor();
+        return;
+      }
+      // Ability Description Panel selection: a plain click (never fired by a
+      // completed drag gesture — the browser suppresses click after drag) on
+      // a library card or a slot (any state) selects it for the panel above
+      // the slot grid. Checked by CLASS, not data-qbe-action, because a
+      // filled slot carries data-qbe-action too (for its own drag payload).
+      const slotEl = e.target.closest(".ohud-qbe-slot");
+      const cardEl = !slotEl ? e.target.closest(".ohud-qbe-card") : null;
+      if (slotEl) {
+        selection = { kind: "slot", slotIndex: Number(slotEl.getAttribute("data-qbe-slot")) };
+        renderEditor();
+        return;
+      }
+      if (cardEl) {
+        selection = { kind: "action", actionId: cardEl.getAttribute("data-qbe-action") };
         renderEditor();
         return;
       }

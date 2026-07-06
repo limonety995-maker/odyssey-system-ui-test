@@ -275,6 +275,92 @@ test("4.0c: library cards show a category label and cost/cooldown badges (never 
   assert.ok(!/ohud-qbe-badge/.test(htmlNoCost), "no badges when every cost/cooldown field is honestly zero");
 });
 
+/* ── Phase 4.0d: Ability Description Panel ────────────────────────────── */
+
+test("4.0d: default state shows the placeholder when nothing is selected", () => {
+  const rt = runtime();
+  const draft = buildDraft(rt.quickbar.slots, new Set(rt.quickActions.map((a) => a.characterActionId)), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false, selection: null });
+  assert.match(html, /ohud-qbe-desc-placeholder">Select an ability to view details\.</);
+});
+
+test("4.0d: clicking a library card selects it — panel shows name, category, description, cost/cooldown/target pills", () => {
+  const withEverything = action({
+    id: "a1", name: "Etheric Strike", semanticKind: "attack", sourceType: "psi", type: "directed",
+    fullDescription: "A focused psionic strike against a single target.",
+    costs: { main: 1, move: 0, psi: 3, charges: 0 },
+    cooldown: { current: 0, max: 2, unit: "turn" },
+    targeting: { mode: "character", minTargets: 1, maxTargets: 1, allowAllies: false, allowSelf: false, requiresBodyZone: false },
+  });
+  const rt = runtime([], [withEverything]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [withEverything], dirty: false, selection: { kind: "action", actionId: "a1" } });
+  assert.match(html, /ohud-qbe-desc-name">Etheric Strike</);
+  assert.match(html, /ohud-qbe-desc-type">ATTACK \/ PSI</);
+  assert.match(html, /ohud-qbe-desc-text">A focused psionic strike against a single target\.</);
+  assert.match(html, /ohud-qbe-desc-pill[^>]*>[^<]*Type[^<]*<\/span>Directed action</);
+  assert.match(html, /ohud-qbe-desc-pill[^>]*>[^<]*Cost[^<]*<\/span>MAIN×1</);
+  assert.match(html, /ohud-qbe-desc-pill[^>]*>[^<]*Cooldown[^<]*<\/span>2 turn\(s\)</);
+  assert.match(html, /ohud-qbe-desc-pill[^>]*>[^<]*Target[^<]*<\/span>One character</);
+  // The selected card itself carries the shared selection ring.
+  assert.match(html, /ohud-qbe-card[^"]*is-selected[^"]*"[^>]*data-qbe-action="a1"/);
+});
+
+test("4.0d: an unavailable ability's server disabledReason surfaces as a prominent status, never fabricated", () => {
+  const disabled = action({ id: "a1", state: { available: false, active: false, disabledReason: "Out of PSI", selectable: false } });
+  const rt = runtime([], [disabled]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [disabled], dirty: false, selection: { kind: "action", actionId: "a1" } });
+  assert.match(html, /ohud-qbe-desc-status is-warning">Unavailable: Out of PSI</);
+});
+
+test("4.0d: clicking a filled slot resolves and shows the linked ability", () => {
+  const slots = [{ slotIndex: 3, characterActionId: "a1", empty: false }];
+  const rt = runtime(slots, [action({ id: "a1", name: "Overclock Servos" })]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false, selection: { kind: "slot", slotIndex: 3 } });
+  assert.match(html, /ohud-qbe-desc-name">Overclock Servos</);
+  // The slot itself carries the shared selection ring.
+  assert.match(html, /ohud-qbe-slot[^"]*is-selected[^"]*"[^>]*data-qbe-slot="3"/);
+});
+
+test("4.0d: clicking an empty slot shows the 'Empty slot' placeholder (optional-but-implemented per spec)", () => {
+  const rt = runtime([{ slotIndex: 5, characterActionId: null, empty: true }], []);
+  const draft = buildDraft(rt.quickbar.slots, new Set(), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false, selection: { kind: "slot", slotIndex: 5 } });
+  assert.match(html, /ohud-qbe-desc-placeholder">Empty slot — drag an action here to assign it\.</);
+});
+
+test("4.0d: clicking a missing-reference slot shows a clear message, not a crash or blank panel", () => {
+  const rt = runtime([{ slotIndex: 2, characterActionId: "gone", empty: false }], [action({ id: "a1" })]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false, selection: { kind: "slot", slotIndex: 2 } });
+  assert.match(html, /ohud-qbe-desc-placeholder">This action is no longer available\. Remove it from the slot\.</);
+});
+
+test("4.0d: selection is resolved LIVE against the current draft — a stale slot selection reflects what's there NOW", () => {
+  // Regression: selection must never be a frozen snapshot. If the user selected
+  // a slot when it was empty, and a drag later fills it, the panel (rebuilt on
+  // every render from the same `selection`) must show the NEW occupant, not the
+  // old "empty" placeholder — this is what makes Drag+Reset+Remove always safe
+  // to combine with an active selection without special-case bookkeeping.
+  const filledLater = [{ slotIndex: 7, characterActionId: "a1", empty: false }];
+  const rt = runtime(filledLater, [action({ id: "a1", name: "Neural Overload" })]);
+  const draftAfterFill = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  const selection = { kind: "slot", slotIndex: 7 }; // same selection object a prior "empty slot" click would have produced
+  const html = renderQuickbarEditor({ runtime: rt, draft: draftAfterFill, library: [], dirty: false, selection });
+  assert.match(html, /ohud-qbe-desc-name">Neural Overload</, "resolves against the CURRENT draft, not a stale snapshot");
+});
+
+test("4.0d: selecting a library card also highlights the slot holding that same action (cross-reference)", () => {
+  const slots = [{ slotIndex: 1, characterActionId: "a1", empty: false }];
+  const rt = runtime(slots, [action({ id: "a1" })]);
+  const draft = buildDraft(rt.quickbar.slots, new Set(["a1"]), 20);
+  // Selecting BY action id (as a slot click would resolve to) highlights the slot too.
+  const html = renderQuickbarEditor({ runtime: rt, draft, library: [], dirty: false, selection: { kind: "action", actionId: "a1" } });
+  assert.match(html, /ohud-qbe-slot[^"]*is-selected[^"]*"[^>]*data-qbe-slot="1"/);
+});
+
 /* ── Wiring contract (spec 14, 15) ────────────────────────────────────── */
 
 test("14. a normal click on an ability does NOT fire a combat RPC (only a benign toast)", () => {
@@ -350,6 +436,29 @@ test("4.0c: Reset (footer) reuses the exact same safe rebuild path as Reload (co
   const block = overlayPageSrc.slice(idx, overlayPageSrc.indexOf("}", overlayPageSrc.indexOf("renderEditor();", idx)));
   assert.ok(block.includes("rebuildDraftFromRuntime()"), "rebuilds from the last-known server layout, never invents one");
   assert.ok(!/send\(BC_HUD_COMMAND/.test(block), "Reset never sends a save/RPC command by itself");
+});
+
+test("4.0d: overlay page selects by CLASS (.ohud-qbe-slot / .ohud-qbe-card), checked before the remove button and before data-action — no RPC/save side effect", () => {
+  // Scoped to the quickbar-editor route specifically — combatHudOverlayPage.js
+  // has other routes with their OWN unrelated "[data-action]" click checks.
+  const routeStart = overlayPageSrc.indexOf('moduleParam === "quickbar-editor"');
+  const routeSrc = overlayPageSrc.slice(routeStart);
+  const removeIdx = routeSrc.indexOf('const removeBtn = e.target.closest("[data-qbe-remove]")');
+  const slotIdx = routeSrc.indexOf('const slotEl = e.target.closest(".ohud-qbe-slot")');
+  const cardIdx = routeSrc.indexOf('const cardEl = ');
+  const dataActionIdx = routeSrc.indexOf('const target = e.target.closest("[data-action]")');
+  assert.ok(removeIdx > -1 && slotIdx > -1 && cardIdx > -1 && dataActionIdx > -1, "all four checks present");
+  assert.ok(removeIdx < slotIdx, "remove-button check happens before selection (so Remove never also selects)");
+  assert.ok(slotIdx < dataActionIdx && cardIdx < dataActionIdx, "selection is checked before the footer/header data-action branch");
+  const block = routeSrc.slice(slotIdx, dataActionIdx);
+  assert.ok(block.includes('selection = { kind: "slot"') && block.includes('selection = { kind: "action"'));
+  assert.ok(!/send\(BC_HUD_COMMAND/.test(block), "selecting a card/slot never sends a command — pure local UI state");
+});
+
+test("4.0d: selection state is threaded into the render call so the panel always reflects the current click", () => {
+  const idx = overlayPageSrc.indexOf("function renderEditor()");
+  const block = overlayPageSrc.slice(idx, overlayPageSrc.indexOf("wireDragAndDrop();", idx));
+  assert.ok(block.includes("selection,"), "selection passed into renderQuickbarEditor");
 });
 
 setTimeout(() => {
