@@ -52,10 +52,24 @@ function resourceBar(kind, label, res) {
   </div>`;
 }
 
+// Bugfix pack: MOVE communicates remaining tactical movement through COLOR
+// only — never a number, meter, percentage, or fill bar (movement is tracked
+// in meters server-side, but the Player block must never show that). MAIN
+// stays the existing binary on/off pip, unchanged.
+const MOVE_TIP = {
+  full: "Movement available",
+  partial: "Movement partially spent",
+  empty: "Movement exhausted",
+};
+
 function actionPips(actions) {
-  const pip = (on, name) =>
-    `<span class="${cls("ohud-pip", on ? "is-on" : "is-off")}"${tipAttr(`${name} action`, [on ? "Available" : "Spent"])}>${name}</span>`;
-  return `<div class="ohud-pips">${pip(Boolean(actions?.main), "MAIN")}${pip(Boolean(actions?.move), "MOVE")}</div>`;
+  const mainOn = Boolean(actions?.main);
+  // Missing/unknown moveState (no active session, no tactical-move runtime
+  // yet) renders as "empty" (gray) — never falsely green.
+  const moveState = actions?.moveState === "full" || actions?.moveState === "partial" ? actions.moveState : "empty";
+  const mainPip = `<span class="${cls("ohud-pip", mainOn ? "is-on" : "is-off")}"${tipAttr("MAIN action", [mainOn ? "Available" : "Spent"])}>MAIN</span>`;
+  const movePip = `<span class="${cls("ohud-pip", `ohud-pip--move-${moveState}`)}"${tipAttr("MOVE action", [MOVE_TIP[moveState]])}>MOVE</span>`;
+  return `<div class="ohud-pips">${mainPip}${movePip}</div>`;
 }
 
 function pilotStrip(pilot) {

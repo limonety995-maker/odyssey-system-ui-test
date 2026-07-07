@@ -13,7 +13,7 @@ import { resolveFireModeUpdatePath } from "./fireModePolicy.js";
 import { evaluateBasicAttack } from "../combat/basicAttackPolicy.js";
 import { buildBasicAttackCtx, buildAttackPayload } from "../combat/basicAttackPayload.js";
 import { mapCombatRuntimeToSession } from "../session/combatSessionMapper.js";
-import { sessionAttackGate } from "../session/combatSessionPolicy.js";
+import { sessionAttackGate, deriveMoveState } from "../session/combatSessionPolicy.js";
 
 /** Canonical selection statuses (string values are part of the wire contract). */
 export const SELECTION_STATUS = Object.freeze({
@@ -361,7 +361,18 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         ...hudSnapshot,
         entity: {
           ...hudSnapshot.entity,
-          actions: { main: combatSession.mainAvailable, move: combatSession.moveAvailable },
+          actions: {
+            main: combatSession.mainAvailable,
+            move: combatSession.moveAvailable,
+            // Bugfix pack: the MOVE tile's color is the character's real
+            // remaining tactical movement (selectedMoveCurrent/Max), NOT
+            // gated by whose turn it is — `move` above stays turn-gated
+            // (existing gating consumers: selectCanAct/selectDisabledReason
+            // in combatHudSelectors.js are untouched), this is a SEPARATE,
+            // display-only field so a WAITING participant still shows their
+            // genuine full/partial/empty state, only visually dimmed.
+            moveState: deriveMoveState(combatSession.selectedMoveCurrent, combatSession.selectedMoveMax),
+          },
         },
       };
     }

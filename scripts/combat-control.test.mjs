@@ -85,10 +85,10 @@ test("1. MAIN/MOVE economy pips do not render in Combat Control (they stay in Pl
   assert.ok(!/>M<|>Mv</.test(html), "no bare M/Mv economy glyphs");
 });
 
-test("1b. PlayerBlock.js (untouched) is still the sole MAIN/MOVE renderer", () => {
+test("1b. PlayerBlock.js is still the sole MAIN/MOVE renderer", () => {
   const playerSrc = read("hud", "components", "PlayerBlock.js");
-  assert.match(playerSrc, /"MAIN"/);
-  assert.match(playerSrc, /"MOVE"/);
+  assert.match(playerSrc, />MAIN</);
+  assert.match(playerSrc, />MOVE</);
 });
 
 /* ── 2/3. Attack + End Turn: two equal buttons, distinct primary/secondary ── */

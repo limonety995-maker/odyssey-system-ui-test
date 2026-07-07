@@ -217,6 +217,12 @@
 .ohud-pip { font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--odyssey-hud-border); }
 .ohud-pip.is-on { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }
 .ohud-pip.is-off { color: var(--odyssey-hud-dim); }
+/* Bugfix pack: MOVE's 3-state color (full/partial/empty) — color ONLY, no
+ * number/meter/bar anywhere near it. "empty" intentionally matches .is-off
+ * exactly (same dim/gray treatment MAIN already uses when spent). */
+.ohud-pip--move-full { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }
+.ohud-pip--move-partial { color: #2b2106; background: var(--odyssey-hud-warning); border-color: transparent; }
+.ohud-pip--move-empty { color: var(--odyssey-hud-dim); }
 
 .ohud-pilot { display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 7px;
   background: var(--odyssey-purple-panel); border: 1px solid rgba(167, 139, 250, 0.4); }
