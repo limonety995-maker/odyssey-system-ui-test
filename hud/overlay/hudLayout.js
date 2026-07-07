@@ -55,10 +55,21 @@ export const BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
 export const LAYOUT_MARGIN = 16;
 /** Drag snap grid (px) used by the editor. */
 export const SNAP_GRID = 8;
-/** Below this viewport width we use a stacked compact fallback layout. */
-export const COMPACT_LAYOUT_BREAKPOINT = 1100;
 /** Skills: max quick slots per row before wrapping to a second row. */
 export const SKILLS_MAX_PER_ROW = 10;
+/**
+ * Safe inset (px) reserved on EACH edge of the viewport before the uniform
+ * scale is computed (Priority UI Fix — Universal Responsive HUD Scaling).
+ * Kept as an explicit, named parameter of the formula rather than folded
+ * into computeLayoutScale's callers — currently 0 because the canonical
+ * layout must render PIXEL-IDENTICAL to the pre-existing design at exactly
+ * the 1920×1080 reference viewport (a hard, tested requirement — see
+ * scripts/hud-responsive-layout.test.mjs), and nothing in the OBR SDK
+ * surfaces a distinct "chrome-safe" area narrower than
+ * OBR.viewport.getWidth()/getHeight() to justify a non-zero value today.
+ * clampRect() remains the actual safety net against ever going off-screen.
+ */
+export const HUD_SAFE_VIEWPORT_PADDING = 0;
 
 /**
  * EXACT designer layout at 1920×1080. These values are authoritative and must
@@ -84,15 +95,22 @@ export function clamp01(n) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-/** Scale factor from the reference viewport, capped at 1 (never upscale). */
+/**
+ * Universal, isotropic scale factor from the 1920×1080 reference design area.
+ * Deliberately UNCAPPED in both directions — a viewport smaller than the
+ * reference shrinks the whole HUD proportionally, a larger one grows it;
+ * there is no artificial minimum and no separate compact/mobile layout. Using
+ * `Math.min` of the two axis ratios (never stretching X and Y independently)
+ * is what keeps every module's aspect ratio and the intentional Player/Gun
+ * overlap correct at any viewport.
+ */
 export function computeLayoutScale(vw, vh) {
-  const w = Math.max(1, Number(vw) || 0);
-  const h = Math.max(1, Number(vh) || 0);
-  return Math.min(w / HUD_LAYOUT_REFERENCE_VIEWPORT.width, h / HUD_LAYOUT_REFERENCE_VIEWPORT.height, 1);
-}
-
-export function isCompactViewport(vw) {
-  return (Number(vw) || 0) < COMPACT_LAYOUT_BREAKPOINT;
+  const usableWidth = Math.max(1, (Number(vw) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  const usableHeight = Math.max(1, (Number(vh) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  return Math.min(
+    usableWidth / HUD_LAYOUT_REFERENCE_VIEWPORT.width,
+    usableHeight / HUD_LAYOUT_REFERENCE_VIEWPORT.height,
+  );
 }
 
 export function snapToGrid(value, grid = SNAP_GRID) {
@@ -107,9 +125,8 @@ export function rectsOverlap(a, b) {
 
 /* ----------------- module sizing ----------------- */
 
-/** A module's pixel size at the current viewport (scaled default, or compact). */
+/** A module's pixel size at the current viewport (uniformly scaled). */
 export function moduleSize(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleSize(moduleId, vw);
   const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
   const scale = computeLayoutScale(vw, vh);
   return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
@@ -117,7 +134,6 @@ export function moduleSize(moduleId, vw, vh) {
 
 /** Default (designer) pixel rect for a module at the current viewport. */
 export function defaultModuleRect(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleRect(moduleId, vw, vh);
   const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
   const scale = computeLayoutScale(vw, vh);
   const width = Math.round(def.width * scale);
@@ -180,53 +196,6 @@ export function resolveLayoutRects(layoutState, vw, vh) {
     out[id] = resolveModuleRect(id, state.modules[id], vw, vh);
   }
   return out;
-}
-
-/* ----------------- compact fallback ----------------- */
-//
-// Below COMPACT_LAYOUT_BREAKPOINT we don't shrink the desktop layout into
-// illegibility. Instead modules keep a readable min size and stack bottom-up in
-// a wrapped row, so every module stays reachable + editable.
-
-const COMPACT_SIZES = {
-  player: { width: 150, height: 150 },
-  gun: { width: 190, height: 92 },
-  skills: { width: 300, height: 92 },
-  target: { width: 92, height: 92 },
-  modifiers: { width: 92, height: 92 },
-  action: { width: 120, height: 34 },
-  log: { width: 180, height: 140 },
-};
-
-export function compactModuleSize(moduleId, vw) {
-  const s = COMPACT_SIZES[moduleId];
-  const maxW = Math.max(80, (Number(vw) || 0) - 2 * LAYOUT_MARGIN);
-  return { width: Math.min(s.width, maxW), height: s.height };
-}
-
-export function compactModuleRect(moduleId, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  // Pack modules left→right, wrapping to new rows stacked upward from the bottom.
-  let x = LAYOUT_MARGIN;
-  let rowTopFromBottom = LAYOUT_MARGIN;
-  let rowHeight = 0;
-  for (const id of HUD_MODULE_IDS) {
-    const size = compactModuleSize(id, vw);
-    if (x + size.width + LAYOUT_MARGIN > w && x > LAYOUT_MARGIN) {
-      rowTopFromBottom += rowHeight + 8;
-      x = LAYOUT_MARGIN;
-      rowHeight = 0;
-    }
-    if (id === moduleId) {
-      const top = Math.max(0, h - rowTopFromBottom - size.height);
-      return clampRect({ left: x, top, width: size.width, height: size.height, zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex }, vw, vh);
-    }
-    x += size.width + 8;
-    rowHeight = Math.max(rowHeight, size.height);
-  }
-  // Fallback (should not happen)
-  return clampRect({ left: LAYOUT_MARGIN, top: LAYOUT_MARGIN, ...compactModuleSize(moduleId, vw), zIndex: 20 }, vw, vh);
 }
 
 /* ----------------- editor alignment guides ----------------- */
