@@ -59,6 +59,7 @@ export function setupTargetingVisuals() {
 
   let outlineVisible = false;
   let ringVisible = false;
+  let ringTokenId = null; // the token the ring is CURRENTLY attached to
   let ringRotationDeg = 0;
   let ringTimer = null;
   let ringTickInFlight = false;
@@ -156,14 +157,36 @@ export function setupTargetingVisuals() {
 
   async function reconcileRing() {
     const wanted = shouldShowTargetRing({ targetTokenId });
-    if (wanted === ringVisible) return;
-    ringVisible = wanted;
-    if (wanted) {
-      ringRotationDeg = 0;
-      try { await showTargetRing(targetTokenId); startRingTimer(); } catch (_e) { ringVisible = false; }
-    } else {
+    if (!wanted) {
+      if (!ringVisible) return;
+      ringVisible = false;
+      ringTokenId = null;
       stopRingTimer();
       try { await hideTargetRing(); } catch (_e) { /* best effort */ }
+      return;
+    }
+    // Already showing on this EXACT token — a genuinely unrelated broadcast
+    // (this function only ever runs when targetChanged fired, but guard
+    // anyway) must never tear down/restart an already-correct ring.
+    if (ringVisible && ringTokenId === targetTokenId) return;
+    // Either a fresh pick, or the target switched to a DIFFERENT token: tear
+    // down the old ring/anchor pair (if any) before attaching the new one —
+    // never leave the ring attached to a stale target.
+    stopRingTimer();
+    if (ringVisible) {
+      try { await hideTargetRing(); } catch (_e) { /* best effort */ }
+    }
+    ringVisible = false;
+    ringTokenId = null;
+    ringRotationDeg = 0;
+    try {
+      await showTargetRing(targetTokenId);
+      ringVisible = true;
+      ringTokenId = targetTokenId;
+      startRingTimer();
+    } catch (_e) {
+      ringVisible = false;
+      ringTokenId = null;
     }
   }
 
@@ -210,6 +233,7 @@ export function setupTargetingVisuals() {
       stopRingTimer();
       outlineVisible = false;
       ringVisible = false;
+      ringTokenId = null;
       picking = false;
       toolActive = false;
     });

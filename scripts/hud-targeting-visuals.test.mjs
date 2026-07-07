@@ -27,6 +27,7 @@ import {
   nextRingRotation,
   OUTLINE_GAP_RATIO,
   RING_GAP_RATIO,
+  RING_ROTATION_PERIOD_MS,
 } from "../hud/targeting/visuals/targetingVisualPolicy.js";
 import { TARGET_CROSSHAIR_ICON, buildTargetCursorValue, buildTargetCursorToolIcon } from "../hud/targeting/targetCursorSvg.js";
 import { renderTargetBlock } from "../hud/components/TargetBlock.js";
@@ -271,6 +272,7 @@ test("scene onReadyChange(false) resets local tracking so a scene switch never l
   assert.match(block, /stopRingTimer/);
   assert.match(block, /outlineVisible = false/);
   assert.match(block, /ringVisible = false/);
+  assert.match(block, /ringTokenId = null/, "Fix #4: which-token tracking is reset too, not just the visibility flag");
 });
 
 test("outline uses attachedTo so OBR itself keeps it synced to the source token's move/resize/rotation — no manual re-positioning code", () => {
@@ -284,10 +286,77 @@ test("outline uses attachedTo so OBR itself keeps it synced to the source token'
 test("ring uses attachedTo for position/scale/delete but frees rotation for its own independent spin", () => {
   const idx = rendererSrc.indexOf("function buildTargetRingItem");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("async function getTokenBounds"));
-  assert.match(block, /\.attachedTo\(tokenId\)/);
+  assert.match(block, /\.attachedTo\(anchorItemId\)/);
   assert.match(block, /disableAttachmentBehavior\(\["ROTATION"\]\)/);
   assert.match(block, /strokeDash:\s*\[/, "dashed stroke per spec");
   assert.match(block, /\.disableHit\(true\)/);
+});
+
+/* ── Fix #4: outer anchor / inner ring separation (Bugfix Pack) ────────── */
+
+test("Fix #4: the ring is attached to a separate ANCHOR item, never directly to the target token — the anchor is the ONLY thing attachedTo(tokenId)", () => {
+  const anchorIdx = rendererSrc.indexOf("function buildTargetRingAnchorItem");
+  const anchorBlock = rendererSrc.slice(anchorIdx, rendererSrc.indexOf("function buildTargetRingItem"));
+  assert.match(anchorBlock, /\.attachedTo\(tokenId\)/, "anchor tracks the token directly");
+  assert.ok(!anchorBlock.includes("disableAttachmentBehavior"), "anchor keeps full default sync (position/scale/rotation/delete)");
+
+  const ringIdx = rendererSrc.indexOf("function buildTargetRingItem");
+  const ringBlock = rendererSrc.slice(ringIdx, rendererSrc.indexOf("async function getTokenBounds"));
+  assert.ok(!ringBlock.includes(".attachedTo(tokenId)"), "ring is NEVER attached to the token directly");
+  assert.match(ringBlock, /\.attachedTo\(anchorItemId\)/);
+});
+
+test("Fix #4: the anchor is invisible (zero opacity) — a purely geometric tracker, never a second visible ring", () => {
+  const idx = rendererSrc.indexOf("function buildTargetRingAnchorItem");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("function buildTargetRingItem"));
+  assert.match(block, /fillOpacity:\s*0/);
+  assert.match(block, /strokeOpacity:\s*0/);
+});
+
+test("Fix #4: showTargetRing() creates the anchor AND the ring together, ring attached to the anchor's own item id", () => {
+  const idx = rendererSrc.indexOf("export async function showTargetRing");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
+  assert.match(block, /buildTargetRingAnchorItem\(tokenId,\s*bounds\)/);
+  assert.match(block, /buildTargetRingItem\(TARGET_RING_ANCHOR_ITEM_ID,\s*bounds/);
+});
+
+test("Fix #4: hideTargetRing()/hideAllTargetingVisuals() always delete BOTH the ring and its anchor — no orphaned anchor left behind", () => {
+  const hideIdx = rendererSrc.indexOf("export async function hideTargetRing");
+  const hideBlock = rendererSrc.slice(hideIdx, rendererSrc.indexOf("export async function setTargetRingRotation"));
+  assert.match(hideBlock, /TARGET_RING_ITEM_ID/);
+  assert.match(hideBlock, /TARGET_RING_ANCHOR_ITEM_ID/);
+
+  const idx = rendererSrc.indexOf("export async function hideAllTargetingVisuals");
+  const block = rendererSrc.slice(idx);
+  assert.match(block, /TARGET_RING_ITEM_ID/);
+  assert.match(block, /TARGET_RING_ANCHOR_ITEM_ID/);
+});
+
+test("Fix #4: setTargetRingRotation() touches ONLY the ring item — never the anchor, never re-adds/removes either item", () => {
+  const idx = rendererSrc.indexOf("export async function setTargetRingRotation");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
+  assert.match(block, /updateItems\(\[TARGET_RING_ITEM_ID\]/);
+  assert.ok(!block.includes("TARGET_RING_ANCHOR_ITEM_ID"), "never touches the anchor");
+  assert.ok(!block.includes("addItems") && !block.includes("deleteItems"), "rotation ticks never add/remove items");
+});
+
+test("Fix #4: the controller tracks WHICH token the ring is attached to, and reattaches (tears down + recreates) when the target switches to a DIFFERENT token — never just leaves it on the stale one", () => {
+  assert.match(controllerSrc, /ringTokenId/);
+  const idx = controllerSrc.indexOf("async function reconcileRing");
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("async function reconcileCursor"));
+  assert.match(block, /ringVisible && ringTokenId === targetTokenId/, "no-op only when already correctly attached to THIS token");
+  assert.match(block, /hideTargetRing/);
+  assert.match(block, /showTargetRing/);
+});
+
+test("Fix #4: reconcileRing() only runs when the TARGET token id itself changes (handleTargetingState gates it on targetChanged) — a normal token move/resize broadcast never re-triggers it", () => {
+  const idx = controllerSrc.indexOf("function handleTargetingState");
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("/** @param {{ viewer"));
+  assert.match(block, /if \(targetChanged\) void reconcileRing\(\);/);
+});
+
+test("Fix #4: rotation animation is linear and completes one full turn in 3-4 seconds", () => {
+  assert.ok(RING_ROTATION_PERIOD_MS >= 3000 && RING_ROTATION_PERIOD_MS <= 4000);
 });
 
 test("the outline/ring/cursor wiring is called from the SAME two existing hook points (onTargetingState/onSelectionState) — no new controller entry point added to combatHudOverlayController.js", () => {
