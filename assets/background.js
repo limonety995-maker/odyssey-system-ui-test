@@ -5515,10 +5515,63 @@ function buildCombatLogLines(trace, bodyZoneLabel) {
   if (isReturnedNumber(ammo.remaining)) details2.push(`Ammo left: ${ammo.remaining}`);
   return details2;
 }
+function fmtModifier(v) {
+  if (!isReturnedNumber(v)) return null;
+  if (v === 0) return "0";
+  return v > 0 ? `+${v}` : `${v}`;
+}
+function modifierList(entries3) {
+  const parts = [];
+  for (const [label, value] of entries3) {
+    const f = fmtModifier(value);
+    if (f !== null) parts.push(`${label} ${f}`);
+  }
+  return parts.length ? parts.join(", ") : "None";
+}
+function rollLine(base, final, modifierEntries) {
+  if (!isReturnedNumber(base) && !isReturnedNumber(final)) return null;
+  return {
+    Roll: isReturnedNumber(base) ? base : NOT_RETURNED,
+    "With modifiers": isReturnedNumber(final) ? final : NOT_RETURNED,
+    Modifiers: modifierList(modifierEntries)
+  };
+}
+function buildRollBreakdown(trace) {
+  const t = trace && typeof trace === "object" ? trace : {};
+  const acc = section(t.accuracy);
+  const dmg = section(t.damage);
+  const out = {};
+  const attackRoll = rollLine(acc.attackRoll, acc.attackTotal, [
+    ["Skill", acc.attackSkillBonus],
+    ["Manual", acc.attackManualBonus],
+    ["Penalty", isReturnedNumber(acc.attackManualPenalty) ? -Math.abs(acc.attackManualPenalty) : acc.attackManualPenalty],
+    ["Weapon", acc.weaponAccuracyBonus],
+    ["Fire mode", acc.fireModeAccuracyModifier],
+    ["Ammo", acc.ammoAccuracyModifier]
+  ]);
+  if (attackRoll) out["ATTACK ROLL"] = attackRoll;
+  const defenseRoll = rollLine(acc.defenseRoll, acc.defenseTotal, [
+    ["Manual", acc.defenseManualBonus],
+    ["Penalty", isReturnedNumber(acc.defenseManualPenalty) ? -Math.abs(acc.defenseManualPenalty) : acc.defenseManualPenalty]
+  ]);
+  if (defenseRoll) out["DEFENSE ROLL"] = defenseRoll;
+  const damageRoll = rollLine(dmg.bulletDamage, dmg.attackTotalUsed, [
+    ["Ammo", dmg.ammoDamageModifier],
+    ["Melee", dmg.meleeStrengthBonus]
+  ]);
+  if (damageRoll) out["DAMAGE ROLL"] = damageRoll;
+  const damageDefense = rollLine(dmg.armorValueUsed, dmg.defenseTotalUsed, [
+    ["Armor pierce", isReturnedNumber(dmg.armorPierceUsed) ? -Math.abs(dmg.armorPierceUsed) : dmg.armorPierceUsed]
+  ]);
+  if (damageDefense) out["DAMAGE DEFENSE"] = damageDefense;
+  return out;
+}
 function buildRollResolutionDetails(trace) {
   const t = trace && typeof trace === "object" ? trace : buildAttackResolutionTrace(null);
+  const rollBreakdown = buildRollBreakdown(t);
   return {
     summary: t.summary,
+    ...Object.keys(rollBreakdown).length ? { rollBreakdown } : {},
     source: t.context?.sourceCharacterId,
     target: t.context?.targetCharacterId,
     weapon: t.context?.weapon,
@@ -5909,6 +5962,19 @@ function sessionReloadGate(session) {
   if (!session.isSelectedCharacterTurn) return { blocked: true, reason: SESSION_BLOCK_REASONS.waitingForTurn };
   if (!session.moveAvailable) return { blocked: true, reason: SESSION_BLOCK_REASONS.moveSpent };
   return { blocked: false, reason: null };
+}
+var MOVE_TILE_STATE = Object.freeze({
+  full: "full",
+  partial: "partial",
+  empty: "empty"
+});
+function deriveMoveState(moveCurrent, moveMax) {
+  const max = Number(moveMax);
+  const cur = Number(moveCurrent);
+  if (!Number.isFinite(max) || max <= 0) return MOVE_TILE_STATE.empty;
+  if (!Number.isFinite(cur) || cur <= 0) return MOVE_TILE_STATE.empty;
+  if (cur >= max) return MOVE_TILE_STATE.full;
+  return MOVE_TILE_STATE.partial;
 }
 function canSeeGmTracker(viewerRole) {
   return String(viewerRole ?? "").toLowerCase() === "gm";
@@ -6968,8 +7034,15 @@ function evaluateBodyCondition(bp) {
   if (!bp || typeof bp !== "object") {
     return build(BODY_CONDITION_STATE.unknown);
   }
-  if (bp.destroyed || bp.disabled) return build(BODY_CONDITION_STATE.disabled);
-  if (num4(bp.critical) > 0) return build(BODY_CONDITION_STATE.critical);
+  const critical = num4(bp.critical);
+  const maxCritical = Number(bp.max_critical);
+  const hasThreshold = Number.isFinite(maxCritical) && maxCritical > 0;
+  if (hasThreshold) {
+    if (critical >= maxCritical) return build(BODY_CONDITION_STATE.disabled);
+  } else if (bp.destroyed) {
+    return build(BODY_CONDITION_STATE.disabled);
+  }
+  if (critical > 0) return build(BODY_CONDITION_STATE.critical);
   if (num4(bp.serious) > 0) return build(BODY_CONDITION_STATE.serious);
   if (num4(bp.minor) > 0) return build(BODY_CONDITION_STATE.minor);
   return build(BODY_CONDITION_STATE.healthy);
@@ -6980,8 +7053,9 @@ function build(state) {
 function bodyConditionDetailLines(bp) {
   if (!bp || typeof bp !== "object") return [];
   const lines = [];
-  if (bp.destroyed) lines.push("Destroyed");
-  else if (bp.disabled) lines.push("Disabled");
+  if (evaluateBodyCondition(bp).state === BODY_CONDITION_STATE.disabled) {
+    lines.push(bp.destroyed ? "Destroyed" : "Disabled");
+  }
   if (num4(bp.critical) > 0) lines.push(`Critical damage: ${num4(bp.critical)}`);
   if (num4(bp.serious) > 0) lines.push(`Serious wounds: ${num4(bp.serious)}`);
   if (num4(bp.minor) > 0) lines.push(`Minor wounds: ${num4(bp.minor)}`);
@@ -7788,7 +7862,18 @@ function buildBroadcastPayload(state, ephemeral = {}) {
         ...hudSnapshot,
         entity: {
           ...hudSnapshot.entity,
-          actions: { main: combatSession.mainAvailable, move: combatSession.moveAvailable }
+          actions: {
+            main: combatSession.mainAvailable,
+            move: combatSession.moveAvailable,
+            // Bugfix pack: the MOVE tile's color is the character's real
+            // remaining tactical movement (selectedMoveCurrent/Max), NOT
+            // gated by whose turn it is — `move` above stays turn-gated
+            // (existing gating consumers: selectCanAct/selectDisabledReason
+            // in combatHudSelectors.js are untouched), this is a SEPARATE,
+            // display-only field so a WAITING participant still shows their
+            // genuine full/partial/empty state, only visually dimmed.
+            moveState: deriveMoveState(combatSession.selectedMoveCurrent, combatSession.selectedMoveMax)
+          }
         }
       };
     }
@@ -9179,6 +9264,7 @@ function nextRingRotation(currentDeg, elapsedMs, periodMs = RING_ROTATION_PERIOD
 
 // hud/targeting/visuals/targetingVisualRenderer.js
 var SOURCE_OUTLINE_ITEM_ID = "com.odyssey-system/targeting-source-outline";
+var TARGET_RING_ANCHOR_ITEM_ID = "com.odyssey-system/targeting-target-ring-anchor";
 var TARGET_RING_ITEM_ID = "com.odyssey-system/targeting-target-ring";
 var SOURCE_OUTLINE_COLOR = "#34e1d6";
 var TARGET_RING_COLOR = "#ff5c6c";
@@ -9193,7 +9279,11 @@ function buildSourceOutlineItem(tokenId, bounds) {
     strokeDash: []
   }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
 }
-function buildTargetRingItem(tokenId, bounds, rotationDeg = 0) {
+function buildTargetRingAnchorItem(tokenId, bounds) {
+  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
+  return buildShape().id(TARGET_RING_ANCHOR_ITEM_ID).name("Odyssey Target Ring Anchor (local only, invisible)").shapeType("RECTANGLE").width(geo.width).height(geo.height).position(geo.position).style({ fillColor: TARGET_RING_COLOR, fillOpacity: 0, strokeColor: TARGET_RING_COLOR, strokeOpacity: 0, strokeWidth: 0 }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
+}
+function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).rotation(rotationDeg).style({
     fillColor: TARGET_RING_COLOR,
@@ -9202,7 +9292,7 @@ function buildTargetRingItem(tokenId, bounds, rotationDeg = 0) {
     strokeOpacity: 0.95,
     strokeWidth: 5,
     strokeDash: [14, 10]
-  }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).disableAttachmentBehavior(["ROTATION"]).visible(true).build();
+  }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(anchorItemId).disableAttachmentBehavior(["ROTATION"]).visible(true).build();
 }
 async function getTokenBounds(tokenId) {
   const box = await lib_default.scene.items.getItemBounds([tokenId]);
@@ -9217,10 +9307,13 @@ async function hideSourceOutline() {
 }
 async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
-  await lib_default.scene.local.addItems([buildTargetRingItem(tokenId, bounds, 0)]);
+  await lib_default.scene.local.addItems([
+    buildTargetRingAnchorItem(tokenId, bounds),
+    buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)
+  ]);
 }
 async function hideTargetRing() {
-  await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
+  await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
 }
 async function setTargetRingRotation(rotationDeg) {
   await lib_default.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
@@ -9228,7 +9321,7 @@ async function setTargetRingRotation(rotationDeg) {
   });
 }
 async function hideAllTargetingVisuals() {
-  await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID]);
+  await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
 }
 
 // hud/targeting/visuals/targetingVisualController.js
@@ -9253,6 +9346,7 @@ function setupTargetingVisuals() {
   let canView = false;
   let outlineVisible = false;
   let ringVisible = false;
+  let ringTokenId = null;
   let ringRotationDeg = 0;
   let ringTimer = null;
   let ringTickInFlight = false;
@@ -9350,22 +9444,36 @@ function setupTargetingVisuals() {
   }
   async function reconcileRing() {
     const wanted = shouldShowTargetRing({ targetTokenId });
-    if (wanted === ringVisible) return;
-    ringVisible = wanted;
-    if (wanted) {
-      ringRotationDeg = 0;
-      try {
-        await showTargetRing(targetTokenId);
-        startRingTimer();
-      } catch (_e) {
-        ringVisible = false;
-      }
-    } else {
+    if (!wanted) {
+      if (!ringVisible) return;
+      ringVisible = false;
+      ringTokenId = null;
       stopRingTimer();
       try {
         await hideTargetRing();
       } catch (_e) {
       }
+      return;
+    }
+    if (ringVisible && ringTokenId === targetTokenId) return;
+    stopRingTimer();
+    if (ringVisible) {
+      try {
+        await hideTargetRing();
+      } catch (_e) {
+      }
+    }
+    ringVisible = false;
+    ringTokenId = null;
+    ringRotationDeg = 0;
+    try {
+      await showTargetRing(targetTokenId);
+      ringVisible = true;
+      ringTokenId = targetTokenId;
+      startRingTimer();
+    } catch (_e) {
+      ringVisible = false;
+      ringTokenId = null;
     }
   }
   async function reconcileCursor() {
@@ -9403,6 +9511,7 @@ function setupTargetingVisuals() {
       stopRingTimer();
       outlineVisible = false;
       ringVisible = false;
+      ringTokenId = null;
       picking = false;
       toolActive = false;
     });
