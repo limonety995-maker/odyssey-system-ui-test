@@ -91,13 +91,17 @@ test("1. exact default rects at 1920×1080 (incl. Combat Control)", () => {
   assert.deepEqual(defaultModuleRect("log", RW, RH), { left: 1656, top: 814, width: 250, height: 250, zIndex: 20 });
 });
 
-test("2. default layout scales proportionally below reference", () => {
+test("2. default layout scales proportionally below AND above reference (Priority UI Fix — Universal Responsive HUD Scaling: uncapped, no artificial minimum)", () => {
   const scale = computeLayoutScale(1600, 900);
   assert.ok(Math.abs(scale - (900 / 1080)) < 1e-9);
   const cc = defaultModuleRect("combatControl", 1600, 900);
   assert.equal(cc.width, Math.round(330 * scale));
   assert.equal(cc.height, Math.round(165 * scale));
-  assert.equal(computeLayoutScale(2560, 1440), 1); // never upscales
+  // Reversed from the earlier Phase 2.2 "never upscales" rule — see
+  // scripts/hud-responsive-layout.test.mjs for the full 8-viewport suite.
+  const upScale = computeLayoutScale(2560, 1440);
+  assert.ok(upScale > 1, "a viewport larger than 1920×1080 now upscales the whole HUD");
+  assert.ok(Math.abs(upScale - (1440 / 1080)) < 1e-9);
 });
 
 test("3. custom normalized placement → pixels", () => {
