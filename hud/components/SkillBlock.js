@@ -64,7 +64,11 @@ export function renderSkillBlock(state) {
     // only shown for a character the viewer may view, so allow opening the
     // quickbar editor (via an empty slot, Phase 4.0i) here.
     const canEdit = role === "gm" || role === "player";
-    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit }) });
+    // Phase 4.1A: which attack_technique (if any) is armed for this character
+    // — ephemeral UI state folded in by selectionState.js, never server data
+    // by itself (the server re-validates everything at Attack time).
+    const armedActionId = state?.snapshot?.armedActionId ?? null;
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId }) });
   }
 
   const slots = selectQuickSlots(state);

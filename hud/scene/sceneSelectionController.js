@@ -31,6 +31,7 @@ import { evaluateBasicAttack, buildAttackRequestSignature, isAttackResultStale }
 import { buildBasicAttackCtx, resolveAttack } from "../combat/basicAttackPayload.js";
 import { buildAttackResolutionTrace, buildRollResolutionDetails } from "../combat/attackResolutionTrace.js";
 import { createSelectedWeaponMemory, resolveStoredWeaponId } from "./selectedWeaponMemory.js";
+import { createArmedTechniqueMemory } from "./armedTechniqueMemory.js";
 import {
   appendCombatLogEntry,
   buildAttackLogEntry,
@@ -43,6 +44,20 @@ import { setupCombatSessionController } from "../session/combatSessionController
 import { setupQuickbarController } from "../abilities/quickbarController.js";
 import { mapCombatRuntimeToSession } from "../session/combatSessionMapper.js";
 import { sessionAttackGate, sessionReloadGate, expectedVersionOf } from "../session/combatSessionPolicy.js";
+
+// Phase 4.1A: perform_attack error codes specific to an armed attack
+// technique (migration 100) — used only to classify a Debug Console event,
+// never to change attack gating (the server is the sole authority there).
+const ARMED_TECHNIQUE_ERROR_CODES = new Set([
+  "ARMED_ACTION_INVALID",
+  "ARMED_ACTION_ON_COOLDOWN",
+  "NOT_ENOUGH_PSI",
+  "NOT_ENOUGH_CHARGES",
+  "WEAPON_REQUIREMENT_NOT_MET",
+  "TARGET_REQUIREMENT_NOT_MET",
+  "ACTION_STACK_CONFLICT",
+  "ACTION_EFFECT_NOT_IMPLEMENTED",
+]);
 import { BC_HUD_COMMAND, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_TARGETING_COMMAND } from "../overlay/overlayConstants.js";
 import { createSceneSelectionAdapter } from "./sceneSelectionAdapter.js";
 import { buildCanonicalArmory } from "../runtime/runtimeBundleMapper.js";
@@ -72,6 +87,10 @@ export function setupSceneSelection(hooks = {}) {
   // memory — see selectedWeaponMemory.js for why this exists (Token A → B → A
   // must restore A's own weapon, not fall back to armory's first weapon).
   const selectedWeaponMemory = createSelectedWeaponMemory();
+  // Phase 4.1A: per-character "armed attack technique" memory — same lifecycle
+  // as selectedWeaponMemory (ephemeral, session-scoped, never persisted). See
+  // armedTechniqueMemory.js for the max-1-until-stackGroup rule.
+  const armedTechniqueMemory = createArmedTechniqueMemory();
   // Phase 3D.1: the real (server-result-only) local Combat Log — newest first,
   // capped, never persisted. Deliberately OUTSIDE `ephemeral` (not reset per
   // character) — it's a running session history, not per-character state.
@@ -278,6 +297,7 @@ export function setupSceneSelection(hooks = {}) {
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
+        armedActionId: armedTechniqueMemory.get(ephemeral.characterId),
       };
     }
 
@@ -381,6 +401,28 @@ export function setupSceneSelection(hooks = {}) {
         return; // unknown fire-mode command → ignore, never falls through below
       }
 
+      // Phase 4.1A: arm/disarm an attack technique from the Skills Block
+      // (occupied attack_technique slot) or Combat Control's ARMED × button —
+      // both funnel into the SAME toggle so max-1-armed and replace-on-arm
+      // are enforced in exactly one place (armedTechniqueMemory.js). Pure
+      // local ephemeral UI state — no server round-trip, no cost spent here;
+      // the server re-validates everything at Attack time.
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "toggle-armed") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        if (actionId && ephemeral.characterId) {
+          const { armedId, previousId } = armedTechniqueMemory.toggle(ephemeral.characterId, actionId);
+          const eventType = armedId == null
+            ? "attack-technique-disarmed"
+            : (previousId ? "attack-technique-replaced" : "attack-technique-armed");
+          logDebugEvent("abilities", eventType, {
+            characterActionId: actionId,
+            previousCharacterActionId: previousId ?? null,
+          });
+          if (lastState) publishState(lastState);
+        }
+        return;
+      }
+
       // Basic Weapon Attack v1: same namespaced-scope routing pattern as
       // fire-mode above — cannot collide with weapon/magazine/reload/target/
       // skill/arrange commands regardless of `type` string reuse.
@@ -433,6 +475,11 @@ export function setupSceneSelection(hooks = {}) {
         // below.
         const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, weaponId: evalCtx.weaponId, targetCharacterId: evalCtx.targetCharacterId };
         const bodyZoneLabel = getZoneLabel(DEFAULT_PROFILE_ID, evalCtx.bodyZoneId) || evalCtx.bodyZoneId;
+        // Phase 4.1A: whichever technique is armed for THIS attacker at
+        // request time travels with the request — a later re-arm/disarm while
+        // the RPC is in flight must not retroactively change what this
+        // specific attack asked for.
+        const requestArmedActionId = armedTechniqueMemory.get(evalCtx.sourceCharacterId);
         const ctx = buildBasicAttackCtx({
           sourceCharacterId: evalCtx.sourceCharacterId,
           weaponId: evalCtx.weaponId,
@@ -446,10 +493,14 @@ export function setupSceneSelection(hooks = {}) {
             ? { encounterId: sessionAtRequest.id ?? undefined }
             : {},
           expectedEncounterVersion: expectedVersionOf(sessionAtRequest),
+          armedActionIds: requestArmedActionId ? [requestArmedActionId] : [],
         });
 
         ephemeral.basicAttackInFlight = true;
         logDebugEvent("attack", "payload-prepared", { weaponId: ctx.weaponId, targetCharacterId: ctx.targetCharacterId, bodyZone: evalCtx.bodyZoneId });
+        if (requestArmedActionId) {
+          logDebugEvent("abilities", "attack-modifier-validation-requested", { characterActionId: requestArmedActionId });
+        }
         if (lastState) publishState(lastState); // Action disables immediately
 
         let outcome;
@@ -522,6 +573,41 @@ export function setupSceneSelection(hooks = {}) {
           // tied to the OLD context) — just stop showing "resolving".
           if (lastState) publishState(lastState);
           return;
+        }
+
+        // Phase 4.1A: what happened to the armed technique for THIS request —
+        // applied (consumed; clear it so it doesn't look armed for the NEXT
+        // attack), rejected pre-attack or post-roll (left armed on purpose —
+        // "ARMED очищается только по server confirmation", never by a bare
+        // click on Attack), or nothing (no technique was armed here).
+        if (requestArmedActionId) {
+          const preRollValidated = outcome.ok || !ARMED_TECHNIQUE_ERROR_CODES.has(outcome.code);
+          logDebugEvent("abilities", "attack-modifier-validation-result", {
+            characterActionId: requestArmedActionId,
+            validated: preRollValidated,
+          }, preRollValidated);
+          if (outcome.ok) {
+            const armedActions = Array.isArray(outcome.raw?.armed_actions) ? outcome.raw.armed_actions : [];
+            for (const entry of armedActions) {
+              const actionId = entry?.characterActionId ?? requestArmedActionId;
+              if (entry?.applied === true) {
+                armedTechniqueMemory.forget(requestCtx.sourceCharacterId);
+                logDebugEvent("abilities", "attack-modifiers-applied", { characterActionId: actionId, name: entry.name ?? null }, true);
+                logDebugEvent("abilities", "attack-technique-cost-consumed", { characterActionId: actionId, costsConsumed: entry.costsConsumed ?? null }, true);
+                if (entry.cooldownBefore !== entry.cooldownAfter) {
+                  logDebugEvent("abilities", "attack-technique-cooldown-updated", {
+                    characterActionId: actionId,
+                    cooldownBefore: entry.cooldownBefore ?? null,
+                    cooldownAfter: entry.cooldownAfter ?? null,
+                  }, true);
+                }
+              } else {
+                logDebugEvent("abilities", "attack-modifier-rejected", { characterActionId: actionId, reason: entry?.reason ?? null }, false);
+              }
+            }
+          } else if (ARMED_TECHNIQUE_ERROR_CODES.has(outcome.code)) {
+            logDebugEvent("abilities", "attack-modifier-rejected", { characterActionId: requestArmedActionId, reason: outcome.code }, false);
+          }
         }
 
         if (outcome.ok) {

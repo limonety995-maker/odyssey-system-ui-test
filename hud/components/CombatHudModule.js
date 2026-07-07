@@ -281,6 +281,29 @@ export function mountCombatHudModule(options) {
         // tooltip already carries the detail; a click just nudges it visible.
         if (!t.classList.contains("is-disabled")) showToast("Ability details — execution arrives in Phase 4.1");
         break;
+      case "toggle-armed-technique": {
+        // Phase 4.1A: arming is blocked while the tile itself is disabled
+        // (unavailable/on cooldown/etc), but DISARMING an already-armed
+        // technique must always work even if it went invalid after arming —
+        // "the user can always remove it manually" (spec). is-armed is the
+        // one signal this generic delegated handler has for "already armed".
+        const isArmed = t.classList.contains("is-armed");
+        if (isArmed || !t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud", feature: "quickbar", type: "toggle-armed",
+            characterActionId: t.getAttribute("data-action-id"),
+          });
+        }
+        break;
+      }
+      case "disarm-technique":
+        // Combat Control's ARMED × — always disarms (it only ever renders on
+        // an already-armed entry), same underlying toggle as the Skills Block.
+        integration.onCommand && integration.onCommand({
+          scope: "combat-hud", feature: "quickbar", type: "toggle-armed",
+          characterActionId: t.getAttribute("data-action-id"),
+        });
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the

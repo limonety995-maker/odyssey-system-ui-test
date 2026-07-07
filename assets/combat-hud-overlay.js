@@ -3894,6 +3894,17 @@ var combatHudLayout_default = `/*
 .ohud-mod--narrative { border-color: rgba(167, 139, 250, 0.55); color: var(--odyssey-purple); }
 .ohud-mod.is-selected { box-shadow: 0 0 0 1.5px var(--odyssey-cyan); }
 .ohud-mod.is-passive { opacity: 0.85; }
+/* Phase 4.1A: armed attack technique chip (Combat Control ARMED section) \u2014
+ * its own \xD7 remove control, and an "invalid" state for when the situation
+ * (target/weapon/cooldown) changed after arming but the player hasn't
+ * disarmed it yet. */
+.ohud-mod--armed { border-color: var(--odyssey-cyan); color: var(--odyssey-hud-text); }
+.ohud-mod--armed.is-invalid { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); opacity: 0.85; }
+.ohud-mod-remove {
+  flex: 0 0 auto; border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 0 0 0 4px; opacity: 0.7;
+}
+.ohud-mod-remove:hover { opacity: 1; color: var(--odyssey-hud-danger, #a33); }
 
 .ohud-action { display: flex; align-items: center; gap: 6px; }
 .ohud-action-econ { display: flex; gap: 3px; }
@@ -4018,6 +4029,10 @@ var combatHudLayout_default = `/*
 .ohud-qb-slot.is-empty.is-editable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
 .ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
 .ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
+/* Phase 4.1A: the armed attack technique's own occupied tile \u2014 a cyan ring,
+ * layered with is-disabled's dimming when the technique went invalid after
+ * arming (still clickable to disarm; see CombatHudModule.js). */
+.ohud-qb-slot.is-armed { box-shadow: inset 0 0 0 2px var(--odyssey-cyan); }
 .ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
 .ohud-qb-icon { width: 28px; height: 28px; display: block; }
 .ohud-qb-name {
@@ -6776,7 +6791,7 @@ function actionById(runtime, id) {
   if (!id) return null;
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
 }
-function occupiedTile(slot, action) {
+function occupiedTile(slot, action, armedActionId) {
   if (!action) {
     return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
       <span class="ohud-qb-missing">?</span>
@@ -6787,9 +6802,15 @@ function occupiedTile(slot, action) {
   const active = action.state?.active === true;
   const cd = Number(action.cooldown?.current) || 0;
   const mark = TYPE_MARK[action.type] ?? "";
-  const tip = tipAttr(action.name, abilityTooltipLines(action));
+  const isTechnique = action.type === "attack_technique";
+  const armed = isTechnique && armedActionId != null && armedActionId === action.characterActionId;
+  const dataAction = isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  const tip = tipAttr(action.name, [
+    ...abilityTooltipLines(action),
+    isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+  ]);
   const badges = cd > 0 || active ? `<span class="ohud-qb-badges">${cd > 0 ? `<span class="ohud-qb-cd">${cd}</span>` : ""}${active ? `<span class="ohud-qb-active">ON</span>` : ""}</span>` : "";
-  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "")}" data-action="show-ability-detail" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}"${tip}>
+  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}"${tip}>
     <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qb-name">${esc(action.name)}</span>
     ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
@@ -6806,6 +6827,7 @@ function renderQuickbarStrip(runtime, opts = {}) {
   const rt = runtime && typeof runtime === "object" ? runtime : { quickActions: [], quickbar: { slots: [], maxSlots: FIRST_ROW_SIZE } };
   const slots = Array.isArray(rt.quickbar?.slots) ? rt.quickbar.slots : [];
   const canEdit = opts.canEdit !== false;
+  const armedActionId = opts.armedActionId ?? null;
   const rows = /* @__PURE__ */ new Map();
   for (const slot of slots) {
     const r = rowOfSlot(slot.slotIndex);
@@ -6816,7 +6838,7 @@ function renderQuickbarStrip(runtime, opts = {}) {
   const rowsHtml = rowKeys.map((r) => {
     const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
       if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
-      return occupiedTile(slot, actionById(rt, slot.characterActionId));
+      return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId);
     }).join("");
     return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;
   }).join("");
@@ -6861,7 +6883,8 @@ function renderSkillBlock(state) {
   if (quickbar && quickbar.ok !== false) {
     const role = String(state?.viewer?.role ?? "").toLowerCase();
     const canEdit = role === "gm" || role === "player";
-    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit }) });
+    const armedActionId = state?.snapshot?.armedActionId ?? null;
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId }) });
   }
   const slots = selectQuickSlots(state);
   const selectedId = selectSelectedSkill(state)?.id ?? null;
@@ -6969,6 +6992,13 @@ function modChip(mod) {
     <span class="ohud-mod-name">${esc(mod.name)}</span>${sign ? `<span class="ohud-mod-val">${esc(sign)}</span>` : ""}
   </span>`;
 }
+function armedChip(mod) {
+  const tip = tipAttr(mod.name, [mod.description || "Prepared for next attack"]);
+  return `<span class="${cls("ohud-mod", "ohud-mod--armed", mod.invalid ? "is-invalid" : "is-selected")}"${tip}>
+    <span class="ohud-mod-name">${esc(mod.name)}</span>
+    <button type="button" class="ohud-mod-remove" data-action="disarm-technique" data-action-id="${esc(mod.id)}" aria-label="Remove ${esc(mod.name)}">\xD7</button>
+  </span>`;
+}
 
 // hud/components/CombatControlBlock.js
 var MAX_SECTION_CHIPS = 2;
@@ -6976,7 +7006,7 @@ function titleCase(word) {
   if (!word) return "";
   return word.charAt(0) + word.slice(1).toLowerCase();
 }
-function modifierSection({ key, title, mods, emptyText }) {
+function modifierSection({ key, title, mods, emptyText, chipRenderer = modChip }) {
   const list = Array.isArray(mods) ? mods : [];
   const shown = list.slice(0, MAX_SECTION_CHIPS);
   const hidden = list.slice(MAX_SECTION_CHIPS);
@@ -6985,7 +7015,7 @@ function modifierSection({ key, title, mods, emptyText }) {
   if (!list.length) {
     body = `<div class="ohud-cc-modsec-empty">${esc(emptyText)}</div>`;
   } else {
-    const chips = shown.map(modChip).join("");
+    const chips = shown.map(chipRenderer).join("");
     const overflow = hidden.length ? `<span class="ohud-mod ohud-mod--more"${tipAttr(`${hidden.length} more`, hidden.map((m) => m.name))}>+${hidden.length}</span>` : "";
     body = `<div class="ohud-cc-modsec-chips">${chips}${overflow}</div>`;
   }
@@ -7002,7 +7032,7 @@ function renderModifiers(state) {
   return `<section class="ohud-cc-mod" data-block="modifiers">
     <div class="ohud-panel-head"><span class="ohud-panel-label">Modifiers</span>${combatButton}</div>
     ${modifierSection({ key: "auto", title: "AUTO", mods: auto, emptyText: "No automatic effects" })}
-    ${modifierSection({ key: "armed", title: "ARMED", mods: armed, emptyText: "None selected" })}
+    ${modifierSection({ key: "armed", title: "ARMED", mods: armed, emptyText: "None selected", chipRenderer: armedChip })}
   </section>`;
 }
 function endTurnDisabledReason(session, viewerRole) {
@@ -7344,7 +7374,16 @@ var ERROR_MESSAGES = Object.freeze({
   BODY_PART_NOT_ALLOWED: "This item can't be equipped to that body part.",
   EQUIPMENT_ITEM_NOT_FOUND: "Equipment item was not found.",
   ALREADY_EQUIPPED: "This item is already equipped.",
-  SLOT_OCCUPIED: "That body part already has equipment in this slot."
+  SLOT_OCCUPIED: "That body part already has equipment in this slot.",
+  // Phase 4.1A: armed attack technique validation (perform_attack, migration 100)
+  ARMED_ACTION_INVALID: "Armed attack technique is invalid.",
+  ARMED_ACTION_ON_COOLDOWN: "Armed attack technique is on cooldown.",
+  NOT_ENOUGH_PSI: "Not enough PSI for the armed attack technique.",
+  NOT_ENOUGH_CHARGES: "Armed attack technique has no charges left.",
+  WEAPON_REQUIREMENT_NOT_MET: "Armed attack technique requires a different weapon type.",
+  TARGET_REQUIREMENT_NOT_MET: "Armed attack technique cannot target this.",
+  ACTION_STACK_CONFLICT: "Only one attack technique may be armed at a time.",
+  ACTION_EFFECT_NOT_IMPLEMENTED: "This attack technique's effect isn't supported yet."
 });
 
 // hud/scene/selectionState.js
@@ -7808,6 +7847,26 @@ function mountCombatHudModule(options) {
         break;
       case "show-ability-detail":
         if (!t.classList.contains("is-disabled")) showToast("Ability details \u2014 execution arrives in Phase 4.1");
+        break;
+      case "toggle-armed-technique": {
+        const isArmed = t.classList.contains("is-armed");
+        if (isArmed || !t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud",
+            feature: "quickbar",
+            type: "toggle-armed",
+            characterActionId: t.getAttribute("data-action-id")
+          });
+        }
+        break;
+      }
+      case "disarm-technique":
+        integration.onCommand && integration.onCommand({
+          scope: "combat-hud",
+          feature: "quickbar",
+          type: "toggle-armed",
+          characterActionId: t.getAttribute("data-action-id")
+        });
         break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");

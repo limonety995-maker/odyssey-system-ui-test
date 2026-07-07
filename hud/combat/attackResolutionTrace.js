@@ -118,6 +118,27 @@ export function buildAttackResolutionTrace(outcome) {
       caliber: pick(ammo.caliber),
       ammoType: pick(ammo.ammo_type),
     },
+    // Phase 4.1A: MODIFIERS breakdown. AUTO stays honestly empty — no
+    // canonical "current passive modifier list" producer exists yet (see
+    // docs/PHASE_4_1A_ATTACK_TECHNIQUES_AUDIT.md §6); ARMED is copied verbatim
+    // from perform_attack's own armed_actions array (migration 100) — never
+    // recomputed, never a fabricated bonus value.
+    modifiers: {
+      auto: [],
+      armed: Array.isArray(raw.armed_actions)
+        ? raw.armed_actions.map((a) => ({
+            characterActionId: pick(a?.characterActionId),
+            name: pick(a?.name),
+            stackGroup: pick(a?.stackGroup),
+            validated: typeof a?.validated === "boolean" ? a.validated : NOT_RETURNED,
+            applied: typeof a?.applied === "boolean" ? a.applied : NOT_RETURNED,
+            costsConsumed: a?.costsConsumed ?? null,
+            cooldownBefore: pick(a?.cooldownBefore),
+            cooldownAfter: pick(a?.cooldownAfter),
+            reason: a?.reason ?? null,
+          }))
+        : [],
+    },
   };
   trace.summary = buildTraceSummary(trace, o);
   return trace;
@@ -151,6 +172,8 @@ export function buildCombatLogLines(trace, bodyZoneLabel) {
   const dmg = section(t.damage);
   const ammo = section(t.ammo);
   const details = [];
+  const appliedTechnique = (t.modifiers?.armed ?? []).find((m) => m.applied === true && m.name !== NOT_RETURNED);
+  if (appliedTechnique) details.push(`Used ${appliedTechnique.name}`);
   if (isReturnedNumber(acc.attackTotal) && isReturnedNumber(acc.defenseTotal)) {
     details.push(`Attack: ${acc.attackTotal} vs Defense: ${acc.defenseTotal}`);
   } else if (isReturnedNumber(acc.attackRoll)) {
@@ -185,5 +208,6 @@ export function buildRollResolutionDetails(trace) {
     accuracy: t.accuracy,
     damage: t.damage,
     ammo: t.ammo,
+    modifiers: t.modifiers,
   };
 }

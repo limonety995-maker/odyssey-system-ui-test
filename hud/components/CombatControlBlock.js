@@ -13,11 +13,15 @@
 // chip wall:
 //   AUTO  — passive + narrative groups (armor/weapon/implant/passive ability/
 //           status/GM effect): applied automatically whenever the server
-//           decides its conditions hold. Never toggleable here.
-//   ARMED — the active group: attack modifiers currently prepared for the
-//           NEXT attack. Phase 4.0f only VISUALIZES whatever the runtime
-//           already reports as selected — it adds no selection UI, no
-//           validation, and no spend/consume logic (that's Phase 4.1).
+//           decides its conditions hold. Never toggleable here. Still an
+//           honest empty stub as of Phase 4.1A — no canonical "current passive
+//           modifier list" producer exists yet (see the audit doc).
+//   ARMED — attack technique(s) armed from the Skills Block for the NEXT
+//           attack (Phase 4.1A). Each chip has its own × (disarm); arming/
+//           validation/consumption all live server-side (perform_attack,
+//           migration 100) and in armedTechniqueMemory.js — this block only
+//           renders whatever ephemeral state + already-mapped quickActions
+//           say is currently armed.
 // Both sections carry data-modifier-section/data-modifier-state hooks for the
 // future Attack Setup popover; no such popover exists yet.
 //
@@ -31,7 +35,7 @@
 // (canEndTurn) is unchanged.
 
 import { renderTargetBlock } from "./TargetBlock.js";
-import { modChip } from "./ModifierBlock.js";
+import { modChip, armedChip } from "./ModifierBlock.js";
 import {
   selectModifierGroups,
   selectSelectedSkill,
@@ -54,7 +58,7 @@ function titleCase(word) {
 /** One AUTO/ARMED mini-section: header + up to MAX_SECTION_CHIPS chips (or an
  *  honest empty line) + a `+N more` overflow. Never invents a modifier that
  *  isn't in `mods`. */
-function modifierSection({ key, title, mods, emptyText }) {
+function modifierSection({ key, title, mods, emptyText, chipRenderer = modChip }) {
   const list = Array.isArray(mods) ? mods : [];
   const shown = list.slice(0, MAX_SECTION_CHIPS);
   const hidden = list.slice(MAX_SECTION_CHIPS);
@@ -64,7 +68,7 @@ function modifierSection({ key, title, mods, emptyText }) {
   if (!list.length) {
     body = `<div class="ohud-cc-modsec-empty">${esc(emptyText)}</div>`;
   } else {
-    const chips = shown.map(modChip).join("");
+    const chips = shown.map(chipRenderer).join("");
     const overflow = hidden.length
       ? `<span class="ohud-mod ohud-mod--more"${tipAttr(`${hidden.length} more`, hidden.map((m) => m.name))}>+${hidden.length}</span>`
       : "";
@@ -91,7 +95,7 @@ function renderModifiers(state) {
   return `<section class="ohud-cc-mod" data-block="modifiers">
     <div class="ohud-panel-head"><span class="ohud-panel-label">Modifiers</span>${combatButton}</div>
     ${modifierSection({ key: "auto", title: "AUTO", mods: auto, emptyText: "No automatic effects" })}
-    ${modifierSection({ key: "armed", title: "ARMED", mods: armed, emptyText: "None selected" })}
+    ${modifierSection({ key: "armed", title: "ARMED", mods: armed, emptyText: "None selected", chipRenderer: armedChip })}
   </section>`;
 }
 

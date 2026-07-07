@@ -5311,7 +5311,16 @@ var ERROR_MESSAGES = Object.freeze({
   BODY_PART_NOT_ALLOWED: "This item can't be equipped to that body part.",
   EQUIPMENT_ITEM_NOT_FOUND: "Equipment item was not found.",
   ALREADY_EQUIPPED: "This item is already equipped.",
-  SLOT_OCCUPIED: "That body part already has equipment in this slot."
+  SLOT_OCCUPIED: "That body part already has equipment in this slot.",
+  // Phase 4.1A: armed attack technique validation (perform_attack, migration 100)
+  ARMED_ACTION_INVALID: "Armed attack technique is invalid.",
+  ARMED_ACTION_ON_COOLDOWN: "Armed attack technique is on cooldown.",
+  NOT_ENOUGH_PSI: "Not enough PSI for the armed attack technique.",
+  NOT_ENOUGH_CHARGES: "Armed attack technique has no charges left.",
+  WEAPON_REQUIREMENT_NOT_MET: "Armed attack technique requires a different weapon type.",
+  TARGET_REQUIREMENT_NOT_MET: "Armed attack technique cannot target this.",
+  ACTION_STACK_CONFLICT: "Only one attack technique may be armed at a time.",
+  ACTION_EFFECT_NOT_IMPLEMENTED: "This attack technique's effect isn't supported yet."
 });
 function describeError(code, fallback) {
   if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
@@ -5342,6 +5351,9 @@ function buildAttackPayload(ctx = {}) {
     distance_m: Math.max(Number(ctx.distanceM) || 0, 0),
     attack_context: splitManualModifiers(ctx.modifiers)
   };
+  if (Array.isArray(ctx.armedActionIds) && ctx.armedActionIds.length) {
+    payload.armed_action_ids = ctx.armedActionIds.filter(Boolean).map(String);
+  }
   if (mode2 === "skill") {
     payload.character_ability_id = requireId(ctx.abilityId, "No ability selected.");
   } else {
@@ -5413,7 +5425,10 @@ function normalizeResult(raw) {
     pendingChecks: asArray(firstDefined(r.pending_checks, r.pending_saves, [])),
     targetAlive: typeof targetState.is_alive === "boolean" ? targetState.is_alive : null,
     targetConscious: typeof targetState.is_conscious === "boolean" ? targetState.is_conscious : null,
-    combatLogId: firstDefined(r.log_id, r.combat_log_id)
+    combatLogId: firstDefined(r.log_id, r.combat_log_id),
+    // Phase 4.1A: per-armed-technique outcome (applied/consumed/remaining/
+    // rejected) — verbatim from the server, empty array for legacy attacks.
+    armedActions: asArray(r.armed_actions)
   };
 }
 async function resolveAttack(ctx, deps) {
@@ -5455,11 +5470,14 @@ function buildBasicAttackCtx(input = {}) {
     targetBodyPartId: input.bodyPartId,
     distanceM: input.distance ?? 0,
     weaponId: input.weaponId,
-    // Basic Weapon Attack v1 wires no modifier UI to the payload — see the
-    // report's Modifiers section. An empty list matches
+    // Basic Weapon Attack v1 wires no MANUAL modifier UI to the payload — see
+    // the report's Modifiers section. An empty list matches
     // splitManualModifiers([]) => { manual_attack_bonus: 0, manual_attack_penalty: 0 },
     // i.e. "no manual modifier", never a fabricated bonus/penalty.
     modifiers: [],
+    // Phase 4.1A: armed attack technique id(s) (max one until stack groups
+    // exist — see armedTechniqueMemory.js). Empty/omitted for a plain attack.
+    armedActionIds: Array.isArray(input.armedActionIds) ? input.armedActionIds.filter(Boolean) : [],
     roomId: room.roomId,
     campaignId: room.campaignId,
     sceneId: room.sceneId,
@@ -5558,6 +5576,25 @@ function buildAttackResolutionTrace(outcome) {
       remaining: pick(magazine.remaining_rounds ?? n.ammoRemaining),
       caliber: pick(ammo.caliber),
       ammoType: pick(ammo.ammo_type)
+    },
+    // Phase 4.1A: MODIFIERS breakdown. AUTO stays honestly empty — no
+    // canonical "current passive modifier list" producer exists yet (see
+    // docs/PHASE_4_1A_ATTACK_TECHNIQUES_AUDIT.md §6); ARMED is copied verbatim
+    // from perform_attack's own armed_actions array (migration 100) — never
+    // recomputed, never a fabricated bonus value.
+    modifiers: {
+      auto: [],
+      armed: Array.isArray(raw.armed_actions) ? raw.armed_actions.map((a) => ({
+        characterActionId: pick(a?.characterActionId),
+        name: pick(a?.name),
+        stackGroup: pick(a?.stackGroup),
+        validated: typeof a?.validated === "boolean" ? a.validated : NOT_RETURNED,
+        applied: typeof a?.applied === "boolean" ? a.applied : NOT_RETURNED,
+        costsConsumed: a?.costsConsumed ?? null,
+        cooldownBefore: pick(a?.cooldownBefore),
+        cooldownAfter: pick(a?.cooldownAfter),
+        reason: a?.reason ?? null
+      })) : []
     }
   };
   trace.summary = buildTraceSummary(trace, o);
@@ -5583,6 +5620,8 @@ function buildCombatLogLines(trace, bodyZoneLabel) {
   const dmg = section(t.damage);
   const ammo = section(t.ammo);
   const details2 = [];
+  const appliedTechnique = (t.modifiers?.armed ?? []).find((m) => m.applied === true && m.name !== NOT_RETURNED);
+  if (appliedTechnique) details2.push(`Used ${appliedTechnique.name}`);
   if (isReturnedNumber(acc.attackTotal) && isReturnedNumber(acc.defenseTotal)) {
     details2.push(`Attack: ${acc.attackTotal} vs Defense: ${acc.defenseTotal}`);
   } else if (isReturnedNumber(acc.attackRoll)) {
@@ -5610,7 +5649,8 @@ function buildRollResolutionDetails(trace) {
     rangeModifier: t.context?.rangeModifier,
     accuracy: t.accuracy,
     damage: t.damage,
-    ammo: t.ammo
+    ammo: t.ammo,
+    modifiers: t.modifiers
   };
 }
 
@@ -5638,6 +5678,35 @@ function resolveStoredWeaponId(storedWeaponId, armoryWeapons) {
   const weapons = Array.isArray(armoryWeapons) ? armoryWeapons : [];
   const stillValid = weapons.some((w) => String(w?.id ?? "") === String(storedWeaponId));
   return stillValid ? String(storedWeaponId) : null;
+}
+
+// hud/scene/armedTechniqueMemory.js
+function createArmedTechniqueMemory() {
+  const map = /* @__PURE__ */ new Map();
+  return {
+    get(characterId) {
+      if (!characterId) return null;
+      return map.get(characterId) ?? null;
+    },
+    /** Arms `actionId`; clicking the SAME already-armed id disarms it instead;
+     *  arming a DIFFERENT id replaces whatever was armed before (max-1 rule).
+     *  Returns both the new armed id (or null) and whatever was armed before,
+     *  so the caller can log armed/disarmed/replaced precisely. */
+    toggle(characterId, actionId) {
+      const id = actionId ? String(actionId) : null;
+      if (!characterId || !id) return { armedId: map.get(characterId) ?? null, previousId: map.get(characterId) ?? null };
+      const previousId = map.get(characterId) ?? null;
+      if (previousId === id) {
+        map.delete(characterId);
+        return { armedId: null, previousId };
+      }
+      map.set(characterId, id);
+      return { armedId: id, previousId };
+    },
+    forget(characterId) {
+      if (characterId) map.delete(characterId);
+    }
+  };
 }
 
 // hud/log/combatResultLogPolicy.js
@@ -7839,6 +7908,33 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     if (ephemeral.abilitiesRuntime && ephemeral.abilitiesRuntime.ok !== false) {
       hudSnapshot = { ...hudSnapshot, quickbar: ephemeral.abilitiesRuntime };
     }
+    const armedActionId = ephemeral.armedActionId ?? null;
+    if (armedActionId) {
+      hudSnapshot = { ...hudSnapshot, armedActionId };
+      const armedAction = ephemeral.abilitiesRuntime?.quickActions?.find(
+        (a) => a.characterActionId === armedActionId
+      );
+      if (armedAction) {
+        hudSnapshot = {
+          ...hudSnapshot,
+          modifiers: {
+            ...hudSnapshot.modifiers,
+            active: [{
+              id: armedAction.characterActionId,
+              name: armedAction.name,
+              value: 0,
+              source: "Prepared",
+              description: "Prepared for next attack",
+              polarity: "neutral",
+              alwaysActive: false,
+              selected: true,
+              requiresGMApproval: false,
+              invalid: armedAction.state?.available === false
+            }]
+          }
+        };
+      }
+    }
   }
   const debug = ready && s.runtimeBundle ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
     selectionStatus: s.status,
@@ -8000,6 +8096,16 @@ function createSceneSelectionAdapter(deps) {
 }
 
 // hud/scene/sceneSelectionController.js
+var ARMED_TECHNIQUE_ERROR_CODES = /* @__PURE__ */ new Set([
+  "ARMED_ACTION_INVALID",
+  "ARMED_ACTION_ON_COOLDOWN",
+  "NOT_ENOUGH_PSI",
+  "NOT_ENOUGH_CHARGES",
+  "WEAPON_REQUIREMENT_NOT_MET",
+  "TARGET_REQUIREMENT_NOT_MET",
+  "ACTION_STACK_CONFLICT",
+  "ACTION_EFFECT_NOT_IMPLEMENTED"
+]);
 var SCENE_RERESOLVE_DEBOUNCE_MS = 600;
 var HUD_RUNTIME_SECTIONS = Object.freeze(["summary", "combat", "armory", "abilities", "effects"]);
 function setupSceneSelection(hooks = {}) {
@@ -8013,6 +8119,7 @@ function setupSceneSelection(hooks = {}) {
   let sceneTimer = null;
   let currentSelectionIds = [];
   const selectedWeaponMemory = createSelectedWeaponMemory();
+  const armedTechniqueMemory = createArmedTechniqueMemory();
   let combatLog = [];
   function pushLog(entry) {
     combatLog = appendCombatLogEntry(combatLog, entry);
@@ -8172,7 +8279,8 @@ function setupSceneSelection(hooks = {}) {
         basicAttackResult: ephemeral.basicAttackResult,
         combatLog,
         sessionRuntime,
-        abilitiesRuntime
+        abilitiesRuntime,
+        armedActionId: armedTechniqueMemory.get(ephemeral.characterId)
       };
     }
     function publishState(state) {
@@ -8256,6 +8364,19 @@ function setupSceneSelection(hooks = {}) {
         }
         return;
       }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "toggle-armed") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        if (actionId && ephemeral.characterId) {
+          const { armedId, previousId } = armedTechniqueMemory.toggle(ephemeral.characterId, actionId);
+          const eventType = armedId == null ? "attack-technique-disarmed" : previousId ? "attack-technique-replaced" : "attack-technique-armed";
+          logDebugEvent("abilities", eventType, {
+            characterActionId: actionId,
+            previousCharacterActionId: previousId ?? null
+          });
+          if (lastState) publishState(lastState);
+        }
+        return;
+      }
       if (command?.scope === "combat-hud" && command?.feature === "basic-attack") {
         const baType = String(command.type ?? "");
         if (baType !== "execute") return;
@@ -8292,6 +8413,7 @@ function setupSceneSelection(hooks = {}) {
         }
         const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, weaponId: evalCtx.weaponId, targetCharacterId: evalCtx.targetCharacterId };
         const bodyZoneLabel = getZoneLabel(DEFAULT_PROFILE_ID, evalCtx.bodyZoneId) || evalCtx.bodyZoneId;
+        const requestArmedActionId = armedTechniqueMemory.get(evalCtx.sourceCharacterId);
         const ctx = buildBasicAttackCtx({
           sourceCharacterId: evalCtx.sourceCharacterId,
           weaponId: evalCtx.weaponId,
@@ -8302,10 +8424,14 @@ function setupSceneSelection(hooks = {}) {
           // server can optimistic-concurrency-check it. (The server gate does
           // NOT trust these fields — it derives participation itself.)
           roomContext: sessionAtRequest.exists ? { encounterId: sessionAtRequest.id ?? void 0 } : {},
-          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest),
+          armedActionIds: requestArmedActionId ? [requestArmedActionId] : []
         });
         ephemeral.basicAttackInFlight = true;
         logDebugEvent("attack", "payload-prepared", { weaponId: ctx.weaponId, targetCharacterId: ctx.targetCharacterId, bodyZone: evalCtx.bodyZoneId });
+        if (requestArmedActionId) {
+          logDebugEvent("abilities", "attack-modifier-validation-requested", { characterActionId: requestArmedActionId });
+        }
         if (lastState) publishState(lastState);
         let outcome;
         try {
@@ -8358,6 +8484,35 @@ function setupSceneSelection(hooks = {}) {
         if (stale) {
           if (lastState) publishState(lastState);
           return;
+        }
+        if (requestArmedActionId) {
+          const preRollValidated = outcome.ok || !ARMED_TECHNIQUE_ERROR_CODES.has(outcome.code);
+          logDebugEvent("abilities", "attack-modifier-validation-result", {
+            characterActionId: requestArmedActionId,
+            validated: preRollValidated
+          }, preRollValidated);
+          if (outcome.ok) {
+            const armedActions = Array.isArray(outcome.raw?.armed_actions) ? outcome.raw.armed_actions : [];
+            for (const entry of armedActions) {
+              const actionId = entry?.characterActionId ?? requestArmedActionId;
+              if (entry?.applied === true) {
+                armedTechniqueMemory.forget(requestCtx.sourceCharacterId);
+                logDebugEvent("abilities", "attack-modifiers-applied", { characterActionId: actionId, name: entry.name ?? null }, true);
+                logDebugEvent("abilities", "attack-technique-cost-consumed", { characterActionId: actionId, costsConsumed: entry.costsConsumed ?? null }, true);
+                if (entry.cooldownBefore !== entry.cooldownAfter) {
+                  logDebugEvent("abilities", "attack-technique-cooldown-updated", {
+                    characterActionId: actionId,
+                    cooldownBefore: entry.cooldownBefore ?? null,
+                    cooldownAfter: entry.cooldownAfter ?? null
+                  }, true);
+                }
+              } else {
+                logDebugEvent("abilities", "attack-modifier-rejected", { characterActionId: actionId, reason: entry?.reason ?? null }, false);
+              }
+            }
+          } else if (ARMED_TECHNIQUE_ERROR_CODES.has(outcome.code)) {
+            logDebugEvent("abilities", "attack-modifier-rejected", { characterActionId: requestArmedActionId, reason: outcome.code }, false);
+          }
         }
         if (outcome.ok) {
           ephemeral.commandStatus = { type: "ok", message: "Attack resolved." };

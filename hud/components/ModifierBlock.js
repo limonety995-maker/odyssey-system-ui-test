@@ -34,6 +34,20 @@ export function modChip(mod) {
 }
 
 /**
+ * Phase 4.1A: ARMED-only chip — an armed attack technique "prepared for next
+ * attack", with its own × remove control (data-action="disarm-technique").
+ * Deliberately a SEPARATE renderer from modChip (AUTO/legacy chips stay
+ * read-only) so a remove button can never appear anywhere but here.
+ */
+export function armedChip(mod) {
+  const tip = tipAttr(mod.name, [mod.description || "Prepared for next attack"]);
+  return `<span class="${cls("ohud-mod", "ohud-mod--armed", mod.invalid ? "is-invalid" : "is-selected")}"${tip}>
+    <span class="ohud-mod-name">${esc(mod.name)}</span>
+    <button type="button" class="ohud-mod-remove" data-action="disarm-technique" data-action-id="${esc(mod.id)}" aria-label="Remove ${esc(mod.name)}">×</button>
+  </span>`;
+}
+
+/**
  * Modifier chips list (shared by the combined 2.1 column and the standalone
  * 2.2 Modifiers module). Shows up to `limit` chips, then a `+N` overflow chip
  * with a tooltip listing the hidden ones — never overflowing the block.
