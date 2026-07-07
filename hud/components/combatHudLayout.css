@@ -196,7 +196,10 @@
 
 .ohud-player-stats { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ohud-player-name {
-  font-size: 12px; font-weight: 700; color: var(--odyssey-hud-text);
+  /* Priority UI Fix — typography floor (see the block comment above
+   * .ohud-cc-abtn for the full explanation): character name is a "must
+   * remain readable" critical token. */
+  font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ohud-res { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 5px; }
@@ -205,7 +208,9 @@
 .ohud-res-fill { display: block; height: 100%; border-radius: 3px; }
 .ohud-res--shield .ohud-res-fill { background: var(--odyssey-hud-shield); }
 .ohud-res--psi .ohud-res-fill { background: var(--odyssey-hud-psi); }
-.ohud-res-num { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
+/* PSI/Shield current value — critical token; .ohud-res-max (the "/10" part)
+ * has no font-size of its own, so it inherits this computed size too. */
+.ohud-res-num { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
 .ohud-res-max { color: var(--odyssey-hud-dim); font-weight: 600; }
 
 .ohud-pips { display: flex; gap: 4px; }
@@ -240,7 +245,7 @@
   border: 1.5px solid var(--odyssey-hud-border-strong);
   background: var(--odyssey-bg-deep); min-width: 0; overflow: hidden;
 }
-.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: 9px; color: var(--odyssey-hud-muted); }
+.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-muted); }
 .ohud-gun-caret { position: absolute; top: 3px; right: 5px; color: var(--odyssey-hud-muted); display: inline-flex; }
 .ohud-gun-silhouette { position: absolute; inset: 13px 8px 10px; color: var(--odyssey-hud-weapon); display: block; }
 .ohud-gun-silhouette svg { width: 100%; height: 100%; }
@@ -278,8 +283,13 @@
 .ohud-ammo-reload { color: var(--odyssey-hud-muted); display: inline-flex; }
 .ohud-ammo-reload.is-off { opacity: 0.35; }
 .ohud-ammo-count { font-weight: 800; line-height: 1; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
-.ohud-ammo-cur { font-size: clamp(22px, 2.2vw, 28px); }
-.ohud-ammo-max { font-size: 11px; color: var(--odyssey-hud-dim); }
+/* Ammo current/max — critical tokens (must remain readable per the Priority
+ * UI Fix typography floor). The old `2.2vw` term was measured against the
+ * module's OWN (already-scaled) iframe width, not a meaningful reference, so
+ * it's replaced with the same ratio-driven floor every other critical token
+ * uses. */
+.ohud-ammo-cur { font-size: calc(24px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-ammo-max { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-dim); }
 .ohud-ammo-count--empty .ohud-ammo-cur { color: var(--odyssey-hud-negative); }
 
 /* ===================== Skill block ===================== */
@@ -320,7 +330,7 @@
 .ohud-target.is-empty { flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; }
 .ohud-target .ohud-figure { width: 44px; flex: 0 0 auto; }
 .ohud-target-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; padding-top: 1px; }
-.ohud-target-name { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-target-name { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ohud-target-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ohud-target-zone {
   display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.5px;
@@ -364,6 +374,12 @@
   border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);
 }
 .ohud-mod-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Armed technique name specifically (not every AUTO/legacy chip) is a
+ * critical token — see the Priority UI Fix comment block above .ohud-cc-abtn.
+ * The chip's own fixed 17px height is relaxed to auto/min so the enlarged
+ * name has room to reflow into instead of clipping vertically. */
+.ohud-mod--armed { height: auto; min-height: 17px; padding-top: 2px; padding-bottom: 2px; }
+.ohud-mod--armed .ohud-mod-name { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); }
 .ohud-mod-val { font-weight: 800; flex: 0 0 auto; }
 .ohud-mod--positive { border-color: rgba(74, 222, 128, 0.55); color: var(--odyssey-green); }
 .ohud-mod--negative { border-color: rgba(255, 92, 108, 0.6); color: var(--odyssey-red); }
@@ -403,7 +419,7 @@
 .ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }
 .ohud-log-list::-webkit-scrollbar { width: 5px; }
 .ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }
-.ohud-log-row { font-size: 10px; line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
+.ohud-log-row { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
 .ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }
 .ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }
 .ohud-log-actor { font-weight: 700; color: var(--odyssey-hud-text); }
@@ -441,7 +457,7 @@
 
 /* ===================== Toast ===================== */
 .ohud-toast { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
-  font-size: 11px; color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
   border: 1px solid var(--odyssey-hud-border-strong); border-radius: 8px; padding: 4px 11px;
   box-shadow: var(--odyssey-hud-shadow); z-index: 12; }
 .ohud-toast[hidden] { display: none; }

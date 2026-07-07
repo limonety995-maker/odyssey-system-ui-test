@@ -113,6 +113,29 @@ export function computeLayoutScale(vw, vh) {
   );
 }
 
+/**
+ * Priority UI Fix — typography floor. `layoutScale` (computeLayoutScale
+ * above) drives the module's outer transform:scale, which shrinks
+ * EVERYTHING uniformly, text included. A small, named set of "critical"
+ * selectors (character/weapon/target name, PSI/ammo values, MAIN/MOVE,
+ * ATTACK/END TURN, armed technique name, combat log, status toast — see the
+ * comment block above .ohud-cc-abtn in combatHudModule.css) instead multiply
+ * their font-size by this ratio, so their ON-SCREEN size never drops below
+ * today's already-shipped canonical px size, however small layoutScale gets.
+ * Everything else (icons, artwork, secondary/decorative text) is untouched
+ * and keeps shrinking normally — this IS "reduce secondary text first".
+ *
+ * At layoutScale >= 1 the ratio is exactly 1 (no behavior change — critical
+ * text still grows with the rest of the HUD above the reference viewport,
+ * same as before this fix). Capped at `cap` so a pathologically tiny
+ * viewport can't blow critical text up without bound.
+ */
+export function computeCriticalTextRatio(layoutScale, cap = 3) {
+  const scale = Number(layoutScale) > 0 ? Number(layoutScale) : 1;
+  if (scale >= 1) return 1;
+  return Math.min(cap, 1 / scale);
+}
+
 export function snapToGrid(value, grid = SNAP_GRID) {
   const g = grid || 1;
   return Math.round((Number(value) || 0) / g) * g;

@@ -3719,7 +3719,10 @@ var combatHudLayout_default = `/*
 
 .ohud-player-stats { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ohud-player-name {
-  font-size: 12px; font-weight: 700; color: var(--odyssey-hud-text);
+  /* Priority UI Fix \u2014 typography floor (see the block comment above
+   * .ohud-cc-abtn for the full explanation): character name is a "must
+   * remain readable" critical token. */
+  font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ohud-res { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 5px; }
@@ -3728,7 +3731,9 @@ var combatHudLayout_default = `/*
 .ohud-res-fill { display: block; height: 100%; border-radius: 3px; }
 .ohud-res--shield .ohud-res-fill { background: var(--odyssey-hud-shield); }
 .ohud-res--psi .ohud-res-fill { background: var(--odyssey-hud-psi); }
-.ohud-res-num { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
+/* PSI/Shield current value \u2014 critical token; .ohud-res-max (the "/10" part)
+ * has no font-size of its own, so it inherits this computed size too. */
+.ohud-res-num { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
 .ohud-res-max { color: var(--odyssey-hud-dim); font-weight: 600; }
 
 .ohud-pips { display: flex; gap: 4px; }
@@ -3763,7 +3768,7 @@ var combatHudLayout_default = `/*
   border: 1.5px solid var(--odyssey-hud-border-strong);
   background: var(--odyssey-bg-deep); min-width: 0; overflow: hidden;
 }
-.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: 9px; color: var(--odyssey-hud-muted); }
+.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-muted); }
 .ohud-gun-caret { position: absolute; top: 3px; right: 5px; color: var(--odyssey-hud-muted); display: inline-flex; }
 .ohud-gun-silhouette { position: absolute; inset: 13px 8px 10px; color: var(--odyssey-hud-weapon); display: block; }
 .ohud-gun-silhouette svg { width: 100%; height: 100%; }
@@ -3801,8 +3806,13 @@ var combatHudLayout_default = `/*
 .ohud-ammo-reload { color: var(--odyssey-hud-muted); display: inline-flex; }
 .ohud-ammo-reload.is-off { opacity: 0.35; }
 .ohud-ammo-count { font-weight: 800; line-height: 1; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
-.ohud-ammo-cur { font-size: clamp(22px, 2.2vw, 28px); }
-.ohud-ammo-max { font-size: 11px; color: var(--odyssey-hud-dim); }
+/* Ammo current/max \u2014 critical tokens (must remain readable per the Priority
+ * UI Fix typography floor). The old \`2.2vw\` term was measured against the
+ * module's OWN (already-scaled) iframe width, not a meaningful reference, so
+ * it's replaced with the same ratio-driven floor every other critical token
+ * uses. */
+.ohud-ammo-cur { font-size: calc(24px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-ammo-max { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-dim); }
 .ohud-ammo-count--empty .ohud-ammo-cur { color: var(--odyssey-hud-negative); }
 
 /* ===================== Skill block ===================== */
@@ -3843,7 +3853,7 @@ var combatHudLayout_default = `/*
 .ohud-target.is-empty { flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; }
 .ohud-target .ohud-figure { width: 44px; flex: 0 0 auto; }
 .ohud-target-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; padding-top: 1px; }
-.ohud-target-name { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-target-name { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ohud-target-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ohud-target-zone {
   display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.5px;
@@ -3887,6 +3897,12 @@ var combatHudLayout_default = `/*
   border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);
 }
 .ohud-mod-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Armed technique name specifically (not every AUTO/legacy chip) is a
+ * critical token \u2014 see the Priority UI Fix comment block above .ohud-cc-abtn.
+ * The chip's own fixed 17px height is relaxed to auto/min so the enlarged
+ * name has room to reflow into instead of clipping vertically. */
+.ohud-mod--armed { height: auto; min-height: 17px; padding-top: 2px; padding-bottom: 2px; }
+.ohud-mod--armed .ohud-mod-name { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); }
 .ohud-mod-val { font-weight: 800; flex: 0 0 auto; }
 .ohud-mod--positive { border-color: rgba(74, 222, 128, 0.55); color: var(--odyssey-green); }
 .ohud-mod--negative { border-color: rgba(255, 92, 108, 0.6); color: var(--odyssey-red); }
@@ -3926,7 +3942,7 @@ var combatHudLayout_default = `/*
 .ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }
 .ohud-log-list::-webkit-scrollbar { width: 5px; }
 .ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }
-.ohud-log-row { font-size: 10px; line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
+.ohud-log-row { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
 .ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }
 .ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }
 .ohud-log-actor { font-weight: 700; color: var(--odyssey-hud-text); }
@@ -3964,7 +3980,7 @@ var combatHudLayout_default = `/*
 
 /* ===================== Toast ===================== */
 .ohud-toast { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
-  font-size: 11px; color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
   border: 1px solid var(--odyssey-hud-border-strong); border-radius: 8px; padding: 4px 11px;
   box-shadow: var(--odyssey-hud-shadow); z-index: 12; }
 .ohud-toast[hidden] { display: none; }
@@ -4346,11 +4362,18 @@ var combatHudModule_default = `/*\r
 /* Player (250\xD7250): prominent silhouette + readable stats. */\r
 .ohud-module[data-module="player"] .ohud-player-grid { grid-template-columns: 96px 1fr; gap: 12px; }\r
 .ohud-module[data-module="player"] .ohud-figure { width: 96px; }\r
-.ohud-module[data-module="player"] .ohud-player-name { font-size: 16px; }\r
-.ohud-module[data-module="player"] .ohud-res-num { font-size: 12px; }\r
+/* Priority UI Fix \u2014 Universal Responsive HUD Scaling (typography floor):\r
+ * character name, PSI/Shield value, and MAIN/MOVE are critical tokens that\r
+ * must stay readable no matter how small the module gets \u2014 see the\r
+ * --ohud-critical-text-ratio comment above .ohud-cc-abtn for the mechanism.\r
+ * .ohud-res-label ("SHIELD"/"PSI" captions) and .ohud-res-track height are\r
+ * deliberately left alone \u2014 decorative/secondary, shrinks with everything\r
+ * else via the outer module transform (per spec: reduce secondary first). */\r
+.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(16px * var(--ohud-critical-text-ratio, 1)); }\r
+.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); }\r
 .ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }\r
 .ohud-module[data-module="player"] .ohud-res-track { height: 8px; }\r
-.ohud-module[data-module="player"] .ohud-pip { font-size: 9px; padding: 2px 8px; }\r
+.ohud-module[data-module="player"] .ohud-pip { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }\r
 .ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }\r
 \r
 /* Skills (600\xD7165): centred content, larger tiles, wrap past one row. This\r
@@ -4544,9 +4567,47 @@ var combatHudModule_default = `/*\r
  * attack button's own right border) separates them. Disabled state dims via\r
  * opacity only \u2014 it must keep its hue, never turn generic/grayscale, since\r
  * End Turn is a normal tactical action, not an error state. */\r
+/* Priority UI Fix \u2014 Universal Responsive HUD Scaling: typography floor.\r
+ *\r
+ * CombatHudModule.js's outer transform:scale(layoutScale) (see hudLayout.js's\r
+ * computeLayoutScale) shrinks EVERYTHING uniformly, text included \u2014 below a\r
+ * certain viewport this makes critical labels (ATTACK/END TURN, character/\r
+ * weapon/target name, PSI/ammo values, armed technique name, combat log,\r
+ * status toast) render as unreadable microtext. Those specific selectors\r
+ * (listed in the module-level comment blocks near each one) use\r
+ * \`font-size: calc(<canonicalPx> * var(--ohud-critical-text-ratio, 1))\`.\r
+ *\r
+ * mountCombatHudModule (CombatHudModule.js) sets --ohud-critical-text-ratio\r
+ * on the module root to \`Math.min(3, Math.max(1, 1/layoutScale))\`:\r
+ *   - layoutScale >= 1 (viewport at/above the 1920x1080 reference): ratio=1,\r
+ *     i.e. these tokens behave exactly as before \u2014 they grow with the rest\r
+ *     of the HUD at large scale, same as any other element.\r
+ *   - layoutScale < 1 (smaller viewport): ratio = 1/layoutScale, which\r
+ *     exactly cancels the ancestor transform for THESE elements only \u2014\r
+ *     their pre-transform font-size grows just enough that the ON-SCREEN\r
+ *     result never drops below today's already-shipped canonical px size.\r
+ *     Capped at 3x pre-transform growth as a safety valve for pathologically\r
+ *     tiny windows (see hud/overlay/hudLayout.js's HUD_SAFE_VIEWPORT_PADDING\r
+ *     comment for the same "no real SDK-given need for more" reasoning).\r
+ *\r
+ * Everything else (icons, artwork, secondary/decorative text, gaps,\r
+ * padding) is untouched and keeps shrinking with layoutScale \u2014 this is what\r
+ * "reduce secondary text first" means in practice: critical tokens freeze,\r
+ * everything around them keeps scaling down.\r
+ *\r
+ * This is a FONT-SIZE change, not a nested transform \u2014 increasing font-size\r
+ * is a real layout property, so flex/inline-box ancestors naturally reflow\r
+ * (grow) to fit it, instead of a transform's non-reflowing visual overlap.\r
+ * Any element whose parent had a FIXED px height tall enough to clip a\r
+ * modestly larger critical font (e.g. the ARMED chip) has that fixed height\r
+ * relaxed to auto/min-height alongside its own critical-text rule \u2014 see the\r
+ * comment next to .ohud-mod--armed in combatHudLayout.css. .ohud-cc-abtn's\r
+ * own parent (.ohud-cc-actionbar) is already 34px tall \u2014 comfortably enough\r
+ * room for the ratio's realistic range at any of the 8 required viewports.\r
+ */\r
 .ohud-cc-abtn {\r
   display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;\r
-  font-size: 11px; font-weight: 800; letter-spacing: 0.4px;\r
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;\r
   border: none; cursor: pointer;\r
 }\r
 .ohud-cc-abtn--attack {\r
@@ -6077,6 +6138,11 @@ function computeLayoutScale(vw, vh) {
     usableWidth / HUD_LAYOUT_REFERENCE_VIEWPORT.width,
     usableHeight / HUD_LAYOUT_REFERENCE_VIEWPORT.height
   );
+}
+function computeCriticalTextRatio(layoutScale, cap = 3) {
+  const scale = Number(layoutScale) > 0 ? Number(layoutScale) : 1;
+  if (scale >= 1) return 1;
+  return Math.min(cap, 1 / scale);
 }
 function snapToGrid(value, grid = SNAP_GRID) {
   const g = grid || 1;
@@ -7872,6 +7938,7 @@ function mountCombatHudModule(options) {
       el.style.transform = `scale(${scale})`;
       el.style.transformOrigin = "top left";
     }
+    el.style.setProperty("--ohud-critical-text-ratio", String(computeCriticalTextRatio(scale)));
   }
   root.appendChild(el);
   const tooltip = createTooltip(el);

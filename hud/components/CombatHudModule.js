@@ -13,7 +13,7 @@ import { createMockCombatHudAdapter } from "../adapters/mockCombatHudAdapter.js"
 import { createCombatHudStore } from "../core/combatHudStore.js";
 import { normalizeHudUiState } from "../overlay/overlayConstants.js";
 import { resolveBodyMode } from "./hudLayoutModel.js";
-import { DEFAULT_HUD_LAYOUT_V2 } from "../overlay/hudLayout.js";
+import { DEFAULT_HUD_LAYOUT_V2, computeCriticalTextRatio } from "../overlay/hudLayout.js";
 
 import { renderPlayerBlock } from "./PlayerBlock.js";
 import { renderGunBlock } from "./GunBlock.js";
@@ -108,6 +108,12 @@ export function mountCombatHudModule(options) {
       el.style.transform = `scale(${scale})`;
       el.style.transformOrigin = "top left";
     }
+    // Priority UI Fix — typography floor: a handful of "must remain
+    // readable" selectors (see the comment block above .ohud-cc-abtn in
+    // combatHudModule.css) multiply their font-size by this ratio instead of
+    // riding the transform above unmodified — see computeCriticalTextRatio's
+    // own doc comment in hudLayout.js for the full reasoning.
+    el.style.setProperty("--ohud-critical-text-ratio", String(computeCriticalTextRatio(scale)));
   }
   root.appendChild(el);
 

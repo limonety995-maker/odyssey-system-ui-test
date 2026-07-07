@@ -70,11 +70,18 @@
 /* Player (250×250): prominent silhouette + readable stats. */
 .ohud-module[data-module="player"] .ohud-player-grid { grid-template-columns: 96px 1fr; gap: 12px; }
 .ohud-module[data-module="player"] .ohud-figure { width: 96px; }
-.ohud-module[data-module="player"] .ohud-player-name { font-size: 16px; }
-.ohud-module[data-module="player"] .ohud-res-num { font-size: 12px; }
+/* Priority UI Fix — Universal Responsive HUD Scaling (typography floor):
+ * character name, PSI/Shield value, and MAIN/MOVE are critical tokens that
+ * must stay readable no matter how small the module gets — see the
+ * --ohud-critical-text-ratio comment above .ohud-cc-abtn for the mechanism.
+ * .ohud-res-label ("SHIELD"/"PSI" captions) and .ohud-res-track height are
+ * deliberately left alone — decorative/secondary, shrinks with everything
+ * else via the outer module transform (per spec: reduce secondary first). */
+.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(16px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); }
 .ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }
 .ohud-module[data-module="player"] .ohud-res-track { height: 8px; }
-.ohud-module[data-module="player"] .ohud-pip { font-size: 9px; padding: 2px 8px; }
+.ohud-module[data-module="player"] .ohud-pip { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }
 .ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }
 
 /* Skills (600×165): centred content, larger tiles, wrap past one row. This
@@ -268,9 +275,47 @@
  * attack button's own right border) separates them. Disabled state dims via
  * opacity only — it must keep its hue, never turn generic/grayscale, since
  * End Turn is a normal tactical action, not an error state. */
+/* Priority UI Fix — Universal Responsive HUD Scaling: typography floor.
+ *
+ * CombatHudModule.js's outer transform:scale(layoutScale) (see hudLayout.js's
+ * computeLayoutScale) shrinks EVERYTHING uniformly, text included — below a
+ * certain viewport this makes critical labels (ATTACK/END TURN, character/
+ * weapon/target name, PSI/ammo values, armed technique name, combat log,
+ * status toast) render as unreadable microtext. Those specific selectors
+ * (listed in the module-level comment blocks near each one) use
+ * `font-size: calc(<canonicalPx> * var(--ohud-critical-text-ratio, 1))`.
+ *
+ * mountCombatHudModule (CombatHudModule.js) sets --ohud-critical-text-ratio
+ * on the module root to `Math.min(3, Math.max(1, 1/layoutScale))`:
+ *   - layoutScale >= 1 (viewport at/above the 1920x1080 reference): ratio=1,
+ *     i.e. these tokens behave exactly as before — they grow with the rest
+ *     of the HUD at large scale, same as any other element.
+ *   - layoutScale < 1 (smaller viewport): ratio = 1/layoutScale, which
+ *     exactly cancels the ancestor transform for THESE elements only —
+ *     their pre-transform font-size grows just enough that the ON-SCREEN
+ *     result never drops below today's already-shipped canonical px size.
+ *     Capped at 3x pre-transform growth as a safety valve for pathologically
+ *     tiny windows (see hud/overlay/hudLayout.js's HUD_SAFE_VIEWPORT_PADDING
+ *     comment for the same "no real SDK-given need for more" reasoning).
+ *
+ * Everything else (icons, artwork, secondary/decorative text, gaps,
+ * padding) is untouched and keeps shrinking with layoutScale — this is what
+ * "reduce secondary text first" means in practice: critical tokens freeze,
+ * everything around them keeps scaling down.
+ *
+ * This is a FONT-SIZE change, not a nested transform — increasing font-size
+ * is a real layout property, so flex/inline-box ancestors naturally reflow
+ * (grow) to fit it, instead of a transform's non-reflowing visual overlap.
+ * Any element whose parent had a FIXED px height tall enough to clip a
+ * modestly larger critical font (e.g. the ARMED chip) has that fixed height
+ * relaxed to auto/min-height alongside its own critical-text rule — see the
+ * comment next to .ohud-mod--armed in combatHudLayout.css. .ohud-cc-abtn's
+ * own parent (.ohud-cc-actionbar) is already 34px tall — comfortably enough
+ * room for the ratio's realistic range at any of the 8 required viewports.
+ */
 .ohud-cc-abtn {
   display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
-  font-size: 11px; font-weight: 800; letter-spacing: 0.4px;
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;
   border: none; cursor: pointer;
 }
 .ohud-cc-abtn--attack {
