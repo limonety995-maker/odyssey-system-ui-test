@@ -244,7 +244,10 @@ test("mapTargetBodyZones resolves zoneId/bodyPartId pairs and discards shield/ps
         body_parts: [
           { id: "bp-torso", zone_id: "torso", disabled: false, destroyed: false },
           { id: "bp-head", zone_id: "head", disabled: false, destroyed: false },
-          { id: "bp-larm", zone_id: "left_arm", disabled: true, destroyed: false },
+          // Bugfix pack: a genuinely destroyed part (critical has reached its
+          // real threshold) — a bare `disabled` flag alone is no longer
+          // trusted (see hud/targeting/bodyConditionPolicy.js audit note).
+          { id: "bp-larm", zone_id: "left_arm", critical: 2, max_critical: 2, disabled: true, destroyed: true },
         ],
       },
     },
