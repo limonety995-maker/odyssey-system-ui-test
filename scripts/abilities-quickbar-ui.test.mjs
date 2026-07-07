@@ -485,13 +485,16 @@ test("4.0d: selecting a library card also highlights the slot holding that same 
 
 /* ── Wiring contract (spec 14, 15) ────────────────────────────────────── */
 
-test("14. a normal click on an ability does NOT fire a combat RPC (only a benign toast)", () => {
+test("14. a normal click on an ability does NOT fire a combat RPC (opens the detail card or, lacking data, a benign toast — never execution)", () => {
   // The show-ability-detail handler must not send any combat-session / basic-attack
-  // / execute command — it only shows a toast.
+  // / execute command. Phase 4.1A.2: it now opens the real Ability Detail Card
+  // when the action resolves; a missing/unresolvable action still falls back
+  // to the old toast (nothing to show a card for).
   const idx = moduleSrc.indexOf('case "show-ability-detail":');
   assert.ok(idx > -1, "handler exists");
-  const block = moduleSrc.slice(idx, moduleSrc.indexOf("break;", idx));
-  assert.ok(/showToast/.test(block), "shows detail toast");
+  const block = moduleSrc.slice(idx, moduleSrc.indexOf("case \"toggle-armed-technique\"", idx));
+  assert.ok(/detailCard\.toggle/.test(block), "opens the Ability Detail Card when the action resolves");
+  assert.ok(/showToast/.test(block), "falls back to a toast when there is no action data to show");
   assert.ok(!/onCommand/.test(block), "never dispatches a command (no execution)");
 });
 
