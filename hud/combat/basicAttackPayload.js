@@ -37,6 +37,7 @@ export { buildAttackPayload, resolveAttack, normalizeResult, describeError, ERRO
  *   bodyPartId: string,
  *   distance?: (number|null),
  *   roomContext?: { roomId?, campaignId?, sceneId?, encounterId?, actorTokenId?, targetTokenId? },
+ *   armedActionIds?: string[],
  * }} input
  */
 export function buildBasicAttackCtx(input = {}) {
@@ -48,11 +49,14 @@ export function buildBasicAttackCtx(input = {}) {
     targetBodyPartId: input.bodyPartId,
     distanceM: input.distance ?? 0,
     weaponId: input.weaponId,
-    // Basic Weapon Attack v1 wires no modifier UI to the payload — see the
-    // report's Modifiers section. An empty list matches
+    // Basic Weapon Attack v1 wires no MANUAL modifier UI to the payload — see
+    // the report's Modifiers section. An empty list matches
     // splitManualModifiers([]) => { manual_attack_bonus: 0, manual_attack_penalty: 0 },
     // i.e. "no manual modifier", never a fabricated bonus/penalty.
     modifiers: [],
+    // Phase 4.1A: armed attack technique id(s) (max one until stack groups
+    // exist — see armedTechniqueMemory.js). Empty/omitted for a plain attack.
+    armedActionIds: Array.isArray(input.armedActionIds) ? input.armedActionIds.filter(Boolean) : [],
     roomId: room.roomId,
     campaignId: room.campaignId,
     sceneId: room.sceneId,

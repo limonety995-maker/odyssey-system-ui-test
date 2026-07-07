@@ -96,7 +96,13 @@
 /* block footprints (desktop) */
 .ohud-panel--player { flex: 0 0 144px; height: 146px; }
 .ohud-panel--gun { flex: 0 0 240px; height: 95px; }
-.ohud-panel--skills { flex: 1 1 auto; min-width: 280px; height: 95px; }
+/* NOTE: in the live single-module-per-popover HUD, `.ohud-module > .ohud-panel`
+ * (combatHudModule.css) always wins with height:100%/width:100% — this rule's
+ * own height is inert there and only matters for other, non-modular render
+ * paths. Kept truthful to the module's actual 165px popover allocation
+ * (hudLayout.js DEFAULT_HUD_LAYOUT_V2.skills.height) rather than an arbitrary
+ * smaller number, so it can never mislead a reader about the real footprint. */
+.ohud-panel--skills { flex: 1 1 auto; min-width: 280px; height: 165px; }
 .ohud-panel--target { flex: 0 0 100px; height: 95px; }
 .ohud-panel--modact { flex: 0 0 126px; height: 95px; }
 
@@ -186,15 +192,14 @@
 .ohud-player-grid { display: grid; grid-template-columns: 46px 1fr; gap: 7px; align-items: center; flex: 1; min-height: 0; }
 .ohud-figure { position: relative; width: 46px; height: 100%; min-height: 50px; display: grid; place-items: center; }
 .ohud-figure-svg { width: 100%; height: 100%; }
-.ohud-figure-shield {
-  position: absolute; right: -4px; bottom: 0; width: 16px; height: 18px;
-  color: var(--odyssey-hud-shield); opacity: 0.85;
-}
 .ohud-figure--ghost { opacity: 0.4; }
 
 .ohud-player-stats { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ohud-player-name {
-  font-size: 12px; font-weight: 700; color: var(--odyssey-hud-text);
+  /* Priority UI Fix — typography floor (see the block comment above
+   * .ohud-cc-abtn for the full explanation): character name is a "must
+   * remain readable" critical token. */
+  font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ohud-res { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 5px; }
@@ -203,7 +208,9 @@
 .ohud-res-fill { display: block; height: 100%; border-radius: 3px; }
 .ohud-res--shield .ohud-res-fill { background: var(--odyssey-hud-shield); }
 .ohud-res--psi .ohud-res-fill { background: var(--odyssey-hud-psi); }
-.ohud-res-num { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
+/* PSI/Shield current value — critical token; .ohud-res-max (the "/10" part)
+ * has no font-size of its own, so it inherits this computed size too. */
+.ohud-res-num { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
 .ohud-res-max { color: var(--odyssey-hud-dim); font-weight: 600; }
 
 .ohud-pips { display: flex; gap: 4px; }
@@ -238,7 +245,7 @@
   border: 1.5px solid var(--odyssey-hud-border-strong);
   background: var(--odyssey-bg-deep); min-width: 0; overflow: hidden;
 }
-.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: 9px; color: var(--odyssey-hud-muted); }
+.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-muted); }
 .ohud-gun-caret { position: absolute; top: 3px; right: 5px; color: var(--odyssey-hud-muted); display: inline-flex; }
 .ohud-gun-silhouette { position: absolute; inset: 13px 8px 10px; color: var(--odyssey-hud-weapon); display: block; }
 .ohud-gun-silhouette svg { width: 100%; height: 100%; }
@@ -276,8 +283,13 @@
 .ohud-ammo-reload { color: var(--odyssey-hud-muted); display: inline-flex; }
 .ohud-ammo-reload.is-off { opacity: 0.35; }
 .ohud-ammo-count { font-weight: 800; line-height: 1; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
-.ohud-ammo-cur { font-size: clamp(22px, 2.2vw, 28px); }
-.ohud-ammo-max { font-size: 11px; color: var(--odyssey-hud-dim); }
+/* Ammo current/max — critical tokens (must remain readable per the Priority
+ * UI Fix typography floor). The old `2.2vw` term was measured against the
+ * module's OWN (already-scaled) iframe width, not a meaningful reference, so
+ * it's replaced with the same ratio-driven floor every other critical token
+ * uses. */
+.ohud-ammo-cur { font-size: calc(24px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-ammo-max { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-dim); }
 .ohud-ammo-count--empty .ohud-ammo-cur { color: var(--odyssey-hud-negative); }
 
 /* ===================== Skill block ===================== */
@@ -308,14 +320,50 @@
 .ohud-slot-cd { position: absolute; top: 2px; right: 3px; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
 .ohud-slot-toggle { position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--odyssey-purple); }
 
-/* ===================== Target block ===================== */
-.ohud-target { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; min-height: 0; justify-content: center; }
-.ohud-target .ohud-figure { width: 42px; }
-.ohud-target-meta { text-align: center; min-width: 0; width: 100%; }
-.ohud-target-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ohud-target-zone { display: inline-block; margin-top: 1px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
-  color: var(--odyssey-cyan); border: 1px solid rgba(52, 225, 214, 0.4); border-radius: 6px; padding: 0 6px; }
-.ohud-target.is-empty .ohud-target-hint { font-size: 9px; font-weight: 700; color: var(--odyssey-hud-dim); }
+/* ===================== Target block (Phase 4.0f: row layout) =====================
+ * Silhouette LEFT, a vertical text column RIGHT of it — name / zone badge /
+ * Clear each on their own line, so a long name can never crowd the figure and
+ * the zone badge never has to share a line with anything else. The empty/
+ * picking state stays its own centered-column look (nothing to lay out beside
+ * a ghost silhouette yet). */
+.ohud-target { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; flex: 1; min-height: 0; min-width: 0; }
+.ohud-target.is-empty { flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; }
+.ohud-target .ohud-figure { width: 44px; flex: 0 0 auto; }
+.ohud-target-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; padding-top: 1px; }
+.ohud-target-name { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-target-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ohud-target-zone {
+  display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.5px;
+  color: var(--odyssey-cyan); background: rgba(52, 225, 214, 0.1);
+  border: 1px solid rgba(52, 225, 214, 0.4); border-radius: 6px; padding: 1px 6px;
+}
+.ohud-target-dist { font-size: 8.5px; font-weight: 700; color: var(--odyssey-hud-dim); }
+.ohud-target-clear {
+  align-self: flex-start; margin-top: 1px; padding: 1px 8px; font-size: 8.5px; font-weight: 700;
+  color: var(--odyssey-hud-muted); background: transparent;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-target-clear:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }
+/* Phase 4.0g: the WHOLE empty-Target area is either a button ("Pick target on
+ * map", idle) or a static status ("Selecting target…", picking) — no
+ * humanoid silhouette, no separate small Pick/Cancel button. */
+.ohud-target-pickarea {
+  appearance: none; margin: 0; padding: 6px; width: 100%; height: 100%;
+  font: inherit; color: inherit; text-align: center;
+  background: transparent; border: 1px dashed var(--odyssey-hud-border);
+  border-radius: var(--odyssey-hud-radius-inner);
+  cursor: pointer;
+}
+.ohud-target-pickarea:hover, .ohud-target-pickarea:focus-visible {
+  border-color: var(--odyssey-hud-implant); background: rgba(52, 225, 214, 0.06); outline: none;
+}
+.ohud-target-pickarea.is-picking { cursor: default; border-style: solid; border-color: var(--odyssey-hud-implant); }
+.ohud-target-crosshair {
+  width: 30px; height: 30px; display: inline-flex;
+  color: var(--odyssey-hud-implant); opacity: 0.82; /* calmer than the Attack button's solid fill */
+}
+.ohud-target.is-empty .ohud-target-hint { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); letter-spacing: 0.2px; }
+.ohud-target-subhint { font-size: 8.5px; color: var(--odyssey-hud-dim); }
 
 /* ===================== Mod + Action column ===================== */
 .ohud-panel--modact { gap: 3px; }
@@ -326,6 +374,12 @@
   border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);
 }
 .ohud-mod-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Armed technique name specifically (not every AUTO/legacy chip) is a
+ * critical token — see the Priority UI Fix comment block above .ohud-cc-abtn.
+ * The chip's own fixed 17px height is relaxed to auto/min so the enlarged
+ * name has room to reflow into instead of clipping vertically. */
+.ohud-mod--armed { height: auto; min-height: 17px; padding-top: 2px; padding-bottom: 2px; }
+.ohud-mod--armed .ohud-mod-name { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); }
 .ohud-mod-val { font-weight: 800; flex: 0 0 auto; }
 .ohud-mod--positive { border-color: rgba(74, 222, 128, 0.55); color: var(--odyssey-green); }
 .ohud-mod--negative { border-color: rgba(255, 92, 108, 0.6); color: var(--odyssey-red); }
@@ -333,6 +387,17 @@
 .ohud-mod--narrative { border-color: rgba(167, 139, 250, 0.55); color: var(--odyssey-purple); }
 .ohud-mod.is-selected { box-shadow: 0 0 0 1.5px var(--odyssey-cyan); }
 .ohud-mod.is-passive { opacity: 0.85; }
+/* Phase 4.1A: armed attack technique chip (Combat Control ARMED section) —
+ * its own × remove control, and an "invalid" state for when the situation
+ * (target/weapon/cooldown) changed after arming but the player hasn't
+ * disarmed it yet. */
+.ohud-mod--armed { border-color: var(--odyssey-cyan); color: var(--odyssey-hud-text); }
+.ohud-mod--armed.is-invalid { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); opacity: 0.85; }
+.ohud-mod-remove {
+  flex: 0 0 auto; border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 0 0 0 4px; opacity: 0.7;
+}
+.ohud-mod-remove:hover { opacity: 1; color: var(--odyssey-hud-danger, #a33); }
 
 .ohud-action { display: flex; align-items: center; gap: 6px; }
 .ohud-action-econ { display: flex; gap: 3px; }
@@ -354,7 +419,7 @@
 .ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }
 .ohud-log-list::-webkit-scrollbar { width: 5px; }
 .ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }
-.ohud-log-row { font-size: 10px; line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
+.ohud-log-row { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
 .ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }
 .ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }
 .ohud-log-actor { font-weight: 700; color: var(--odyssey-hud-text); }
@@ -392,7 +457,7 @@
 
 /* ===================== Toast ===================== */
 .ohud-toast { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
-  font-size: 11px; color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
   border: 1px solid var(--odyssey-hud-border-strong); border-radius: 8px; padding: 4px 11px;
   box-shadow: var(--odyssey-hud-shadow); z-index: 12; }
 .ohud-toast[hidden] { display: none; }
@@ -404,6 +469,48 @@
 .ohud-tooltip[hidden] { display: none; }
 .ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }
 .ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }
+
+/* ===================== Ability Detail Card (bug fix: own companion popover) =====
+ * Was a `position:fixed` div rendered INSIDE the Skills module's own tiny
+ * iframe — content (fixed-position or not) can never render outside an
+ * iframe's own box, since an iframe is its own browsing context. It is now
+ * its OWN independent OBR companion popover (odyssey-hud-ability-detail),
+ * sized/positioned by combatHudOverlayController.js
+ * (abilityDetailPlacement.js) exactly like the GM Tracker / Quickbar Editor
+ * companions — so this page fills its OWN (correctly-sized) popover, the
+ * same way those do, rather than floating over shared content. */
+.ohud-ability-detail-page { height: 100%; width: 100%; display: flex; }
+/* Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
+ * (AbilityDetailCard.js) so there is only one detail-card body renderer.
+ * --card fills the popover and pins header + status OUTSIDE the scrollable
+ * region (section B: "header and current status remain visible" even when
+ * a genuinely long description needs the body to scroll — the estimated
+ * popover height, computed from the SAME real data, means this is normally
+ * unnecessary, but must still degrade safely when it isn't enough). */
+/* Compound selector (.ohud-qbe-desc.ohud-qbe-desc--card), not just the
+ * modifier class alone — the base .ohud-qbe-desc rule (Quickbar Editor
+ * section, further down this file) sets a fixed min/max-height + overflow-y
+ * that this must reliably override regardless of source order; a compound
+ * selector's higher specificity guarantees that without relying on which
+ * rule happens to come later in the file. */
+.ohud-qbe-desc.ohud-qbe-desc--card {
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow: visible;
+  display: flex; flex-direction: column;
+}
+.ohud-qbe-desc--card .ohud-qbe-desc-head,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { flex: 0 0 auto; }
+.ohud-qbe-desc-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+/* Section G typography floor: ability name >=14px, primary detail-card text
+ * >=12px, rendered — scoped here so the Quickbar Editor's OWN (unscoped)
+ * .ohud-qbe-desc-* rules stay exactly as they were. This card lives in its
+ * own dedicated popover (no shared transform-scaled canvas to inherit from),
+ * so these are fixed, unconditional sizes — never a ratio-compensated one. */
+.ohud-qbe-desc--card .ohud-qbe-desc-name { font-size: 14px; }
+.ohud-qbe-desc--card .ohud-qbe-desc-text,
+.ohud-qbe-desc--card .ohud-qbe-desc-pill,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { font-size: 12px; }
+/* Description must wrap normally, never ellipsis/truncate (section E). */
+.ohud-qbe-desc--card .ohud-qbe-desc-text { white-space: normal; overflow-wrap: break-word; }
 
 /* ===================== Compact / mini (two rows) ===================== */
 .ohud-hud[data-mode="compact"] .ohud-main,
@@ -418,3 +525,308 @@
 .ohud-hud[data-mode="mini"] .ohud-panel--skills { flex: 1 1 100%; min-width: 0; }
 .ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }
 .ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }
+
+/* ===================== Quickbar (Phase 4.0b, visual pass 4.0e, HUD refine 4.0i) =====================
+ * Skills-module strip: dense action-card rows. Row 0 (slots 1-10) is on TOP,
+ * row 1 (slots 11-20) is BELOW it — matching the Quickbar Editor's fixed row
+ * order (a second row only renders at all when the runtime actually has slots
+ * in it). Rows are vertically centered inside the block (4.0i). There is no
+ * separate EDIT control: any empty slot (or the all-empty fallback) opens the
+ * SAME Quickbar Editor via data-action="open-quickbar-editor". */
+.ohud-qb-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 4px 0; }
+.ohud-qb { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; justify-content: center; }
+.ohud-qb--empty { justify-content: center; }
+.ohud-qb--empty-clickable { border: none; background: transparent; padding: 0; margin: 0; width: 100%; font: inherit; color: inherit; cursor: pointer; }
+.ohud-qb--empty-clickable:hover .ohud-muted-fill, .ohud-qb--empty-clickable:focus-visible .ohud-muted-fill { color: var(--odyssey-hud-implant); }
+.ohud-qb--empty-clickable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
+.ohud-qb-row { display: flex; gap: 4px; flex-wrap: nowrap; }
+.ohud-qb-slot {
+  /* Width fills the row evenly (flex-basis 0 + grow), capped at 56px so ten
+   * slots stay dense rather than stretching to fill a very wide container.
+   * Height is a fixed 50px — independent of width — so two rows fit the
+   * block's own vertical budget with room for the corner EDIT button. */
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 56px; height: 50px;
+  display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 8px;
+  background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);
+  cursor: pointer; overflow: hidden; transition: border-color .12s ease, background .12s ease;
+}
+.ohud-qb-slot:not(.is-empty):not(.is-disabled):hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }
+.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.6; background: transparent; }
+.ohud-qb-slot.is-empty::after { content: "+"; font-size: 15px; color: var(--odyssey-hud-dim); opacity: 0.5; }
+.ohud-qb-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.03); }
+/* Editable empty slots (Phase 4.0i) are the open-editor trigger — same "+"
+ * marker, but a real clickable control with its own hover/focus affordance so
+ * it reads as interactive without looking like a filled/executable tile. */
+.ohud-qb-slot.is-empty.is-editable { cursor: pointer; }
+.ohud-qb-slot.is-empty.is-editable:hover { border-color: var(--odyssey-hud-implant); background: rgba(255, 255, 255, 0.06); }
+.ohud-qb-slot.is-empty.is-editable:hover::after { color: var(--odyssey-hud-implant); opacity: 0.9; }
+.ohud-qb-slot.is-empty.is-editable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
+.ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
+.ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
+/* Phase 4.1A: the armed attack technique's own occupied tile — a cyan ring,
+ * layered with is-disabled's dimming when the technique went invalid after
+ * arming (still clickable to disarm; see CombatHudModule.js). */
+.ohud-qb-slot.is-armed { box-shadow: inset 0 0 0 2px var(--odyssey-cyan); }
+.ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
+.ohud-qb-icon { width: 28px; height: 28px; display: block; }
+.ohud-qb-name {
+  position: absolute; bottom: 0; left: 0; right: 0; font-size: 7.5px; line-height: 1.2;
+  text-align: center; padding: 1px 2px; background: rgba(0, 0, 0, 0.4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ohud-qb-type { position: absolute; top: 2px; left: 3px; font-size: 6.5px; font-weight: 800; opacity: 0.85; letter-spacing: 0.3px; }
+/* State marker + active/ON share one top-right badge group so at most one
+ * ever renders at a time in that corner (deriveSlotAvailability returns
+ * exactly one category; active/ON is orthogonal and can join it).
+ * Phase 4.1A.2 typography floor: these are "slot state marker" text (section
+ * G, floor 10px) — scaled by --ohud-slot-marker-ratio, a SEPARATE, smaller-
+ * capped instance of the same computeCriticalTextRatio formula the bigger
+ * critical labels use (--ohud-critical-text-ratio, cap 3x) — a 56×50px slot
+ * has far less room to counter-grow into before its corner badge visually
+ * overwhelms the icon/name, so this one is capped at 1.5x (both set in
+ * CombatHudModule.js from the same shared helper — never a second formula). */
+.ohud-qb-badges { position: absolute; top: 2px; right: 3px; display: flex; align-items: center; gap: 3px; }
+.ohud-qb-cd { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qb-active { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-state-active); }
+.ohud-qb-missing { font-size: 20px; font-weight: 800; }
+
+/* Phase 4.1A.2: canonical slot availability markers (armed/insufficient
+ * resource/unsupported/unavailable — see abilityAvailabilityPolicy.js). */
+.ohud-qb-state {
+  font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; letter-spacing: 0.2px;
+  display: inline-flex; align-items: center; line-height: 1;
+}
+.ohud-qb-state--armed { color: var(--odyssey-cyan); }
+.ohud-qb-state--resource { color: var(--odyssey-purple); }
+/* The lock glyph is an icon, not text — sized fixed (12x12, matching the
+ * other small HUD glyphs), never counter-scaled: a bold, high-contrast shape
+ * stays legible at any of the required viewports without the text-floor
+ * treatment, and scaling an icon via font-size math would just be noise.
+ * Muted, never the "damage" red — see abilityAvailabilityPolicy.js's header
+ * comment: unsupported/unavailable are blocked capabilities, not injuries. */
+.ohud-qb-state--lock { color: var(--odyssey-hud-muted); }
+
+/* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
+ * A standalone sci-fi window: dark surface, thin glowing border, header / body
+ * / footer. Slots 1-10 render on the TOP row, 11-20 on the BOTTOM row — a
+ * deliberate, fixed departure from the visual reference used to design this. */
+.ohud-qbe {
+  position: relative;
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
+  background: linear-gradient(180deg, rgba(22, 31, 52, 0.98), rgba(12, 16, 27, 0.98));
+  border: 1px solid var(--odyssey-hud-border-strong);
+  border-radius: var(--odyssey-hud-radius);
+  box-shadow: 0 0 0 1px rgba(93, 169, 255, 0.12), 0 0 36px rgba(64, 140, 255, 0.22), var(--odyssey-hud-shadow);
+}
+/* Sci-fi corner accents on the outer window (decorative only). */
+.ohud-qbe::before, .ohud-qbe::after {
+  content: ""; position: absolute; width: 16px; height: 16px; pointer-events: none; opacity: 0.55;
+  border-color: var(--odyssey-hud-implant); z-index: 1;
+}
+.ohud-qbe::before { top: 6px; left: 6px; border-top: 2px solid; border-left: 2px solid; border-radius: 4px 0 0 0; }
+.ohud-qbe::after { bottom: 6px; right: 6px; border-bottom: 2px solid; border-right: 2px solid; border-radius: 0 0 4px 0; }
+
+/* ---- Header ---- */
+.ohud-qbe-header {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: rgba(60, 120, 220, 0.08);
+  border-bottom: 1px solid var(--odyssey-hud-border);
+}
+.ohud-qbe-header-icon {
+  flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center;
+  color: var(--odyssey-hud-implant); filter: drop-shadow(0 0 6px rgba(52, 225, 214, 0.55));
+}
+.ohud-qbe-header-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ohud-qbe-header-title {
+  font-size: 14px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--odyssey-hud-text); text-shadow: 0 0 10px rgba(93, 169, 255, 0.3);
+}
+.ohud-qbe-header-subtitle {
+  font-size: 10px; color: var(--odyssey-hud-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-qbe-close {
+  flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center;
+  font-size: 15px; line-height: 1; color: var(--odyssey-hud-muted);
+  background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-qbe-close:hover { color: var(--odyssey-hud-negative); border-color: var(--odyssey-hud-negative); }
+
+/* ---- Body: two columns ---- */
+.ohud-qbe-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; overflow: hidden; }
+.ohud-qbe-cols { flex: 1 1 auto; min-height: 0; display: flex; gap: 14px; }
+.ohud-qbe-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 6px; }
+.ohud-qbe-col--library { flex: 0 0 250px; }
+.ohud-qbe-col--slots { flex: 1 1 auto; }
+
+.ohud-qbe-section-label {
+  flex: 0 0 auto; font-size: 10px; font-weight: 800; letter-spacing: 0.8px;
+  color: var(--odyssey-hud-muted); text-transform: uppercase;
+}
+.ohud-qbe-hint { flex: 0 0 auto; font-size: 9.5px; color: var(--odyssey-hud-dim); margin-top: -3px; }
+.ohud-qbe-lib-empty, .ohud-qbe-empty { font-size: 10px; color: var(--odyssey-hud-muted); padding: 8px 4px; }
+
+/* ---- Ability Description Panel (Phase 4.0d) — right column, above the slot
+ * grid. Shows the currently selected library card or quickbar slot; a
+ * placeholder when nothing is selected yet. */
+.ohud-qbe-desc {
+  flex: 0 0 auto; min-height: 128px; max-height: 220px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--odyssey-hud-border); border-left-width: 3px; border-radius: 8px;
+  background: rgba(10, 14, 24, 0.55); box-shadow: inset 0 0 18px rgba(52, 225, 214, 0.05);
+}
+.ohud-qbe-desc-placeholder {
+  flex: 1 1 auto; display: grid; place-items: center; text-align: center;
+  font-size: 10.5px; color: var(--odyssey-hud-dim); padding: 10px;
+}
+.ohud-qbe-desc-head { display: flex; align-items: center; gap: 8px; }
+.ohud-qbe-desc-icon {
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6px; background: rgba(255, 255, 255, 0.05);
+}
+.ohud-qbe-desc-icon svg { width: 16px; height: 16px; }
+.ohud-qbe-desc-head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ohud-qbe-desc-name { font-size: 13px; font-weight: 800; color: var(--odyssey-hud-text); }
+.ohud-qbe-desc-type { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); }
+.ohud-qbe-desc-text { font-size: 10.5px; line-height: 1.4; color: var(--odyssey-hud-muted); }
+.ohud-qbe-desc-pills { display: flex; flex-wrap: wrap; gap: 5px; }
+.ohud-qbe-desc-pill {
+  font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--odyssey-hud-border);
+  color: var(--odyssey-hud-text); white-space: nowrap;
+}
+.ohud-qbe-desc-pill-label { color: var(--odyssey-hud-muted); font-weight: 800; margin-right: 4px; }
+.ohud-qbe-desc-status { font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px; }
+.ohud-qbe-desc-status.is-warning { color: var(--odyssey-hud-warning); background: rgba(255, 194, 75, 0.12); border: 1px solid rgba(255, 194, 75, 0.35); }
+.ohud-qbe-desc-status.is-active { color: var(--odyssey-hud-state-active); background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.35); }
+
+/* Accent stripe on the description panel, matching the selected ability's kind. */
+.ohud-qbe-desc.ohud-accent--attack { border-left-color: var(--odyssey-hud-attack); }
+.ohud-qbe-desc.ohud-accent--psionic { border-left-color: var(--odyssey-purple); }
+.ohud-qbe-desc.ohud-accent--implant { border-left-color: var(--odyssey-cyan); }
+.ohud-qbe-desc.ohud-accent--intervention { border-left-color: var(--odyssey-hud-intervention); }
+.ohud-qbe-desc.ohud-accent--neutral { border-left-color: var(--odyssey-hud-border-strong); }
+
+/* Selection ring — a neutral cyan ring distinct from the semantic accent
+ * colors, so "this is selected" always reads clearly regardless of type. */
+.ohud-qbe-card.is-selected, .ohud-qbe-slot.is-selected {
+  box-shadow: 0 0 0 2px var(--odyssey-cyan), 0 0 14px rgba(52, 225, 214, 0.35);
+}
+
+/* Available-actions library (left column). */
+.ohud-qbe-library {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; padding-right: 3px;
+}
+.ohud-qbe-card {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+  border: 1px solid var(--odyssey-hud-border); border-left-width: 3px; border-radius: 8px; cursor: grab;
+  background: var(--odyssey-hud-panel-raised); transition: border-color .12s ease, background .12s ease;
+}
+.ohud-qbe-card:hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }
+.ohud-qbe-card.is-disabled { opacity: 0.55; cursor: default; }
+.ohud-qbe-card-icon {
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6px; background: rgba(255, 255, 255, 0.05);
+}
+.ohud-qbe-card-icon svg { width: 16px; height: 16px; }
+.ohud-qbe-card-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ohud-qbe-card-name {
+  font-size: 11.5px; font-weight: 700; color: var(--odyssey-hud-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-qbe-card-type { font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); }
+.ohud-qbe-card-badges { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.ohud-qbe-badge {
+  font-size: 8px; font-weight: 800; letter-spacing: 0.2px; white-space: nowrap;
+  padding: 1px 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--odyssey-hud-border); color: var(--odyssey-hud-muted);
+}
+.ohud-qbe-badge--cooldown { color: var(--odyssey-hud-warning); border-color: rgba(255, 194, 75, 0.4); }
+.ohud-qbe-badge--resource { color: var(--odyssey-purple); border-color: rgba(167, 139, 250, 0.4); }
+.ohud-qbe-card-off { flex: 0 0 auto; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
+
+/* Card accent stripe by semantic kind (attack/psionic/implant/intervention/neutral). */
+.ohud-qbe-card.ohud-accent--attack { border-left-color: var(--odyssey-hud-attack); }
+.ohud-qbe-card.ohud-accent--psionic { border-left-color: var(--odyssey-purple); }
+.ohud-qbe-card.ohud-accent--implant { border-left-color: var(--odyssey-cyan); }
+.ohud-qbe-card.ohud-accent--intervention { border-left-color: var(--odyssey-hud-intervention); }
+.ohud-qbe-card.ohud-accent--neutral { border-left-color: var(--odyssey-hud-border-strong); }
+
+/* Quickbar slots grid (right column). Row 0 (slots 1-10) is emitted first in
+ * the DOM, so it naturally lands on top; row 1 (11-20) follows, on the bottom. */
+.ohud-qbe-slots { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.ohud-qbe-slot-row { display: flex; gap: 5px; }
+.ohud-qbe-slot {
+  position: relative; flex: 1 1 0; max-width: 54px; aspect-ratio: 1 / 1;
+  display: grid; place-items: center;
+  border: 1px dashed var(--odyssey-hud-border); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02); transition: border-color .12s ease, background .12s ease;
+}
+.ohud-qbe-slot.is-empty::after { content: "+"; font-size: 17px; color: var(--odyssey-hud-dim); opacity: 0.5; }
+.ohud-qbe-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.045); }
+.ohud-qbe-slot.is-filled {
+  cursor: grab; border-style: solid; background: var(--odyssey-hud-panel-raised);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.35);
+}
+.ohud-qbe-slot.is-filled:hover { box-shadow: 0 0 0 1px var(--odyssey-hud-border-strong), 0 0 14px rgba(93, 169, 255, 0.25); }
+.ohud-qbe-slot.is-missing { border-style: solid; border-color: var(--odyssey-hud-negative); color: var(--odyssey-hud-negative); }
+.ohud-qbe-slot-idx { position: absolute; top: 2px; left: 3px; font-size: 7px; font-weight: 800; color: var(--odyssey-hud-dim); }
+.ohud-qbe-slot-type { position: absolute; top: 2px; right: 3px; font-size: 6px; font-weight: 800; opacity: 0.75; }
+.ohud-qbe-slot-icon { width: 18px; height: 18px; }
+.ohud-qbe-slot-name {
+  position: absolute; bottom: 1px; left: 1px; right: 1px; font-size: 5.5px; text-align: center;
+  background: rgba(0, 0, 0, 0.45); border-radius: 0 0 6px 6px; padding: 0 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-qbe-missing { font-size: 15px; font-weight: 800; }
+.ohud-qbe-remove {
+  position: absolute; top: -5px; right: -5px; width: 14px; height: 14px; padding: 0;
+  display: grid; place-items: center; font-size: 10px; line-height: 1; border-radius: 50%;
+  border: none; background: var(--odyssey-hud-negative); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity .12s ease;
+}
+.ohud-qbe-slot.is-filled:hover .ohud-qbe-remove,
+.ohud-qbe-slot.is-missing .ohud-qbe-remove { opacity: 1; }
+
+/* Accent border/glow on filled slots, by semantic kind. */
+.ohud-qbe-slot.is-filled.ohud-accent--attack { border-color: var(--odyssey-hud-attack); box-shadow: 0 0 10px rgba(255, 92, 108, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--psionic { border-color: var(--odyssey-purple); box-shadow: 0 0 10px rgba(167, 139, 250, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--implant { border-color: var(--odyssey-cyan); box-shadow: 0 0 10px rgba(52, 225, 214, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--intervention { border-color: var(--odyssey-hud-intervention); box-shadow: 0 0 10px rgba(255, 194, 75, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--neutral { border-color: var(--odyssey-hud-border-strong); }
+
+/* ---- Conflict banner ---- */
+.ohud-qbe-conflict {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 10px; color: var(--odyssey-hud-warning);
+  background: rgba(255, 194, 75, 0.12); border: 1px solid rgba(255, 194, 75, 0.4);
+  border-radius: 8px; padding: 6px 10px;
+}
+.ohud-qbe-reload {
+  flex: 0 0 auto; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning);
+  border: 1px solid rgba(255, 194, 75, 0.5); background: transparent; border-radius: 5px;
+  padding: 2px 7px; cursor: pointer;
+}
+
+/* ---- Footer ---- */
+.ohud-qbe-footer {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; border-top: 1px solid var(--odyssey-hud-border); background: rgba(8, 11, 20, 0.4);
+}
+.ohud-qbe-status { font-size: 10px; font-weight: 600; color: var(--odyssey-hud-dim); }
+.ohud-qbe-status--warning { color: var(--odyssey-hud-warning); }
+.ohud-qbe-status--busy { color: var(--odyssey-hud-muted); }
+.ohud-qbe-actions { flex: 0 0 auto; display: flex; gap: 8px; }
+.ohud-qbe-btn {
+  padding: 6px 14px; font-size: 11px; font-weight: 700; border-radius: 7px; cursor: pointer;
+  color: var(--odyssey-hud-text); background: transparent; border: 1px solid var(--odyssey-hud-border);
+}
+.ohud-qbe-btn:hover:not([disabled]) { border-color: var(--odyssey-hud-border-strong); }
+.ohud-qbe-btn.is-primary {
+  color: #052421; font-weight: 800; border-color: transparent;
+  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac);
+  box-shadow: 0 0 14px rgba(52, 225, 214, 0.4);
+}
+.ohud-qbe-btn[disabled] { opacity: 0.45; cursor: default; box-shadow: none; }

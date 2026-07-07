@@ -11,7 +11,6 @@ import {
   selectVisibleStatuses,
 } from "../core/combatHudSelectors.js";
 import { entitySilhouetteSvg } from "./hudIcons.js";
-import { ICON_SHIELD } from "./hudIcons.js";
 import { statusChip, overflowChip } from "./StatusChip.js";
 import { panel } from "./HudPanel.js";
 import { esc, tipAttr, cls } from "./hudDom.js";
@@ -92,7 +91,6 @@ export function renderPlayerBlock(state) {
     <div class="ohud-player-grid">
       <div class="ohud-figure">
         <div class="ohud-figure-svg">${entitySilhouetteSvg(entity.summary, { zones: zonesMap(entity), zoneTips: zoneTipsMap(entity, authorized) })}</div>
-        <div class="ohud-figure-shield" aria-hidden="true">${ICON_SHIELD}</div>
       </div>
       <div class="ohud-player-stats">
         <div class="ohud-player-name" title="${esc(entity.summary.name)}">${esc(entity.summary.name)}</div>

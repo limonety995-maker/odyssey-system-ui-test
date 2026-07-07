@@ -3515,436 +3515,1274 @@ var OBR = {
 var lib_default = OBR;
 
 // hud/styles/combatHudTokens.css
-var combatHudTokens_default = "/*\r\n * Combat HUD \u2014 design tokens (Phase 0, palette refreshed for Phase 2).\r\n *\r\n * Semantic custom properties ONLY. No layout, no component rules \u2014 those live\r\n * in hud/components/combatHudLayout.css and hud/overlay/combatHudOverlay.css.\r\n * JavaScript must never hard-code colours; it stores semantic state names\r\n * (see hud/models/combatHudContracts.js) and the UI maps state \u2192 token here.\r\n *\r\n * Scope: variables are declared on a `.odyssey-hud` root class so the HUD's\r\n * theme cannot leak into the existing popup screens (Resolve Attack, etc.).\r\n *\r\n * The palette follows the approved Phase 2 references: a dark sci-fi MMORPG\r\n * panel \u2014 deep navy surfaces, thin blue-grey borders, bright colours reserved\r\n * for game-state accents only.\r\n */\r\n\r\n.odyssey-hud {\r\n  /* ---- Raw palette (approved Phase 2 reference) ---- */\r\n  --odyssey-bg-deep: #0e1320;\r\n  --odyssey-panel-base: #16203a;\r\n  --odyssey-panel-raised: #1a2236;\r\n  --odyssey-panel-hover: #232e47;\r\n  --odyssey-line: #3a4a66;\r\n  --odyssey-line-soft: #283448;\r\n\r\n  --odyssey-ink: #eaf0ff;\r\n  --odyssey-ink-muted: #9fb0d0;\r\n  --odyssey-ink-dim: #6b7a9c;\r\n\r\n  --odyssey-purple: #a78bfa;\r\n  --odyssey-purple-strong: #8b5cf6;\r\n  --odyssey-purple-panel: #26215c;\r\n  --odyssey-cyan: #34e1d6;\r\n  --odyssey-yellow: #ffc24b;\r\n  --odyssey-orange: #f59042;\r\n  --odyssey-red: #ff5c6c;\r\n  --odyssey-green: #4ade80;\r\n  --odyssey-steel: #aecbf0;     /* light cool blue \u2014 weapon / vehicle silhouettes */\r\n\r\n  /* ---- Semantic surfaces (names kept stable since Phase 0/1A) ---- */\r\n  --odyssey-hud-bg: rgba(14, 19, 32, 0.94);\r\n  --odyssey-hud-panel: rgba(22, 32, 58, 0.96);\r\n  --odyssey-hud-panel-raised: rgba(26, 34, 54, 0.98);\r\n  --odyssey-hud-panel-hover: #232e47;\r\n  --odyssey-hud-border: rgba(120, 142, 184, 0.30);\r\n  --odyssey-hud-border-strong: rgba(150, 172, 214, 0.55);\r\n\r\n  /* ---- Text ---- */\r\n  --odyssey-hud-text: var(--odyssey-ink);\r\n  --odyssey-hud-muted: var(--odyssey-ink-muted);\r\n  --odyssey-hud-dim: var(--odyssey-ink-dim);\r\n\r\n  /* ---- Generic valence ---- */\r\n  --odyssey-hud-positive: var(--odyssey-green);\r\n  --odyssey-hud-negative: var(--odyssey-red);\r\n  --odyssey-hud-warning: var(--odyssey-yellow);\r\n\r\n  /* ---- Action / ability semantics (spec colour language) ---- */\r\n  --odyssey-hud-attack: var(--odyssey-red);          /* red \u2014 attacking / hostile     */\r\n  --odyssey-hud-neutral: #8593b0;                    /* cool grey \u2014 defensive / util  */\r\n  --odyssey-hud-psionic: var(--odyssey-purple);      /* purple \u2014 psionics             */\r\n  --odyssey-hud-implant: var(--odyssey-cyan);        /* cyan \u2014 implants / tech        */\r\n  --odyssey-hud-intervention: var(--odyssey-yellow); /* gold \u2014 intervention           */\r\n\r\n  /* ---- State / availability ---- */\r\n  --odyssey-hud-state-active: var(--odyssey-green);\r\n  --odyssey-hud-state-unavailable: var(--odyssey-red);\r\n  --odyssey-hud-disabled: rgba(159, 176, 208, 0.22);\r\n\r\n  /* ---- Body zone condition scale (healthy \u2192 disabled) ---- */\r\n  /* healthy is a MUTED COOL tone (not green) per the spec. */\r\n  --odyssey-hud-zone-healthy: #6e7da0;\r\n  --odyssey-hud-zone-wounded: var(--odyssey-yellow);\r\n  --odyssey-hud-zone-serious: var(--odyssey-orange);\r\n  --odyssey-hud-zone-critical: var(--odyssey-red);\r\n  --odyssey-hud-zone-disabled: #39414f;\r\n  /* Combat data missing/denied (e.g. a target refresh blocked by RLS) \u2014 a\r\n   * distinct dim hatch-like grey, never the same as healthy. */\r\n  --odyssey-hud-zone-unknown: #2a3040;\r\n\r\n  /* ---- Resources ---- */\r\n  --odyssey-hud-shield: #5b9be0;\r\n  --odyssey-hud-psi: var(--odyssey-purple);\r\n  --odyssey-hud-weapon: var(--odyssey-steel);\r\n\r\n  /* ---- Elevation & geometry ---- */\r\n  --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\r\n  --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);\r\n  --odyssey-hud-radius: 14px;       /* outer panels */\r\n  --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */\r\n  --odyssey-hud-radius-chip: 9px;\r\n}\r\n";
+var combatHudTokens_default = "/*\n * Combat HUD \u2014 design tokens (Phase 0, palette refreshed for Phase 2).\n *\n * Semantic custom properties ONLY. No layout, no component rules \u2014 those live\n * in hud/components/combatHudLayout.css and hud/overlay/combatHudOverlay.css.\n * JavaScript must never hard-code colours; it stores semantic state names\n * (see hud/models/combatHudContracts.js) and the UI maps state \u2192 token here.\n *\n * Scope: variables are declared on a `.odyssey-hud` root class so the HUD's\n * theme cannot leak into the existing popup screens (Resolve Attack, etc.).\n *\n * The palette follows the approved Phase 2 references: a dark sci-fi MMORPG\n * panel \u2014 deep navy surfaces, thin blue-grey borders, bright colours reserved\n * for game-state accents only.\n */\n\n.odyssey-hud {\n  /* ---- Raw palette (approved Phase 2 reference) ---- */\n  --odyssey-bg-deep: #0e1320;\n  --odyssey-panel-base: #16203a;\n  --odyssey-panel-raised: #1a2236;\n  --odyssey-panel-hover: #232e47;\n  --odyssey-line: #3a4a66;\n  --odyssey-line-soft: #283448;\n\n  --odyssey-ink: #eaf0ff;\n  --odyssey-ink-muted: #9fb0d0;\n  --odyssey-ink-dim: #6b7a9c;\n\n  --odyssey-purple: #a78bfa;\n  --odyssey-purple-strong: #8b5cf6;\n  --odyssey-purple-panel: #26215c;\n  --odyssey-cyan: #34e1d6;\n  --odyssey-yellow: #ffc24b;\n  --odyssey-orange: #f59042;\n  --odyssey-red: #ff5c6c;\n  --odyssey-green: #4ade80;\n  --odyssey-steel: #aecbf0;     /* light cool blue \u2014 weapon / vehicle silhouettes */\n\n  /* ---- Semantic surfaces (names kept stable since Phase 0/1A) ---- */\n  --odyssey-hud-bg: rgba(14, 19, 32, 0.94);\n  --odyssey-hud-panel: rgba(22, 32, 58, 0.96);\n  --odyssey-hud-panel-raised: rgba(26, 34, 54, 0.98);\n  --odyssey-hud-panel-hover: #232e47;\n  --odyssey-hud-border: rgba(120, 142, 184, 0.30);\n  --odyssey-hud-border-strong: rgba(150, 172, 214, 0.55);\n\n  /* ---- Text ---- */\n  --odyssey-hud-text: var(--odyssey-ink);\n  --odyssey-hud-muted: var(--odyssey-ink-muted);\n  --odyssey-hud-dim: var(--odyssey-ink-dim);\n\n  /* ---- Generic valence ---- */\n  --odyssey-hud-positive: var(--odyssey-green);\n  --odyssey-hud-negative: var(--odyssey-red);\n  --odyssey-hud-warning: var(--odyssey-yellow);\n\n  /* ---- Action / ability semantics (spec colour language) ---- */\n  --odyssey-hud-attack: var(--odyssey-red);          /* red \u2014 attacking / hostile     */\n  --odyssey-hud-neutral: #8593b0;                    /* cool grey \u2014 defensive / util  */\n  --odyssey-hud-psionic: var(--odyssey-purple);      /* purple \u2014 psionics             */\n  --odyssey-hud-implant: var(--odyssey-cyan);        /* cyan \u2014 implants / tech        */\n  --odyssey-hud-intervention: var(--odyssey-yellow); /* gold \u2014 intervention           */\n\n  /* ---- State / availability ---- */\n  --odyssey-hud-state-active: var(--odyssey-green);\n  --odyssey-hud-state-unavailable: var(--odyssey-red);\n  --odyssey-hud-disabled: rgba(159, 176, 208, 0.22);\n\n  /* ---- Body zone condition scale (healthy \u2192 disabled) ---- */\n  /* healthy is a MUTED COOL tone (not green) per the spec. */\n  --odyssey-hud-zone-healthy: #6e7da0;\n  --odyssey-hud-zone-wounded: var(--odyssey-yellow);\n  --odyssey-hud-zone-serious: var(--odyssey-orange);\n  --odyssey-hud-zone-critical: var(--odyssey-red);\n  --odyssey-hud-zone-disabled: #39414f;\n  /* Combat data missing/denied (e.g. a target refresh blocked by RLS) \u2014 a\n   * distinct dim hatch-like grey, never the same as healthy. */\n  --odyssey-hud-zone-unknown: #2a3040;\n\n  /* ---- Resources ---- */\n  --odyssey-hud-shield: #5b9be0;\n  --odyssey-hud-psi: var(--odyssey-purple);\n  --odyssey-hud-weapon: var(--odyssey-steel);\n\n  /* ---- Elevation & geometry ---- */\n  --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\n  --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);\n  --odyssey-hud-radius: 14px;       /* outer panels */\n  --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */\n  --odyssey-hud-radius-chip: 9px;\n}\n";
 
 // hud/overlay/combatHudOverlay.css
 var combatHudOverlay_default = '/*\n * Combat HUD overlay \u2014 frame + collapsed pill (Phase 2.1).\n *\n * The popover iframe is sized tightly to the HUD by the background controller,\n * so the HUD fills it. NOTHING here may scroll vertically \u2014 overflow:hidden on\n * every level kills the native scrollbar seen in earlier builds. The only\n * permitted scroll is inside the expanded Battle Log list (see layout CSS).\n */\n\n*,\n*::before,\n*::after { box-sizing: border-box; }\n\nhtml, body {\n  height: 100%;\n  margin: 0;\n  overflow: hidden;            /* no native scrollbar */\n}\nbody {\n  background: transparent;\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\n  color: var(--odyssey-hud-text, #eaf0ff);\n}\n\n#root { height: 100%; overflow: hidden; }\n\n/* The popover rect IS the HUD footprint; the HUD fills it. */\n.ohud-overlay {\n  height: 100%;\n  width: 100%;\n  overflow: hidden;\n  background: transparent;\n}\n\n/* ===================== Collapsed pill ===================== */\n.ohud-overlay.is-collapsed {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n}\n.ohud-pill {\n  display: inline-flex; align-items: center; gap: 8px;\n  padding: 8px 14px; cursor: pointer;\n  font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 1px;\n  color: var(--odyssey-hud-text);\n  background: var(--odyssey-hud-bg); border: 1px solid var(--odyssey-hud-border-strong);\n  border-radius: 20px; box-shadow: var(--odyssey-hud-shadow);\n  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);\n}\n.ohud-pill:hover { border-color: var(--odyssey-purple); }\n.ohud-pill .ohud-mark { color: var(--odyssey-purple); display: inline-flex; }\n.ohud-pill-label { line-height: 1; }\n';
 
 // hud/components/combatHudLayout.css
-var combatHudLayout_default = `/*\r
- * Combat HUD \u2014 Phase 2.1 layout & module styles.\r
- *\r
- * Bottom-left composition: a tall PlayerBlock, a responsive gap, then a compact\r
- * combat rail (Gun \xB7 Skills \xB7 Target \xB7 Mod+Action). A thin top strip holds the\r
- * drag grip + dev + LOG + collapse. Scoped under .ohud-hud; consumes semantic\r
- * tokens from combatHudTokens.css. No raw colours from JS, no native scrollbar.\r
- */\r
-\r
-/* ===================== Shell ===================== */\r
-.ohud-hud {\r
-  position: relative;\r
-  width: 100%;\r
-  height: 100%;\r
-  display: flex;\r
-  flex-direction: column;\r
-  gap: 2px;\r
-  padding: 2px 6px 4px;\r
-  overflow: hidden;                 /* no native scrollbar \u2014 content fits */\r
-  color: var(--odyssey-hud-text);\r
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r
-  font-size: 12px;\r
-  --ohud-gap: 200px;\r
-}\r
-.ohud-hud.is-dragging { user-select: none; }\r
-.ohud-hud.is-dragging, .ohud-hud.is-dragging * { cursor: grabbing !important; }\r
-\r
-/* ---- top control strip (thin) ---- */\r
-.ohud-controls {\r
-  display: flex; align-items: center; gap: 8px;\r
-  height: 16px; flex: 0 0 16px; padding: 0 2px;\r
-}\r
-.ohud-grip {\r
-  display: inline-flex; align-items: center; justify-content: center;\r
-  width: 22px; height: 14px; padding: 0; cursor: grab; touch-action: none;\r
-  color: var(--odyssey-hud-muted);\r
-  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);\r
-  border-radius: 5px;\r
-}\r
-.ohud-grip:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }\r
-.ohud-fallback {\r
-  font-size: 9px; font-weight: 700; color: var(--odyssey-hud-warning);\r
-  border: 1px dashed var(--odyssey-hud-warning); border-radius: 5px; padding: 0 6px;\r
-}\r
-.ohud-controls-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }\r
-.ohud-icon-btn {\r
-  display: inline-flex; align-items: center; justify-content: center;\r
-  width: 22px; height: 14px; padding: 0 2px; cursor: pointer;\r
-  color: var(--odyssey-hud-muted);\r
-  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);\r
-  border-radius: 5px;\r
-}\r
-.ohud-icon-btn:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }\r
-.ohud-icon-btn.is-on { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }\r
-\r
-.ohud-dev { display: inline-flex; align-items: center; gap: 6px; }\r
-.ohud-dev.is-open .ohud-icon-btn { color: var(--odyssey-purple); border-color: var(--odyssey-purple); }\r
-.ohud-dev-strip { display: inline-flex; align-items: center; gap: 5px; }\r
-.ohud-select {\r
-  font: inherit; font-size: 10px; color: var(--odyssey-hud-text);\r
-  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);\r
-  border-radius: 5px; padding: 1px 4px; cursor: pointer;\r
-}\r
-.ohud-chip {\r
-  font: inherit; font-size: 10px; color: var(--odyssey-hud-muted);\r
-  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);\r
-  border-radius: 10px; padding: 1px 8px; cursor: pointer;\r
-}\r
-.ohud-chip.is-on { background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); color: #fff; }\r
-\r
-/* ===================== Main composition ===================== */\r
-.ohud-main {\r
-  flex: 1 1 auto; min-height: 0;\r
-  display: flex; align-items: flex-end; gap: var(--ohud-gap);\r
-}\r
-.ohud-main--state { align-items: stretch; }\r
-.ohud-rail {\r
-  flex: 1 1 auto; min-width: 0;\r
-  display: flex; align-items: flex-end; gap: 10px;\r
-}\r
-\r
-/* ===================== Panel frame ===================== */\r
-.ohud-panel {\r
-  display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0;\r
-  background: var(--odyssey-hud-panel);\r
-  border: 1px solid var(--odyssey-hud-border);\r
-  border-radius: var(--odyssey-hud-radius);\r
-  box-shadow: var(--odyssey-hud-shadow-soft);\r
-  padding: 6px 8px;\r
-}\r
-.ohud-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 11px; }\r
-.ohud-panel-label { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; color: var(--odyssey-hud-dim); }\r
-.ohud-panel-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }\r
-.ohud-muted-fill { color: var(--odyssey-hud-dim); font-size: 11px; display: grid; place-items: center; flex: 1; }\r
-\r
-/* block footprints (desktop) */\r
-.ohud-panel--player { flex: 0 0 144px; height: 146px; }\r
-.ohud-panel--gun { flex: 0 0 240px; height: 95px; }\r
-.ohud-panel--skills { flex: 1 1 auto; min-width: 280px; height: 95px; }\r
-.ohud-panel--target { flex: 0 0 100px; height: 95px; }\r
-.ohud-panel--modact { flex: 0 0 126px; height: 95px; }\r
-\r
-/* accent text colours */\r
-.ohud-accent--attack { color: var(--odyssey-hud-attack); }\r
-.ohud-accent--psionic { color: var(--odyssey-hud-psionic); }\r
-.ohud-accent--implant { color: var(--odyssey-hud-implant); }\r
-.ohud-accent--intervention { color: var(--odyssey-hud-intervention); }\r
-.ohud-accent--positive { color: var(--odyssey-hud-positive); }\r
-.ohud-accent--negative { color: var(--odyssey-hud-negative); }\r
-.ohud-accent--neutral { color: var(--odyssey-hud-neutral); }\r
-\r
-/* ===================== Body zones (silhouettes) ===================== */\r
-.ohud-silhouette { display: block; }\r
-.ohud-zone { transition: fill 120ms ease; }\r
-.ohud-zone--healthy { fill: var(--odyssey-hud-zone-healthy); }\r
-.ohud-zone--wounded { fill: var(--odyssey-hud-zone-wounded); }\r
-.ohud-zone--serious { fill: var(--odyssey-hud-zone-serious); }\r
-.ohud-zone--critical { fill: var(--odyssey-hud-zone-critical); }\r
-.ohud-zone--disabled { fill: var(--odyssey-hud-zone-disabled); }\r
-/* Combat data missing/denied \u2014 never the same as healthy (Phase 3D.1). */\r
-.ohud-zone--unknown { fill: var(--odyssey-hud-zone-unknown); }\r
-/* Selection outline is a STROKE, not a fill override \u2014 it must never hide\r
- * the zone's actual condition colour underneath. */\r
-.ohud-zone.is-target { stroke: var(--odyssey-cyan); stroke-width: 2.5; }\r
-\r
-/* ===================== Player block ===================== */\r
-.ohud-turn {\r
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; padding: 1px 6px; border-radius: 7px;\r
-  border: 1px solid transparent; white-space: nowrap;\r
-}\r
-.ohud-turn--active { color: #06210f; background: var(--odyssey-hud-state-active); }\r
-.ohud-turn--waiting { color: #2a1c00; background: var(--odyssey-hud-warning); }\r
-.ohud-turn--gm { color: #fff; background: var(--odyssey-purple-strong); }\r
-.ohud-turn--idle { color: var(--odyssey-hud-muted); border-color: var(--odyssey-hud-border); }\r
-/* Phase 3E.0: server round number shown next to the turn label in combat. */\r
-.ohud-turn-round {\r
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; padding: 1px 5px; border-radius: 7px;\r
-  margin-right: 3px; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border);\r
-  white-space: nowrap;\r
-}\r
-\r
-/* Phase 3E.0: compact END TURN button inside the Action strip. */\r
-.ohud-endturn-btn {\r
-  flex: 0 0 auto; margin-left: 4px; padding: 0 7px;\r
-  font-size: 9px; font-weight: 800; letter-spacing: 0.4px;\r
-  color: #2a1c00; background: var(--odyssey-hud-warning);\r
-  border: 1px solid transparent; border-radius: 6px; cursor: pointer;\r
-}\r
-.ohud-endturn-btn[disabled] { opacity: 0.5; cursor: default; }\r
-\r
-/* Phase 3E.0: GM-only COMBAT button in the Mod header. */\r
-.ohud-cc-combat-btn {\r
-  margin-left: auto; padding: 0 6px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;\r
-  color: #fff; background: var(--odyssey-purple-strong);\r
-  border: 1px solid transparent; border-radius: 6px; cursor: pointer;\r
-}\r
-\r
-/* Phase 3E.0: GM Combat Tracker companion popover. */\r
-.ohud-gmct { display: flex; flex-direction: column; height: 100%; overflow: hidden; }\r
-.ohud-gmct .ohud-panel-head { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; }\r
-.ohud-gmct-current { font-size: 10px; color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r
-.ohud-gmct-candidates { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }\r
-.ohud-gmct-candidate { display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; }\r
-.ohud-gmct-candidate .ohud-gmct-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r
-.ohud-gmct-tag { font-size: 8.5px; font-weight: 800; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border); border-radius: 6px; padding: 0 4px; }\r
-.ohud-gmct-tag.is-skip { color: #2a1c00; background: var(--odyssey-hud-warning); border-color: transparent; }\r
-.ohud-gmct-list { list-style: none; margin: 0; padding: 4px 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }\r
-.ohud-gmct-row { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; font-size: 11px; }\r
-.ohud-gmct-row.is-current { color: var(--odyssey-hud-state-active); font-weight: 700; }\r
-.ohud-gmct-row.is-skipped { opacity: 0.55; }\r
-.ohud-gmct-marker { width: 10px; flex: 0 0 auto; }\r
-.ohud-gmct-row .ohud-gmct-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\r
-.ohud-gmct-init { flex: 0 0 auto; font-weight: 700; }\r
-.ohud-gmct-actions { flex: 0 0 auto; display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--odyssey-hud-border); }\r
-.ohud-gmct-btn {\r
-  flex: 1 1 auto; padding: 4px 6px; font-size: 10px; font-weight: 700;\r
-  color: var(--odyssey-hud-text); background: transparent;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;\r
-}\r
-.ohud-gmct-btn.is-primary { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }\r
-.ohud-gmct-btn.is-danger { color: #fff; background: var(--odyssey-hud-danger, #a33); border-color: transparent; }\r
-.ohud-gmct-btn[disabled] { opacity: 0.5; cursor: default; }\r
-.ohud-gmct-denied { padding: 12px; color: var(--odyssey-hud-muted); }\r
-.ohud-gmct-empty { padding: 8px 0; color: var(--odyssey-hud-muted); font-size: 11px; }\r
-\r
-.ohud-player-grid { display: grid; grid-template-columns: 46px 1fr; gap: 7px; align-items: center; flex: 1; min-height: 0; }\r
-.ohud-figure { position: relative; width: 46px; height: 100%; min-height: 50px; display: grid; place-items: center; }\r
-.ohud-figure-svg { width: 100%; height: 100%; }\r
-.ohud-figure-shield {\r
-  position: absolute; right: -4px; bottom: 0; width: 16px; height: 18px;\r
-  color: var(--odyssey-hud-shield); opacity: 0.85;\r
-}\r
-.ohud-figure--ghost { opacity: 0.4; }\r
-\r
-.ohud-player-stats { display: flex; flex-direction: column; gap: 4px; min-width: 0; }\r
-.ohud-player-name {\r
-  font-size: 12px; font-weight: 700; color: var(--odyssey-hud-text);\r
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;\r
-}\r
-.ohud-res { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 5px; }\r
-.ohud-res-label { font-size: 8px; font-weight: 700; color: var(--odyssey-hud-dim); }\r
-.ohud-res-track { height: 6px; border-radius: 3px; background: var(--odyssey-line-soft); overflow: hidden; }\r
-.ohud-res-fill { display: block; height: 100%; border-radius: 3px; }\r
-.ohud-res--shield .ohud-res-fill { background: var(--odyssey-hud-shield); }\r
-.ohud-res--psi .ohud-res-fill { background: var(--odyssey-hud-psi); }\r
-.ohud-res-num { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }\r
-.ohud-res-max { color: var(--odyssey-hud-dim); font-weight: 600; }\r
-\r
-.ohud-pips { display: flex; gap: 4px; }\r
-.ohud-pip { font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--odyssey-hud-border); }\r
-.ohud-pip.is-on { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }\r
-.ohud-pip.is-off { color: var(--odyssey-hud-dim); }\r
-\r
-.ohud-pilot { display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 7px;\r
-  background: var(--odyssey-purple-panel); border: 1px solid rgba(167, 139, 250, 0.4); }\r
-.ohud-pilot-tag { font-size: 7.5px; font-weight: 800; letter-spacing: 0.8px; color: var(--odyssey-purple); }\r
-.ohud-pilot-name { font-size: 10px; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r
-.ohud-pilot-psi { margin-left: auto; font-size: 9px; color: var(--odyssey-purple); }\r
-\r
-.ohud-statuses { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }\r
-.ohud-chip-status {\r
-  display: inline-flex; align-items: center; gap: 3px; max-width: 100%;\r
-  font-size: 8.5px; padding: 1px 5px 1px 2px; border-radius: 8px;\r
-  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);\r
-}\r
-.ohud-chip-dot { width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; font-size: 7px; font-weight: 800; color: #0a0e18; }\r
-.ohud-chip-status--positive .ohud-chip-dot { background: var(--odyssey-hud-positive); }\r
-.ohud-chip-status--negative .ohud-chip-dot { background: var(--odyssey-hud-negative); }\r
-.ohud-chip-status--neutral .ohud-chip-dot { background: var(--odyssey-hud-neutral); }\r
-.ohud-chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r
-.ohud-chip-status--more { color: var(--odyssey-hud-dim); padding: 1px 6px; font-weight: 700; }\r
-\r
-/* ===================== Gun block ===================== */\r
-.ohud-gun { display: grid; grid-template-columns: 1fr 70px; gap: 7px; flex: 1; min-height: 0; }\r
-.ohud-gun.is-disabled { opacity: 0.55; }\r
-.ohud-gun-main {\r
-  position: relative; border-radius: var(--odyssey-hud-radius-inner);\r
-  border: 1.5px solid var(--odyssey-hud-border-strong);\r
-  background: var(--odyssey-bg-deep); min-width: 0; overflow: hidden;\r
-}\r
-.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: 9px; color: var(--odyssey-hud-muted); }\r
-.ohud-gun-caret { position: absolute; top: 3px; right: 5px; color: var(--odyssey-hud-muted); display: inline-flex; }\r
-.ohud-gun-silhouette { position: absolute; inset: 13px 8px 10px; color: var(--odyssey-hud-weapon); display: block; }\r
-.ohud-gun-silhouette svg { width: 100%; height: 100%; }\r
-.ohud-firemode {\r
-  position: absolute; right: 6px; bottom: 5px; display: inline-flex; align-items: center; gap: 4px;\r
-  padding: 1px 6px 1px 2px; border-radius: 10px; max-width: calc(100% - 12px);\r
-  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);\r
-  color: inherit; font: inherit;\r
-}\r
-.ohud-firemode-knob { width: 9px; height: 9px; border-radius: 50%; background: var(--odyssey-hud-muted); flex: 0 0 auto; }\r
-.ohud-firemode-letter {\r
-  font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text); letter-spacing: 0.4px;\r
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;\r
-}\r
-/* Interactive variant (2+ fire modes) \u2014 opens the fire-mode companion popover.\r
- * A single mode stays the plain read-only span above; no modes \u2192 not rendered\r
- * at all (see GunBlock.js renderFireModeControl). */\r
-.ohud-firemode.is-selectable { cursor: pointer; }\r
-.ohud-firemode.is-selectable:hover { border-color: var(--odyssey-purple); }\r
-.ohud-firemode-caret { display: inline-flex; width: 8px; height: 8px; color: var(--odyssey-hud-muted); flex: 0 0 auto; }\r
-.ohud-firemode-caret svg { width: 100%; height: 100%; }\r
-.ohud-gun-secondary { position: absolute; left: 6px; bottom: 5px; font-size: 8px; font-weight: 700; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border); border-radius: 6px; padding: 0 5px; }\r
-\r
-.ohud-gun-side { display: grid; grid-template-rows: 1fr 1fr; gap: 6px; min-width: 0; }\r
-.ohud-mag-card { position: relative; display: flex; align-items: center; gap: 3px; border-radius: var(--odyssey-hud-radius-inner);\r
-  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); padding: 2px 5px; }\r
-.ohud-mag-icon { width: 13px; height: 20px; color: var(--odyssey-steel); display: inline-flex; }\r
-.ohud-mag-icon svg { width: 100%; height: 100%; }\r
-.ohud-mag-caret { position: absolute; top: 2px; right: 3px; color: var(--odyssey-hud-muted); }\r
-.ohud-mag-type { margin-left: auto; font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text); }\r
-.ohud-ammo-card { display: flex; flex-direction: column; justify-content: center; border-radius: var(--odyssey-hud-radius-inner);\r
-  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); padding: 2px 6px; }\r
-.ohud-ammo-head { display: flex; align-items: center; justify-content: space-between; }\r
-.ohud-ammo-label { font-size: 8px; letter-spacing: 0.5px; color: var(--odyssey-hud-dim); }\r
-.ohud-ammo-reload { color: var(--odyssey-hud-muted); display: inline-flex; }\r
-.ohud-ammo-reload.is-off { opacity: 0.35; }\r
-.ohud-ammo-count { font-weight: 800; line-height: 1; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }\r
-.ohud-ammo-cur { font-size: clamp(22px, 2.2vw, 28px); }\r
-.ohud-ammo-max { font-size: 11px; color: var(--odyssey-hud-dim); }\r
-.ohud-ammo-count--empty .ohud-ammo-cur { color: var(--odyssey-hud-negative); }\r
-\r
-/* ===================== Skill block ===================== */\r
-.ohud-panel--skills .ohud-panel-body { justify-content: flex-end; }\r
-.ohud-skill-groups { display: flex; align-items: flex-end; gap: 14px; flex-wrap: nowrap; overflow: hidden; }\r
-.ohud-skill-group { display: flex; flex-direction: column; gap: 3px; min-width: 0; }\r
-.ohud-group-cap { font-size: 10px; font-weight: 700; }\r
-.ohud-group-tiles { display: flex; gap: 6px; }\r
-.ohud-slot {\r
-  position: relative; width: clamp(44px, 3.4vw, 54px); height: clamp(44px, 3.4vw, 54px);\r
-  border-radius: var(--odyssey-hud-radius-inner);\r
-  border: 1.5px solid var(--odyssey-hud-border);\r
-  background: var(--odyssey-bg-deep);\r
-  display: grid; place-items: center; color: var(--odyssey-hud-neutral);\r
-}\r
-.ohud-slot-icon { width: 58%; height: 58%; display: inline-flex; }\r
-.ohud-slot-icon svg { width: 100%; height: 100%; }\r
-.ohud-accent--attack.ohud-slot { border-color: var(--odyssey-hud-attack); color: var(--odyssey-hud-attack); }\r
-.ohud-accent--psionic.ohud-slot { border-color: var(--odyssey-purple); color: var(--odyssey-purple); }\r
-.ohud-accent--implant.ohud-slot { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }\r
-.ohud-accent--positive.ohud-slot { border-color: var(--odyssey-green); color: var(--odyssey-green); }\r
-.ohud-accent--neutral.ohud-slot { border-color: var(--odyssey-hud-border-strong); color: var(--odyssey-hud-neutral); }\r
-.ohud-slot.is-disabled { opacity: 0.42; filter: grayscale(0.4); }\r
-.ohud-slot.is-selected { box-shadow: 0 0 0 2px var(--odyssey-cyan); }\r
-.ohud-slot.is-toggled { background: rgba(167, 139, 250, 0.16); }\r
-.ohud-slot-cost { position: absolute; left: 3px; bottom: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-hud-dim); }\r
-.ohud-slot-res { position: absolute; right: 3px; bottom: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-purple); }\r
-.ohud-slot-cd { position: absolute; top: 2px; right: 3px; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }\r
-.ohud-slot-toggle { position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--odyssey-purple); }\r
-\r
-/* ===================== Target block ===================== */\r
-.ohud-target { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; min-height: 0; justify-content: center; }\r
-.ohud-target .ohud-figure { width: 42px; }\r
-.ohud-target-meta { text-align: center; min-width: 0; width: 100%; }\r
-.ohud-target-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r
-.ohud-target-zone { display: inline-block; margin-top: 1px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;\r
-  color: var(--odyssey-cyan); border: 1px solid rgba(52, 225, 214, 0.4); border-radius: 6px; padding: 0 6px; }\r
-.ohud-target.is-empty .ohud-target-hint { font-size: 9px; font-weight: 700; color: var(--odyssey-hud-dim); }\r
-\r
-/* ===================== Mod + Action column ===================== */\r
-.ohud-panel--modact { gap: 3px; }\r
-.ohud-mods { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow: hidden; }\r
-.ohud-mod {\r
-  display: flex; align-items: center; justify-content: space-between; gap: 4px;\r
-  height: 17px; font-size: 9px; padding: 0 6px; border-radius: var(--odyssey-hud-radius-chip);\r
-  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);\r
-}\r
-.ohud-mod-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\r
-.ohud-mod-val { font-weight: 800; flex: 0 0 auto; }\r
-.ohud-mod--positive { border-color: rgba(74, 222, 128, 0.55); color: var(--odyssey-green); }\r
-.ohud-mod--negative { border-color: rgba(255, 92, 108, 0.6); color: var(--odyssey-red); }\r
-.ohud-mod--intervention { border-color: rgba(255, 194, 75, 0.6); color: var(--odyssey-yellow); }\r
-.ohud-mod--narrative { border-color: rgba(167, 139, 250, 0.55); color: var(--odyssey-purple); }\r
-.ohud-mod.is-selected { box-shadow: 0 0 0 1.5px var(--odyssey-cyan); }\r
-.ohud-mod.is-passive { opacity: 0.85; }\r
-\r
-.ohud-action { display: flex; align-items: center; gap: 6px; }\r
-.ohud-action-econ { display: flex; gap: 3px; }\r
-.ohud-econ-pip { font-size: 7.5px; font-weight: 800; padding: 0 4px; border-radius: 5px; color: var(--odyssey-hud-dim); border: 1px solid var(--odyssey-hud-border); }\r
-.ohud-econ-pip.is-spend { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }\r
-.ohud-action-btn {\r
-  flex: 1 1 auto; height: 22px; cursor: pointer; font: inherit;\r
-  font-size: 12px; font-weight: 700; letter-spacing: 0.5px;\r
-  border-radius: 7px; border: 1.5px solid var(--odyssey-purple);\r
-  background: linear-gradient(180deg, rgba(139, 92, 246, 0.22), rgba(38, 33, 92, 0.42));\r
-  color: var(--odyssey-purple);\r
-}\r
-.ohud-action-btn.is-ready:hover { background: rgba(139, 92, 246, 0.34); color: #fff; }\r
-.ohud-action-btn.is-disabled { cursor: not-allowed; border-color: var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-dim); }\r
-\r
-/* ===================== Floating Battle Log ===================== */\r
-.ohud-log-float { position: absolute; top: 18px; right: 6px; z-index: 8; width: 250px; max-width: calc(100% - 12px); }\r
-.ohud-log-panel { max-height: 128px; box-shadow: var(--odyssey-hud-shadow); }\r
-.ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }\r
-.ohud-log-list::-webkit-scrollbar { width: 5px; }\r
-.ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }\r
-.ohud-log-row { font-size: 10px; line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }\r
-.ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }\r
-.ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }\r
-.ohud-log-actor { font-weight: 700; color: var(--odyssey-hud-text); }\r
-.ohud-log-act { color: var(--odyssey-hud-muted); }\r
-.ohud-log-arrow { color: var(--odyssey-hud-dim); }\r
-.ohud-log-target { color: var(--odyssey-hud-text); }\r
-.ohud-log-delta { margin-left: auto; font-weight: 700; font-size: 9.5px; }\r
-.ohud-log-delta--hit { color: var(--odyssey-green); }\r
-.ohud-log-delta--miss { color: var(--odyssey-hud-dim); }\r
-.ohud-log-delta--neutral { color: var(--odyssey-hud-muted); }\r
-.ohud-log-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }\r
-/* Phase 3D.1: ?debug=1-only \u2014 never rendered in normal play. */\r
-.ohud-log-debug-btn {\r
-  font-size: 8px; font-weight: 800; letter-spacing: 0.3px; padding: 1px 5px;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;\r
-  background: rgba(255, 92, 108, 0.12); color: var(--odyssey-red, #e74c3c); cursor: pointer;\r
-}\r
-.ohud-log-debug-btn:hover { border-color: var(--odyssey-red, #e74c3c); }\r
-/* Real combat-result entries (Phase 3D.1) \u2014 a title line + short detail lines,\r
- * stacked instead of the single-line actor/action/target/delta mock layout. */\r
-.ohud-log-row--result { flex-direction: column; align-items: stretch; gap: 1px; }\r
-.ohud-log-result-title { font-weight: 700; font-size: 10px; }\r
-.ohud-log-result-title.ohud-log-delta--hit { color: var(--odyssey-green); }\r
-.ohud-log-result-title.ohud-log-delta--miss { color: var(--odyssey-hud-dim); }\r
-.ohud-log-result-detail { color: var(--odyssey-hud-muted); font-size: 9.5px; }\r
-\r
-/* ===================== Empty / error / loading ===================== */\r
-.ohud-state-wrap { flex: 1 1 auto; display: grid; place-items: center; background: var(--odyssey-hud-panel);\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: var(--odyssey-hud-radius); box-shadow: var(--odyssey-hud-shadow-soft); }\r
-.ohud-empty { text-align: center; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 5px; }\r
-.ohud-empty-mark { color: var(--odyssey-purple); opacity: 0.8; }\r
-.ohud-empty-title { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--odyssey-hud-text); }\r
-.ohud-empty-hint { font-size: 11px; color: var(--odyssey-hud-muted); max-width: 420px; }\r
-.ohud-empty--error .ohud-empty-title { color: var(--odyssey-hud-negative); }\r
-\r
-/* ===================== Toast ===================== */\r
-.ohud-toast { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);\r
-  font-size: 11px; color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);\r
-  border: 1px solid var(--odyssey-hud-border-strong); border-radius: 8px; padding: 4px 11px;\r
-  box-shadow: var(--odyssey-hud-shadow); z-index: 12; }\r
-.ohud-toast[hidden] { display: none; }\r
-\r
-/* ===================== Tooltip ===================== */\r
-.ohud-tooltip { position: fixed; z-index: 50; pointer-events: none; max-width: 240px;\r
-  background: var(--odyssey-bg-deep); border: 1px solid var(--odyssey-hud-border-strong);\r
-  border-radius: 8px; padding: 6px 9px; box-shadow: var(--odyssey-hud-shadow); }\r
-.ohud-tooltip[hidden] { display: none; }\r
-.ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }\r
-.ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }\r
-\r
-/* ===================== Compact / mini (two rows) ===================== */\r
-.ohud-hud[data-mode="compact"] .ohud-main,\r
-.ohud-hud[data-mode="mini"] .ohud-main {\r
-  flex-direction: column; align-items: stretch; gap: 8px;\r
-}\r
-.ohud-hud[data-mode="compact"] .ohud-panel--player,\r
-.ohud-hud[data-mode="mini"] .ohud-panel--player { flex: 0 0 auto; height: auto; width: 100%; }\r
-.ohud-hud[data-mode="compact"] .ohud-rail,\r
-.ohud-hud[data-mode="mini"] .ohud-rail { flex-wrap: wrap; align-items: stretch; }\r
-.ohud-hud[data-mode="compact"] .ohud-panel--skills,\r
-.ohud-hud[data-mode="mini"] .ohud-panel--skills { flex: 1 1 100%; min-width: 0; }\r
-.ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }\r
-.ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }\r
+var combatHudLayout_default = `/*
+ * Combat HUD \u2014 Phase 2.1 layout & module styles.
+ *
+ * Bottom-left composition: a tall PlayerBlock, a responsive gap, then a compact
+ * combat rail (Gun \xB7 Skills \xB7 Target \xB7 Mod+Action). A thin top strip holds the
+ * drag grip + dev + LOG + collapse. Scoped under .ohud-hud; consumes semantic
+ * tokens from combatHudTokens.css. No raw colours from JS, no native scrollbar.
+ */
+
+/* ===================== Shell ===================== */
+.ohud-hud {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 6px 4px;
+  overflow: hidden;                 /* no native scrollbar \u2014 content fits */
+  color: var(--odyssey-hud-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  --ohud-gap: 200px;
+}
+.ohud-hud.is-dragging { user-select: none; }
+.ohud-hud.is-dragging, .ohud-hud.is-dragging * { cursor: grabbing !important; }
+
+/* ---- top control strip (thin) ---- */
+.ohud-controls {
+  display: flex; align-items: center; gap: 8px;
+  height: 16px; flex: 0 0 16px; padding: 0 2px;
+}
+.ohud-grip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 14px; padding: 0; cursor: grab; touch-action: none;
+  color: var(--odyssey-hud-muted);
+  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);
+  border-radius: 5px;
+}
+.ohud-grip:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }
+.ohud-fallback {
+  font-size: 9px; font-weight: 700; color: var(--odyssey-hud-warning);
+  border: 1px dashed var(--odyssey-hud-warning); border-radius: 5px; padding: 0 6px;
+}
+.ohud-controls-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.ohud-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 14px; padding: 0 2px; cursor: pointer;
+  color: var(--odyssey-hud-muted);
+  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);
+  border-radius: 5px;
+}
+.ohud-icon-btn:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }
+.ohud-icon-btn.is-on { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }
+
+.ohud-dev { display: inline-flex; align-items: center; gap: 6px; }
+.ohud-dev.is-open .ohud-icon-btn { color: var(--odyssey-purple); border-color: var(--odyssey-purple); }
+.ohud-dev-strip { display: inline-flex; align-items: center; gap: 5px; }
+.ohud-select {
+  font: inherit; font-size: 10px; color: var(--odyssey-hud-text);
+  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);
+  border-radius: 5px; padding: 1px 4px; cursor: pointer;
+}
+.ohud-chip {
+  font: inherit; font-size: 10px; color: var(--odyssey-hud-muted);
+  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);
+  border-radius: 10px; padding: 1px 8px; cursor: pointer;
+}
+.ohud-chip.is-on { background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); color: #fff; }
+
+/* ===================== Main composition ===================== */
+.ohud-main {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: flex-end; gap: var(--ohud-gap);
+}
+.ohud-main--state { align-items: stretch; }
+.ohud-rail {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: flex-end; gap: 10px;
+}
+
+/* ===================== Panel frame ===================== */
+.ohud-panel {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0;
+  background: var(--odyssey-hud-panel);
+  border: 1px solid var(--odyssey-hud-border);
+  border-radius: var(--odyssey-hud-radius);
+  box-shadow: var(--odyssey-hud-shadow-soft);
+  padding: 6px 8px;
+}
+.ohud-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 11px; }
+.ohud-panel-label { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; color: var(--odyssey-hud-dim); }
+.ohud-panel-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ohud-muted-fill { color: var(--odyssey-hud-dim); font-size: 11px; display: grid; place-items: center; flex: 1; }
+
+/* block footprints (desktop) */
+.ohud-panel--player { flex: 0 0 144px; height: 146px; }
+.ohud-panel--gun { flex: 0 0 240px; height: 95px; }
+/* NOTE: in the live single-module-per-popover HUD, \`.ohud-module > .ohud-panel\`
+ * (combatHudModule.css) always wins with height:100%/width:100% \u2014 this rule's
+ * own height is inert there and only matters for other, non-modular render
+ * paths. Kept truthful to the module's actual 165px popover allocation
+ * (hudLayout.js DEFAULT_HUD_LAYOUT_V2.skills.height) rather than an arbitrary
+ * smaller number, so it can never mislead a reader about the real footprint. */
+.ohud-panel--skills { flex: 1 1 auto; min-width: 280px; height: 165px; }
+.ohud-panel--target { flex: 0 0 100px; height: 95px; }
+.ohud-panel--modact { flex: 0 0 126px; height: 95px; }
+
+/* accent text colours */
+.ohud-accent--attack { color: var(--odyssey-hud-attack); }
+.ohud-accent--psionic { color: var(--odyssey-hud-psionic); }
+.ohud-accent--implant { color: var(--odyssey-hud-implant); }
+.ohud-accent--intervention { color: var(--odyssey-hud-intervention); }
+.ohud-accent--positive { color: var(--odyssey-hud-positive); }
+.ohud-accent--negative { color: var(--odyssey-hud-negative); }
+.ohud-accent--neutral { color: var(--odyssey-hud-neutral); }
+
+/* ===================== Body zones (silhouettes) ===================== */
+.ohud-silhouette { display: block; }
+.ohud-zone { transition: fill 120ms ease; }
+.ohud-zone--healthy { fill: var(--odyssey-hud-zone-healthy); }
+.ohud-zone--wounded { fill: var(--odyssey-hud-zone-wounded); }
+.ohud-zone--serious { fill: var(--odyssey-hud-zone-serious); }
+.ohud-zone--critical { fill: var(--odyssey-hud-zone-critical); }
+.ohud-zone--disabled { fill: var(--odyssey-hud-zone-disabled); }
+/* Combat data missing/denied \u2014 never the same as healthy (Phase 3D.1). */
+.ohud-zone--unknown { fill: var(--odyssey-hud-zone-unknown); }
+/* Selection outline is a STROKE, not a fill override \u2014 it must never hide
+ * the zone's actual condition colour underneath. */
+.ohud-zone.is-target { stroke: var(--odyssey-cyan); stroke-width: 2.5; }
+
+/* ===================== Player block ===================== */
+.ohud-turn {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; padding: 1px 6px; border-radius: 7px;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.ohud-turn--active { color: #06210f; background: var(--odyssey-hud-state-active); }
+.ohud-turn--waiting { color: #2a1c00; background: var(--odyssey-hud-warning); }
+.ohud-turn--gm { color: #fff; background: var(--odyssey-purple-strong); }
+.ohud-turn--idle { color: var(--odyssey-hud-muted); border-color: var(--odyssey-hud-border); }
+/* Phase 3E.0: server round number shown next to the turn label in combat. */
+.ohud-turn-round {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; padding: 1px 5px; border-radius: 7px;
+  margin-right: 3px; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border);
+  white-space: nowrap;
+}
+
+/* Phase 3E.0: compact END TURN button inside the Action strip. */
+.ohud-endturn-btn {
+  flex: 0 0 auto; margin-left: 4px; padding: 0 7px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.4px;
+  color: #2a1c00; background: var(--odyssey-hud-warning);
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+}
+.ohud-endturn-btn[disabled] { opacity: 0.5; cursor: default; }
+
+/* Phase 3E.0: GM-only COMBAT button in the Mod header. */
+.ohud-cc-combat-btn {
+  margin-left: auto; padding: 0 6px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px;
+  color: #fff; background: var(--odyssey-purple-strong);
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+}
+
+/* Phase 3E.0: GM Combat Tracker companion popover. */
+.ohud-gmct { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.ohud-gmct .ohud-panel-head { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; }
+.ohud-gmct-current { font-size: 10px; color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ohud-gmct-candidates { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.ohud-gmct-candidate { display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; }
+.ohud-gmct-candidate .ohud-gmct-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ohud-gmct-tag { font-size: 8.5px; font-weight: 800; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border); border-radius: 6px; padding: 0 4px; }
+.ohud-gmct-tag.is-skip { color: #2a1c00; background: var(--odyssey-hud-warning); border-color: transparent; }
+.ohud-gmct-list { list-style: none; margin: 0; padding: 4px 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.ohud-gmct-row { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; font-size: 11px; }
+.ohud-gmct-row.is-current { color: var(--odyssey-hud-state-active); font-weight: 700; }
+.ohud-gmct-row.is-skipped { opacity: 0.55; }
+.ohud-gmct-marker { width: 10px; flex: 0 0 auto; }
+.ohud-gmct-row .ohud-gmct-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ohud-gmct-init { flex: 0 0 auto; font-weight: 700; }
+.ohud-gmct-actions { flex: 0 0 auto; display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--odyssey-hud-border); }
+.ohud-gmct-btn {
+  flex: 1 1 auto; padding: 4px 6px; font-size: 10px; font-weight: 700;
+  color: var(--odyssey-hud-text); background: transparent;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-gmct-btn.is-primary { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }
+.ohud-gmct-btn.is-danger { color: #fff; background: var(--odyssey-hud-danger, #a33); border-color: transparent; }
+.ohud-gmct-btn[disabled] { opacity: 0.5; cursor: default; }
+.ohud-gmct-denied { padding: 12px; color: var(--odyssey-hud-muted); }
+.ohud-gmct-empty { padding: 8px 0; color: var(--odyssey-hud-muted); font-size: 11px; }
+
+.ohud-player-grid { display: grid; grid-template-columns: 46px 1fr; gap: 7px; align-items: center; flex: 1; min-height: 0; }
+.ohud-figure { position: relative; width: 46px; height: 100%; min-height: 50px; display: grid; place-items: center; }
+.ohud-figure-svg { width: 100%; height: 100%; }
+.ohud-figure--ghost { opacity: 0.4; }
+
+.ohud-player-stats { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ohud-player-name {
+  /* Priority UI Fix \u2014 typography floor (see the block comment above
+   * .ohud-cc-abtn for the full explanation): character name is a "must
+   * remain readable" critical token. */
+  font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ohud-res { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 5px; }
+.ohud-res-label { font-size: 8px; font-weight: 700; color: var(--odyssey-hud-dim); }
+.ohud-res-track { height: 6px; border-radius: 3px; background: var(--odyssey-line-soft); overflow: hidden; }
+.ohud-res-fill { display: block; height: 100%; border-radius: 3px; }
+.ohud-res--shield .ohud-res-fill { background: var(--odyssey-hud-shield); }
+.ohud-res--psi .ohud-res-fill { background: var(--odyssey-hud-psi); }
+/* PSI/Shield current value \u2014 critical token; .ohud-res-max (the "/10" part)
+ * has no font-size of its own, so it inherits this computed size too. */
+.ohud-res-num { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
+.ohud-res-max { color: var(--odyssey-hud-dim); font-weight: 600; }
+
+.ohud-pips { display: flex; gap: 4px; }
+.ohud-pip { font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--odyssey-hud-border); }
+.ohud-pip.is-on { color: #06210f; background: var(--odyssey-hud-state-active); border-color: transparent; }
+.ohud-pip.is-off { color: var(--odyssey-hud-dim); }
+
+.ohud-pilot { display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 7px;
+  background: var(--odyssey-purple-panel); border: 1px solid rgba(167, 139, 250, 0.4); }
+.ohud-pilot-tag { font-size: 7.5px; font-weight: 800; letter-spacing: 0.8px; color: var(--odyssey-purple); }
+.ohud-pilot-name { font-size: 10px; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-pilot-psi { margin-left: auto; font-size: 9px; color: var(--odyssey-purple); }
+
+.ohud-statuses { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.ohud-chip-status {
+  display: inline-flex; align-items: center; gap: 3px; max-width: 100%;
+  font-size: 8.5px; padding: 1px 5px 1px 2px; border-radius: 8px;
+  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);
+}
+.ohud-chip-dot { width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; font-size: 7px; font-weight: 800; color: #0a0e18; }
+.ohud-chip-status--positive .ohud-chip-dot { background: var(--odyssey-hud-positive); }
+.ohud-chip-status--negative .ohud-chip-dot { background: var(--odyssey-hud-negative); }
+.ohud-chip-status--neutral .ohud-chip-dot { background: var(--odyssey-hud-neutral); }
+.ohud-chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-chip-status--more { color: var(--odyssey-hud-dim); padding: 1px 6px; font-weight: 700; }
+
+/* ===================== Gun block ===================== */
+.ohud-gun { display: grid; grid-template-columns: 1fr 70px; gap: 7px; flex: 1; min-height: 0; }
+.ohud-gun.is-disabled { opacity: 0.55; }
+.ohud-gun-main {
+  position: relative; border-radius: var(--odyssey-hud-radius-inner);
+  border: 1.5px solid var(--odyssey-hud-border-strong);
+  background: var(--odyssey-bg-deep); min-width: 0; overflow: hidden;
+}
+.ohud-gun-name { position: absolute; top: 4px; left: 8px; font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-muted); }
+.ohud-gun-caret { position: absolute; top: 3px; right: 5px; color: var(--odyssey-hud-muted); display: inline-flex; }
+.ohud-gun-silhouette { position: absolute; inset: 13px 8px 10px; color: var(--odyssey-hud-weapon); display: block; }
+.ohud-gun-silhouette svg { width: 100%; height: 100%; }
+.ohud-firemode {
+  position: absolute; right: 6px; bottom: 5px; display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px 1px 2px; border-radius: 10px; max-width: calc(100% - 12px);
+  background: var(--odyssey-panel-base); border: 1px solid var(--odyssey-hud-border);
+  color: inherit; font: inherit;
+}
+.ohud-firemode-knob { width: 9px; height: 9px; border-radius: 50%; background: var(--odyssey-hud-muted); flex: 0 0 auto; }
+.ohud-firemode-letter {
+  font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text); letter-spacing: 0.4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Interactive variant (2+ fire modes) \u2014 opens the fire-mode companion popover.
+ * A single mode stays the plain read-only span above; no modes \u2192 not rendered
+ * at all (see GunBlock.js renderFireModeControl). */
+.ohud-firemode.is-selectable { cursor: pointer; }
+.ohud-firemode.is-selectable:hover { border-color: var(--odyssey-purple); }
+.ohud-firemode-caret { display: inline-flex; width: 8px; height: 8px; color: var(--odyssey-hud-muted); flex: 0 0 auto; }
+.ohud-firemode-caret svg { width: 100%; height: 100%; }
+.ohud-gun-secondary { position: absolute; left: 6px; bottom: 5px; font-size: 8px; font-weight: 700; color: var(--odyssey-hud-muted); border: 1px solid var(--odyssey-hud-border); border-radius: 6px; padding: 0 5px; }
+
+.ohud-gun-side { display: grid; grid-template-rows: 1fr 1fr; gap: 6px; min-width: 0; }
+.ohud-mag-card { position: relative; display: flex; align-items: center; gap: 3px; border-radius: var(--odyssey-hud-radius-inner);
+  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); padding: 2px 5px; }
+.ohud-mag-icon { width: 13px; height: 20px; color: var(--odyssey-steel); display: inline-flex; }
+.ohud-mag-icon svg { width: 100%; height: 100%; }
+.ohud-mag-caret { position: absolute; top: 2px; right: 3px; color: var(--odyssey-hud-muted); }
+.ohud-mag-type { margin-left: auto; font-size: 9px; font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-ammo-card { display: flex; flex-direction: column; justify-content: center; border-radius: var(--odyssey-hud-radius-inner);
+  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); padding: 2px 6px; }
+.ohud-ammo-head { display: flex; align-items: center; justify-content: space-between; }
+.ohud-ammo-label { font-size: 8px; letter-spacing: 0.5px; color: var(--odyssey-hud-dim); }
+.ohud-ammo-reload { color: var(--odyssey-hud-muted); display: inline-flex; }
+.ohud-ammo-reload.is-off { opacity: 0.35; }
+.ohud-ammo-count { font-weight: 800; line-height: 1; color: var(--odyssey-hud-text); font-variant-numeric: tabular-nums; }
+/* Ammo current/max \u2014 critical tokens (must remain readable per the Priority
+ * UI Fix typography floor). The old \`2.2vw\` term was measured against the
+ * module's OWN (already-scaled) iframe width, not a meaningful reference, so
+ * it's replaced with the same ratio-driven floor every other critical token
+ * uses. */
+.ohud-ammo-cur { font-size: calc(24px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-ammo-max { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-dim); }
+.ohud-ammo-count--empty .ohud-ammo-cur { color: var(--odyssey-hud-negative); }
+
+/* ===================== Skill block ===================== */
+.ohud-panel--skills .ohud-panel-body { justify-content: flex-end; }
+.ohud-skill-groups { display: flex; align-items: flex-end; gap: 14px; flex-wrap: nowrap; overflow: hidden; }
+.ohud-skill-group { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ohud-group-cap { font-size: 10px; font-weight: 700; }
+.ohud-group-tiles { display: flex; gap: 6px; }
+.ohud-slot {
+  position: relative; width: clamp(44px, 3.4vw, 54px); height: clamp(44px, 3.4vw, 54px);
+  border-radius: var(--odyssey-hud-radius-inner);
+  border: 1.5px solid var(--odyssey-hud-border);
+  background: var(--odyssey-bg-deep);
+  display: grid; place-items: center; color: var(--odyssey-hud-neutral);
+}
+.ohud-slot-icon { width: 58%; height: 58%; display: inline-flex; }
+.ohud-slot-icon svg { width: 100%; height: 100%; }
+.ohud-accent--attack.ohud-slot { border-color: var(--odyssey-hud-attack); color: var(--odyssey-hud-attack); }
+.ohud-accent--psionic.ohud-slot { border-color: var(--odyssey-purple); color: var(--odyssey-purple); }
+.ohud-accent--implant.ohud-slot { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }
+.ohud-accent--positive.ohud-slot { border-color: var(--odyssey-green); color: var(--odyssey-green); }
+.ohud-accent--neutral.ohud-slot { border-color: var(--odyssey-hud-border-strong); color: var(--odyssey-hud-neutral); }
+.ohud-slot.is-disabled { opacity: 0.42; filter: grayscale(0.4); }
+.ohud-slot.is-selected { box-shadow: 0 0 0 2px var(--odyssey-cyan); }
+.ohud-slot.is-toggled { background: rgba(167, 139, 250, 0.16); }
+.ohud-slot-cost { position: absolute; left: 3px; bottom: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-hud-dim); }
+.ohud-slot-res { position: absolute; right: 3px; bottom: 2px; font-size: 8px; font-weight: 800; color: var(--odyssey-purple); }
+.ohud-slot-cd { position: absolute; top: 2px; right: 3px; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-slot-toggle { position: absolute; top: 3px; left: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--odyssey-purple); }
+
+/* ===================== Target block (Phase 4.0f: row layout) =====================
+ * Silhouette LEFT, a vertical text column RIGHT of it \u2014 name / zone badge /
+ * Clear each on their own line, so a long name can never crowd the figure and
+ * the zone badge never has to share a line with anything else. The empty/
+ * picking state stays its own centered-column look (nothing to lay out beside
+ * a ghost silhouette yet). */
+.ohud-target { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; flex: 1; min-height: 0; min-width: 0; }
+.ohud-target.is-empty { flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; }
+.ohud-target .ohud-figure { width: 44px; flex: 0 0 auto; }
+.ohud-target-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; padding-top: 1px; }
+.ohud-target-name { font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 700; color: var(--odyssey-hud-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ohud-target-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ohud-target-zone {
+  display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.5px;
+  color: var(--odyssey-cyan); background: rgba(52, 225, 214, 0.1);
+  border: 1px solid rgba(52, 225, 214, 0.4); border-radius: 6px; padding: 1px 6px;
+}
+.ohud-target-dist { font-size: 8.5px; font-weight: 700; color: var(--odyssey-hud-dim); }
+.ohud-target-clear {
+  align-self: flex-start; margin-top: 1px; padding: 1px 8px; font-size: 8.5px; font-weight: 700;
+  color: var(--odyssey-hud-muted); background: transparent;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-target-clear:hover { color: var(--odyssey-hud-text); border-color: var(--odyssey-hud-border-strong); }
+/* Phase 4.0g: the WHOLE empty-Target area is either a button ("Pick target on
+ * map", idle) or a static status ("Selecting target\u2026", picking) \u2014 no
+ * humanoid silhouette, no separate small Pick/Cancel button. */
+.ohud-target-pickarea {
+  appearance: none; margin: 0; padding: 6px; width: 100%; height: 100%;
+  font: inherit; color: inherit; text-align: center;
+  background: transparent; border: 1px dashed var(--odyssey-hud-border);
+  border-radius: var(--odyssey-hud-radius-inner);
+  cursor: pointer;
+}
+.ohud-target-pickarea:hover, .ohud-target-pickarea:focus-visible {
+  border-color: var(--odyssey-hud-implant); background: rgba(52, 225, 214, 0.06); outline: none;
+}
+.ohud-target-pickarea.is-picking { cursor: default; border-style: solid; border-color: var(--odyssey-hud-implant); }
+.ohud-target-crosshair {
+  width: 30px; height: 30px; display: inline-flex;
+  color: var(--odyssey-hud-implant); opacity: 0.82; /* calmer than the Attack button's solid fill */
+}
+.ohud-target.is-empty .ohud-target-hint { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); letter-spacing: 0.2px; }
+.ohud-target-subhint { font-size: 8.5px; color: var(--odyssey-hud-dim); }
+
+/* ===================== Mod + Action column ===================== */
+.ohud-panel--modact { gap: 3px; }
+.ohud-mods { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.ohud-mod {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  height: 17px; font-size: 9px; padding: 0 6px; border-radius: var(--odyssey-hud-radius-chip);
+  border: 1px solid var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-muted);
+}
+.ohud-mod-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Armed technique name specifically (not every AUTO/legacy chip) is a
+ * critical token \u2014 see the Priority UI Fix comment block above .ohud-cc-abtn.
+ * The chip's own fixed 17px height is relaxed to auto/min so the enlarged
+ * name has room to reflow into instead of clipping vertically. */
+.ohud-mod--armed { height: auto; min-height: 17px; padding-top: 2px; padding-bottom: 2px; }
+.ohud-mod--armed .ohud-mod-name { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-mod-val { font-weight: 800; flex: 0 0 auto; }
+.ohud-mod--positive { border-color: rgba(74, 222, 128, 0.55); color: var(--odyssey-green); }
+.ohud-mod--negative { border-color: rgba(255, 92, 108, 0.6); color: var(--odyssey-red); }
+.ohud-mod--intervention { border-color: rgba(255, 194, 75, 0.6); color: var(--odyssey-yellow); }
+.ohud-mod--narrative { border-color: rgba(167, 139, 250, 0.55); color: var(--odyssey-purple); }
+.ohud-mod.is-selected { box-shadow: 0 0 0 1.5px var(--odyssey-cyan); }
+.ohud-mod.is-passive { opacity: 0.85; }
+/* Phase 4.1A: armed attack technique chip (Combat Control ARMED section) \u2014
+ * its own \xD7 remove control, and an "invalid" state for when the situation
+ * (target/weapon/cooldown) changed after arming but the player hasn't
+ * disarmed it yet. */
+.ohud-mod--armed { border-color: var(--odyssey-cyan); color: var(--odyssey-hud-text); }
+.ohud-mod--armed.is-invalid { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); opacity: 0.85; }
+.ohud-mod-remove {
+  flex: 0 0 auto; border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 0 0 0 4px; opacity: 0.7;
+}
+.ohud-mod-remove:hover { opacity: 1; color: var(--odyssey-hud-danger, #a33); }
+
+.ohud-action { display: flex; align-items: center; gap: 6px; }
+.ohud-action-econ { display: flex; gap: 3px; }
+.ohud-econ-pip { font-size: 7.5px; font-weight: 800; padding: 0 4px; border-radius: 5px; color: var(--odyssey-hud-dim); border: 1px solid var(--odyssey-hud-border); }
+.ohud-econ-pip.is-spend { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }
+.ohud-action-btn {
+  flex: 1 1 auto; height: 22px; cursor: pointer; font: inherit;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  border-radius: 7px; border: 1.5px solid var(--odyssey-purple);
+  background: linear-gradient(180deg, rgba(139, 92, 246, 0.22), rgba(38, 33, 92, 0.42));
+  color: var(--odyssey-purple);
+}
+.ohud-action-btn.is-ready:hover { background: rgba(139, 92, 246, 0.34); color: #fff; }
+.ohud-action-btn.is-disabled { cursor: not-allowed; border-color: var(--odyssey-hud-border); background: var(--odyssey-panel-base); color: var(--odyssey-hud-dim); }
+
+/* ===================== Floating Battle Log ===================== */
+.ohud-log-float { position: absolute; top: 18px; right: 6px; z-index: 8; width: 250px; max-width: calc(100% - 12px); }
+.ohud-log-panel { max-height: 128px; box-shadow: var(--odyssey-hud-shadow); }
+.ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }
+.ohud-log-list::-webkit-scrollbar { width: 5px; }
+.ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }
+.ohud-log-row { font-size: calc(10px * var(--ohud-critical-text-ratio, 1)); line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
+.ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }
+.ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }
+.ohud-log-actor { font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-log-act { color: var(--odyssey-hud-muted); }
+.ohud-log-arrow { color: var(--odyssey-hud-dim); }
+.ohud-log-target { color: var(--odyssey-hud-text); }
+.ohud-log-delta { margin-left: auto; font-weight: 700; font-size: 9.5px; }
+.ohud-log-delta--hit { color: var(--odyssey-green); }
+.ohud-log-delta--miss { color: var(--odyssey-hud-dim); }
+.ohud-log-delta--neutral { color: var(--odyssey-hud-muted); }
+.ohud-log-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }
+/* Phase 3D.1: ?debug=1-only \u2014 never rendered in normal play. */
+.ohud-log-debug-btn {
+  font-size: 8px; font-weight: 800; letter-spacing: 0.3px; padding: 1px 5px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: rgba(255, 92, 108, 0.12); color: var(--odyssey-red, #e74c3c); cursor: pointer;
+}
+.ohud-log-debug-btn:hover { border-color: var(--odyssey-red, #e74c3c); }
+/* Real combat-result entries (Phase 3D.1) \u2014 a title line + short detail lines,
+ * stacked instead of the single-line actor/action/target/delta mock layout. */
+.ohud-log-row--result { flex-direction: column; align-items: stretch; gap: 1px; }
+.ohud-log-result-title { font-weight: 700; font-size: 10px; }
+.ohud-log-result-title.ohud-log-delta--hit { color: var(--odyssey-green); }
+.ohud-log-result-title.ohud-log-delta--miss { color: var(--odyssey-hud-dim); }
+.ohud-log-result-detail { color: var(--odyssey-hud-muted); font-size: 9.5px; }
+
+/* ===================== Empty / error / loading ===================== */
+.ohud-state-wrap { flex: 1 1 auto; display: grid; place-items: center; background: var(--odyssey-hud-panel);
+  border: 1px solid var(--odyssey-hud-border); border-radius: var(--odyssey-hud-radius); box-shadow: var(--odyssey-hud-shadow-soft); }
+.ohud-empty { text-align: center; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.ohud-empty-mark { color: var(--odyssey-purple); opacity: 0.8; }
+.ohud-empty-title { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--odyssey-hud-text); }
+.ohud-empty-hint { font-size: 11px; color: var(--odyssey-hud-muted); max-width: 420px; }
+.ohud-empty--error .ohud-empty-title { color: var(--odyssey-hud-negative); }
+
+/* ===================== Toast ===================== */
+.ohud-toast { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); color: var(--odyssey-hud-text); background: var(--odyssey-panel-base);
+  border: 1px solid var(--odyssey-hud-border-strong); border-radius: 8px; padding: 4px 11px;
+  box-shadow: var(--odyssey-hud-shadow); z-index: 12; }
+.ohud-toast[hidden] { display: none; }
+
+/* ===================== Tooltip ===================== */
+.ohud-tooltip { position: fixed; z-index: 50; pointer-events: none; max-width: 240px;
+  background: var(--odyssey-bg-deep); border: 1px solid var(--odyssey-hud-border-strong);
+  border-radius: 8px; padding: 6px 9px; box-shadow: var(--odyssey-hud-shadow); }
+.ohud-tooltip[hidden] { display: none; }
+.ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }
+
+/* ===================== Ability Detail Card (bug fix: own companion popover) =====
+ * Was a \`position:fixed\` div rendered INSIDE the Skills module's own tiny
+ * iframe \u2014 content (fixed-position or not) can never render outside an
+ * iframe's own box, since an iframe is its own browsing context. It is now
+ * its OWN independent OBR companion popover (odyssey-hud-ability-detail),
+ * sized/positioned by combatHudOverlayController.js
+ * (abilityDetailPlacement.js) exactly like the GM Tracker / Quickbar Editor
+ * companions \u2014 so this page fills its OWN (correctly-sized) popover, the
+ * same way those do, rather than floating over shared content. */
+.ohud-ability-detail-page { height: 100%; width: 100%; display: flex; }
+/* Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
+ * (AbilityDetailCard.js) so there is only one detail-card body renderer.
+ * --card fills the popover and pins header + status OUTSIDE the scrollable
+ * region (section B: "header and current status remain visible" even when
+ * a genuinely long description needs the body to scroll \u2014 the estimated
+ * popover height, computed from the SAME real data, means this is normally
+ * unnecessary, but must still degrade safely when it isn't enough). */
+/* Compound selector (.ohud-qbe-desc.ohud-qbe-desc--card), not just the
+ * modifier class alone \u2014 the base .ohud-qbe-desc rule (Quickbar Editor
+ * section, further down this file) sets a fixed min/max-height + overflow-y
+ * that this must reliably override regardless of source order; a compound
+ * selector's higher specificity guarantees that without relying on which
+ * rule happens to come later in the file. */
+.ohud-qbe-desc.ohud-qbe-desc--card {
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow: visible;
+  display: flex; flex-direction: column;
+}
+.ohud-qbe-desc--card .ohud-qbe-desc-head,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { flex: 0 0 auto; }
+.ohud-qbe-desc-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+/* Section G typography floor: ability name >=14px, primary detail-card text
+ * >=12px, rendered \u2014 scoped here so the Quickbar Editor's OWN (unscoped)
+ * .ohud-qbe-desc-* rules stay exactly as they were. This card lives in its
+ * own dedicated popover (no shared transform-scaled canvas to inherit from),
+ * so these are fixed, unconditional sizes \u2014 never a ratio-compensated one. */
+.ohud-qbe-desc--card .ohud-qbe-desc-name { font-size: 14px; }
+.ohud-qbe-desc--card .ohud-qbe-desc-text,
+.ohud-qbe-desc--card .ohud-qbe-desc-pill,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { font-size: 12px; }
+/* Description must wrap normally, never ellipsis/truncate (section E). */
+.ohud-qbe-desc--card .ohud-qbe-desc-text { white-space: normal; overflow-wrap: break-word; }
+
+/* ===================== Compact / mini (two rows) ===================== */
+.ohud-hud[data-mode="compact"] .ohud-main,
+.ohud-hud[data-mode="mini"] .ohud-main {
+  flex-direction: column; align-items: stretch; gap: 8px;
+}
+.ohud-hud[data-mode="compact"] .ohud-panel--player,
+.ohud-hud[data-mode="mini"] .ohud-panel--player { flex: 0 0 auto; height: auto; width: 100%; }
+.ohud-hud[data-mode="compact"] .ohud-rail,
+.ohud-hud[data-mode="mini"] .ohud-rail { flex-wrap: wrap; align-items: stretch; }
+.ohud-hud[data-mode="compact"] .ohud-panel--skills,
+.ohud-hud[data-mode="mini"] .ohud-panel--skills { flex: 1 1 100%; min-width: 0; }
+.ohud-hud[data-mode="mini"] .ohud-res-label { display: none; }
+.ohud-hud[data-mode="mini"] .ohud-fallback { display: none; }
+
+/* ===================== Quickbar (Phase 4.0b, visual pass 4.0e, HUD refine 4.0i) =====================
+ * Skills-module strip: dense action-card rows. Row 0 (slots 1-10) is on TOP,
+ * row 1 (slots 11-20) is BELOW it \u2014 matching the Quickbar Editor's fixed row
+ * order (a second row only renders at all when the runtime actually has slots
+ * in it). Rows are vertically centered inside the block (4.0i). There is no
+ * separate EDIT control: any empty slot (or the all-empty fallback) opens the
+ * SAME Quickbar Editor via data-action="open-quickbar-editor". */
+.ohud-qb-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 4px 0; }
+.ohud-qb { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; justify-content: center; }
+.ohud-qb--empty { justify-content: center; }
+.ohud-qb--empty-clickable { border: none; background: transparent; padding: 0; margin: 0; width: 100%; font: inherit; color: inherit; cursor: pointer; }
+.ohud-qb--empty-clickable:hover .ohud-muted-fill, .ohud-qb--empty-clickable:focus-visible .ohud-muted-fill { color: var(--odyssey-hud-implant); }
+.ohud-qb--empty-clickable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
+.ohud-qb-row { display: flex; gap: 4px; flex-wrap: nowrap; }
+.ohud-qb-slot {
+  /* Width fills the row evenly (flex-basis 0 + grow), capped at 56px so ten
+   * slots stay dense rather than stretching to fill a very wide container.
+   * Height is a fixed 50px \u2014 independent of width \u2014 so two rows fit the
+   * block's own vertical budget with room for the corner EDIT button. */
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 56px; height: 50px;
+  display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 8px;
+  background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);
+  cursor: pointer; overflow: hidden; transition: border-color .12s ease, background .12s ease;
+}
+.ohud-qb-slot:not(.is-empty):not(.is-disabled):hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }
+.ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.6; background: transparent; }
+.ohud-qb-slot.is-empty::after { content: "+"; font-size: 15px; color: var(--odyssey-hud-dim); opacity: 0.5; }
+.ohud-qb-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.03); }
+/* Editable empty slots (Phase 4.0i) are the open-editor trigger \u2014 same "+"
+ * marker, but a real clickable control with its own hover/focus affordance so
+ * it reads as interactive without looking like a filled/executable tile. */
+.ohud-qb-slot.is-empty.is-editable { cursor: pointer; }
+.ohud-qb-slot.is-empty.is-editable:hover { border-color: var(--odyssey-hud-implant); background: rgba(255, 255, 255, 0.06); }
+.ohud-qb-slot.is-empty.is-editable:hover::after { color: var(--odyssey-hud-implant); opacity: 0.9; }
+.ohud-qb-slot.is-empty.is-editable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
+.ohud-qb-slot.is-disabled { opacity: 0.45; cursor: default; }
+.ohud-qb-slot.is-active { box-shadow: inset 0 0 0 2px var(--odyssey-hud-state-active); }
+/* Phase 4.1A: the armed attack technique's own occupied tile \u2014 a cyan ring,
+ * layered with is-disabled's dimming when the technique went invalid after
+ * arming (still clickable to disarm; see CombatHudModule.js). */
+.ohud-qb-slot.is-armed { box-shadow: inset 0 0 0 2px var(--odyssey-cyan); }
+.ohud-qb-slot.is-missing { border-color: var(--odyssey-hud-danger, #a33); color: var(--odyssey-hud-danger, #a33); }
+.ohud-qb-icon { width: 28px; height: 28px; display: block; }
+.ohud-qb-name {
+  position: absolute; bottom: 0; left: 0; right: 0; font-size: 7.5px; line-height: 1.2;
+  text-align: center; padding: 1px 2px; background: rgba(0, 0, 0, 0.4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ohud-qb-type { position: absolute; top: 2px; left: 3px; font-size: 6.5px; font-weight: 800; opacity: 0.85; letter-spacing: 0.3px; }
+/* State marker + active/ON share one top-right badge group so at most one
+ * ever renders at a time in that corner (deriveSlotAvailability returns
+ * exactly one category; active/ON is orthogonal and can join it).
+ * Phase 4.1A.2 typography floor: these are "slot state marker" text (section
+ * G, floor 10px) \u2014 scaled by --ohud-slot-marker-ratio, a SEPARATE, smaller-
+ * capped instance of the same computeCriticalTextRatio formula the bigger
+ * critical labels use (--ohud-critical-text-ratio, cap 3x) \u2014 a 56\xD750px slot
+ * has far less room to counter-grow into before its corner badge visually
+ * overwhelms the icon/name, so this one is capped at 1.5x (both set in
+ * CombatHudModule.js from the same shared helper \u2014 never a second formula). */
+.ohud-qb-badges { position: absolute; top: 2px; right: 3px; display: flex; align-items: center; gap: 3px; }
+.ohud-qb-cd { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qb-active { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-state-active); }
+.ohud-qb-missing { font-size: 20px; font-weight: 800; }
+
+/* Phase 4.1A.2: canonical slot availability markers (armed/insufficient
+ * resource/unsupported/unavailable \u2014 see abilityAvailabilityPolicy.js). */
+.ohud-qb-state {
+  font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; letter-spacing: 0.2px;
+  display: inline-flex; align-items: center; line-height: 1;
+}
+.ohud-qb-state--armed { color: var(--odyssey-cyan); }
+.ohud-qb-state--resource { color: var(--odyssey-purple); }
+/* The lock glyph is an icon, not text \u2014 sized fixed (12x12, matching the
+ * other small HUD glyphs), never counter-scaled: a bold, high-contrast shape
+ * stays legible at any of the required viewports without the text-floor
+ * treatment, and scaling an icon via font-size math would just be noise.
+ * Muted, never the "damage" red \u2014 see abilityAvailabilityPolicy.js's header
+ * comment: unsupported/unavailable are blocked capabilities, not injuries. */
+.ohud-qb-state--lock { color: var(--odyssey-hud-muted); }
+
+/* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
+ * A standalone sci-fi window: dark surface, thin glowing border, header / body
+ * / footer. Slots 1-10 render on the TOP row, 11-20 on the BOTTOM row \u2014 a
+ * deliberate, fixed departure from the visual reference used to design this. */
+.ohud-qbe {
+  position: relative;
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
+  background: linear-gradient(180deg, rgba(22, 31, 52, 0.98), rgba(12, 16, 27, 0.98));
+  border: 1px solid var(--odyssey-hud-border-strong);
+  border-radius: var(--odyssey-hud-radius);
+  box-shadow: 0 0 0 1px rgba(93, 169, 255, 0.12), 0 0 36px rgba(64, 140, 255, 0.22), var(--odyssey-hud-shadow);
+}
+/* Sci-fi corner accents on the outer window (decorative only). */
+.ohud-qbe::before, .ohud-qbe::after {
+  content: ""; position: absolute; width: 16px; height: 16px; pointer-events: none; opacity: 0.55;
+  border-color: var(--odyssey-hud-implant); z-index: 1;
+}
+.ohud-qbe::before { top: 6px; left: 6px; border-top: 2px solid; border-left: 2px solid; border-radius: 4px 0 0 0; }
+.ohud-qbe::after { bottom: 6px; right: 6px; border-bottom: 2px solid; border-right: 2px solid; border-radius: 0 0 4px 0; }
+
+/* ---- Header ---- */
+.ohud-qbe-header {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: rgba(60, 120, 220, 0.08);
+  border-bottom: 1px solid var(--odyssey-hud-border);
+}
+.ohud-qbe-header-icon {
+  flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center;
+  color: var(--odyssey-hud-implant); filter: drop-shadow(0 0 6px rgba(52, 225, 214, 0.55));
+}
+.ohud-qbe-header-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ohud-qbe-header-title {
+  font-size: 14px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--odyssey-hud-text); text-shadow: 0 0 10px rgba(93, 169, 255, 0.3);
+}
+.ohud-qbe-header-subtitle {
+  font-size: 10px; color: var(--odyssey-hud-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-qbe-close {
+  flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center;
+  font-size: 15px; line-height: 1; color: var(--odyssey-hud-muted);
+  background: transparent; border: 1px solid var(--odyssey-hud-border); border-radius: 6px; cursor: pointer;
+}
+.ohud-qbe-close:hover { color: var(--odyssey-hud-negative); border-color: var(--odyssey-hud-negative); }
+
+/* ---- Body: two columns ---- */
+.ohud-qbe-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; overflow: hidden; }
+.ohud-qbe-cols { flex: 1 1 auto; min-height: 0; display: flex; gap: 14px; }
+.ohud-qbe-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 6px; }
+.ohud-qbe-col--library { flex: 0 0 250px; }
+.ohud-qbe-col--slots { flex: 1 1 auto; }
+
+.ohud-qbe-section-label {
+  flex: 0 0 auto; font-size: 10px; font-weight: 800; letter-spacing: 0.8px;
+  color: var(--odyssey-hud-muted); text-transform: uppercase;
+}
+.ohud-qbe-hint { flex: 0 0 auto; font-size: 9.5px; color: var(--odyssey-hud-dim); margin-top: -3px; }
+.ohud-qbe-lib-empty, .ohud-qbe-empty { font-size: 10px; color: var(--odyssey-hud-muted); padding: 8px 4px; }
+
+/* ---- Ability Description Panel (Phase 4.0d) \u2014 right column, above the slot
+ * grid. Shows the currently selected library card or quickbar slot; a
+ * placeholder when nothing is selected yet. */
+.ohud-qbe-desc {
+  flex: 0 0 auto; min-height: 128px; max-height: 220px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--odyssey-hud-border); border-left-width: 3px; border-radius: 8px;
+  background: rgba(10, 14, 24, 0.55); box-shadow: inset 0 0 18px rgba(52, 225, 214, 0.05);
+}
+.ohud-qbe-desc-placeholder {
+  flex: 1 1 auto; display: grid; place-items: center; text-align: center;
+  font-size: 10.5px; color: var(--odyssey-hud-dim); padding: 10px;
+}
+.ohud-qbe-desc-head { display: flex; align-items: center; gap: 8px; }
+.ohud-qbe-desc-icon {
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6px; background: rgba(255, 255, 255, 0.05);
+}
+.ohud-qbe-desc-icon svg { width: 16px; height: 16px; }
+.ohud-qbe-desc-head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ohud-qbe-desc-name { font-size: 13px; font-weight: 800; color: var(--odyssey-hud-text); }
+.ohud-qbe-desc-type { font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); }
+.ohud-qbe-desc-text { font-size: 10.5px; line-height: 1.4; color: var(--odyssey-hud-muted); }
+.ohud-qbe-desc-pills { display: flex; flex-wrap: wrap; gap: 5px; }
+.ohud-qbe-desc-pill {
+  font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--odyssey-hud-border);
+  color: var(--odyssey-hud-text); white-space: nowrap;
+}
+.ohud-qbe-desc-pill-label { color: var(--odyssey-hud-muted); font-weight: 800; margin-right: 4px; }
+.ohud-qbe-desc-status { font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px; }
+.ohud-qbe-desc-status.is-warning { color: var(--odyssey-hud-warning); background: rgba(255, 194, 75, 0.12); border: 1px solid rgba(255, 194, 75, 0.35); }
+.ohud-qbe-desc-status.is-active { color: var(--odyssey-hud-state-active); background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.35); }
+
+/* Accent stripe on the description panel, matching the selected ability's kind. */
+.ohud-qbe-desc.ohud-accent--attack { border-left-color: var(--odyssey-hud-attack); }
+.ohud-qbe-desc.ohud-accent--psionic { border-left-color: var(--odyssey-purple); }
+.ohud-qbe-desc.ohud-accent--implant { border-left-color: var(--odyssey-cyan); }
+.ohud-qbe-desc.ohud-accent--intervention { border-left-color: var(--odyssey-hud-intervention); }
+.ohud-qbe-desc.ohud-accent--neutral { border-left-color: var(--odyssey-hud-border-strong); }
+
+/* Selection ring \u2014 a neutral cyan ring distinct from the semantic accent
+ * colors, so "this is selected" always reads clearly regardless of type. */
+.ohud-qbe-card.is-selected, .ohud-qbe-slot.is-selected {
+  box-shadow: 0 0 0 2px var(--odyssey-cyan), 0 0 14px rgba(52, 225, 214, 0.35);
+}
+
+/* Available-actions library (left column). */
+.ohud-qbe-library {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; padding-right: 3px;
+}
+.ohud-qbe-card {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+  border: 1px solid var(--odyssey-hud-border); border-left-width: 3px; border-radius: 8px; cursor: grab;
+  background: var(--odyssey-hud-panel-raised); transition: border-color .12s ease, background .12s ease;
+}
+.ohud-qbe-card:hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }
+.ohud-qbe-card.is-disabled { opacity: 0.55; cursor: default; }
+.ohud-qbe-card-icon {
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6px; background: rgba(255, 255, 255, 0.05);
+}
+.ohud-qbe-card-icon svg { width: 16px; height: 16px; }
+.ohud-qbe-card-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ohud-qbe-card-name {
+  font-size: 11.5px; font-weight: 700; color: var(--odyssey-hud-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-qbe-card-type { font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); }
+.ohud-qbe-card-badges { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.ohud-qbe-badge {
+  font-size: 8px; font-weight: 800; letter-spacing: 0.2px; white-space: nowrap;
+  padding: 1px 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--odyssey-hud-border); color: var(--odyssey-hud-muted);
+}
+.ohud-qbe-badge--cooldown { color: var(--odyssey-hud-warning); border-color: rgba(255, 194, 75, 0.4); }
+.ohud-qbe-badge--resource { color: var(--odyssey-purple); border-color: rgba(167, 139, 250, 0.4); }
+.ohud-qbe-card-off { flex: 0 0 auto; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
+
+/* Card accent stripe by semantic kind (attack/psionic/implant/intervention/neutral). */
+.ohud-qbe-card.ohud-accent--attack { border-left-color: var(--odyssey-hud-attack); }
+.ohud-qbe-card.ohud-accent--psionic { border-left-color: var(--odyssey-purple); }
+.ohud-qbe-card.ohud-accent--implant { border-left-color: var(--odyssey-cyan); }
+.ohud-qbe-card.ohud-accent--intervention { border-left-color: var(--odyssey-hud-intervention); }
+.ohud-qbe-card.ohud-accent--neutral { border-left-color: var(--odyssey-hud-border-strong); }
+
+/* Quickbar slots grid (right column). Row 0 (slots 1-10) is emitted first in
+ * the DOM, so it naturally lands on top; row 1 (11-20) follows, on the bottom. */
+.ohud-qbe-slots { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.ohud-qbe-slot-row { display: flex; gap: 5px; }
+.ohud-qbe-slot {
+  position: relative; flex: 1 1 0; max-width: 54px; aspect-ratio: 1 / 1;
+  display: grid; place-items: center;
+  border: 1px dashed var(--odyssey-hud-border); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02); transition: border-color .12s ease, background .12s ease;
+}
+.ohud-qbe-slot.is-empty::after { content: "+"; font-size: 17px; color: var(--odyssey-hud-dim); opacity: 0.5; }
+.ohud-qbe-slot.is-empty:hover { border-color: var(--odyssey-hud-border-strong); background: rgba(255, 255, 255, 0.045); }
+.ohud-qbe-slot.is-filled {
+  cursor: grab; border-style: solid; background: var(--odyssey-hud-panel-raised);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.35);
+}
+.ohud-qbe-slot.is-filled:hover { box-shadow: 0 0 0 1px var(--odyssey-hud-border-strong), 0 0 14px rgba(93, 169, 255, 0.25); }
+.ohud-qbe-slot.is-missing { border-style: solid; border-color: var(--odyssey-hud-negative); color: var(--odyssey-hud-negative); }
+.ohud-qbe-slot-idx { position: absolute; top: 2px; left: 3px; font-size: 7px; font-weight: 800; color: var(--odyssey-hud-dim); }
+.ohud-qbe-slot-type { position: absolute; top: 2px; right: 3px; font-size: 6px; font-weight: 800; opacity: 0.75; }
+.ohud-qbe-slot-icon { width: 18px; height: 18px; }
+.ohud-qbe-slot-name {
+  position: absolute; bottom: 1px; left: 1px; right: 1px; font-size: 5.5px; text-align: center;
+  background: rgba(0, 0, 0, 0.45); border-radius: 0 0 6px 6px; padding: 0 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-qbe-missing { font-size: 15px; font-weight: 800; }
+.ohud-qbe-remove {
+  position: absolute; top: -5px; right: -5px; width: 14px; height: 14px; padding: 0;
+  display: grid; place-items: center; font-size: 10px; line-height: 1; border-radius: 50%;
+  border: none; background: var(--odyssey-hud-negative); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity .12s ease;
+}
+.ohud-qbe-slot.is-filled:hover .ohud-qbe-remove,
+.ohud-qbe-slot.is-missing .ohud-qbe-remove { opacity: 1; }
+
+/* Accent border/glow on filled slots, by semantic kind. */
+.ohud-qbe-slot.is-filled.ohud-accent--attack { border-color: var(--odyssey-hud-attack); box-shadow: 0 0 10px rgba(255, 92, 108, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--psionic { border-color: var(--odyssey-purple); box-shadow: 0 0 10px rgba(167, 139, 250, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--implant { border-color: var(--odyssey-cyan); box-shadow: 0 0 10px rgba(52, 225, 214, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--intervention { border-color: var(--odyssey-hud-intervention); box-shadow: 0 0 10px rgba(255, 194, 75, 0.28); }
+.ohud-qbe-slot.is-filled.ohud-accent--neutral { border-color: var(--odyssey-hud-border-strong); }
+
+/* ---- Conflict banner ---- */
+.ohud-qbe-conflict {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 10px; color: var(--odyssey-hud-warning);
+  background: rgba(255, 194, 75, 0.12); border: 1px solid rgba(255, 194, 75, 0.4);
+  border-radius: 8px; padding: 6px 10px;
+}
+.ohud-qbe-reload {
+  flex: 0 0 auto; font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning);
+  border: 1px solid rgba(255, 194, 75, 0.5); background: transparent; border-radius: 5px;
+  padding: 2px 7px; cursor: pointer;
+}
+
+/* ---- Footer ---- */
+.ohud-qbe-footer {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; border-top: 1px solid var(--odyssey-hud-border); background: rgba(8, 11, 20, 0.4);
+}
+.ohud-qbe-status { font-size: 10px; font-weight: 600; color: var(--odyssey-hud-dim); }
+.ohud-qbe-status--warning { color: var(--odyssey-hud-warning); }
+.ohud-qbe-status--busy { color: var(--odyssey-hud-muted); }
+.ohud-qbe-actions { flex: 0 0 auto; display: flex; gap: 8px; }
+.ohud-qbe-btn {
+  padding: 6px 14px; font-size: 11px; font-weight: 700; border-radius: 7px; cursor: pointer;
+  color: var(--odyssey-hud-text); background: transparent; border: 1px solid var(--odyssey-hud-border);
+}
+.ohud-qbe-btn:hover:not([disabled]) { border-color: var(--odyssey-hud-border-strong); }
+.ohud-qbe-btn.is-primary {
+  color: #052421; font-weight: 800; border-color: transparent;
+  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac);
+  box-shadow: 0 0 14px rgba(52, 225, 214, 0.4);
+}
+.ohud-qbe-btn[disabled] { opacity: 0.45; cursor: default; box-shadow: none; }
 `;
 
 // hud/components/combatHudModule.css
-var combatHudModule_default = '/*\r\n * Combat HUD \u2014 Phase 2.2 module + editor styles.\r\n *\r\n * Module mode: each block fills its own (tight) popover iframe so the map stays\r\n * clickable in the gaps between modules. Editor mode: a fullscreen arrange\r\n * surface with draggable preview cards, snap grid + alignment guides.\r\n * Scoped under .ohud-module / .ohud-editor-root. No native scrollbar (except\r\n * inside the Log list).\r\n */\r\n\r\n/* ===================== Single module (normal mode) ===================== */\r\n.ohud-module {\r\n  position: relative;\r\n  width: 100%;\r\n  height: 100%;\r\n  padding: 0;\r\n  overflow: hidden;\r\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r\n  color: var(--odyssey-hud-text);\r\n}\r\n/* The single block fills the whole module iframe. */\r\n.ohud-module > .ohud-panel,\r\n.ohud-module > .ohud-state-wrap {\r\n  width: 100%;\r\n  height: 100%;\r\n  flex: none;\r\n  margin: 0;\r\n}\r\n.ohud-module .ohud-panel--bare {\r\n  background: transparent;\r\n  border: none;\r\n  box-shadow: none;\r\n  padding: 0;\r\n}\r\n.ohud-module .ohud-panel--bare .ohud-action { height: 100%; }\r\n.ohud-module .ohud-panel--bare .ohud-action-btn { height: 100%; }\r\n.ohud-module .ohud-panel--muted { display: grid; place-items: center; opacity: 0.5; }\r\n\r\n/* Global controls live only in the Player module (top-right). */\r\n.ohud-module-controls {\r\n  position: absolute; top: 4px; right: 4px; z-index: 5;\r\n  display: flex; gap: 4px;\r\n}\r\n\r\n/* Compact per-module error fallback (production-safe). */\r\n.ohud-moderr {\r\n  width: 100%; height: 100%;\r\n  display: flex; flex-direction: column; gap: 4px; justify-content: center; align-items: center;\r\n  text-align: center; padding: 8px;\r\n  border-color: var(--odyssey-hud-negative);\r\n}\r\n.ohud-moderr-title { font-size: 11px; font-weight: 800; color: var(--odyssey-hud-negative); }\r\n.ohud-moderr-detail {\r\n  font-size: 9px; line-height: 1.3; color: var(--odyssey-hud-muted);\r\n  max-height: 60%; overflow: auto; white-space: pre-wrap; word-break: break-word;\r\n}\r\n\r\n/* Dev-only diagnostic badge (?debug=1). Tiny, corner, never in production. */\r\n.ohud-module-debug {\r\n  position: absolute; left: 2px; bottom: 2px; z-index: 6; pointer-events: none;\r\n  font-size: 8px; font-weight: 700; letter-spacing: 0.3px;\r\n  color: var(--odyssey-cyan); background: rgba(8, 12, 22, 0.7);\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 4px; padding: 0 4px;\r\n}\r\n\r\n/* Log scroll allowed only inside its own list. */\r\n.ohud-module[data-module="log"] .ohud-log-panel { width: 100%; height: 100%; max-height: none; }\r\n\r\n/* --- Per-module visual scale-ups (modules are larger than the 2.1 rail) --- */\r\n/* Player (250\xD7250): prominent silhouette + readable stats. */\r\n.ohud-module[data-module="player"] .ohud-player-grid { grid-template-columns: 96px 1fr; gap: 12px; }\r\n.ohud-module[data-module="player"] .ohud-figure { width: 96px; }\r\n.ohud-module[data-module="player"] .ohud-player-name { font-size: 16px; }\r\n.ohud-module[data-module="player"] .ohud-res-num { font-size: 12px; }\r\n.ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }\r\n.ohud-module[data-module="player"] .ohud-res-track { height: 8px; }\r\n.ohud-module[data-module="player"] .ohud-pip { font-size: 9px; padding: 2px 8px; }\r\n.ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }\r\n\r\n/* Skills (600\xD7165): centred content, larger tiles, wrap past one row. */\r\n.ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }\r\n.ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }\r\n.ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }\r\n.ohud-module .ohud-gun { position: relative; }\r\n\r\n/* ---------- Combat Control composite (330\xD7165) ---------- */\r\n/* Outer panel carries the frame; the grid fills it edge-to-edge. */\r\n.ohud-panel--cc { padding: 0; gap: 0; overflow: hidden; }\r\n.ohud-cc { display: grid; grid-template-columns: 1fr 1fr; width: 100%; height: 100%; min-height: 0; }\r\n.ohud-cc-target { min-width: 0; min-height: 0; border-right: 1px solid var(--odyssey-hud-border); }\r\n.ohud-cc-right { display: grid; grid-template-rows: 1fr 40px; min-width: 0; min-height: 0; }\r\n/* Inner section panels are seamless \u2014 the outer .ohud-panel--cc owns the frame. */\r\n.ohud-cc .ohud-panel { background: transparent; border: none; box-shadow: none; border-radius: 0; width: 100%; height: 100%; padding: 6px 7px; }\r\n/* Action strip: thin divider + tight padding (rule after the line above to win). */\r\n.ohud-cc .ohud-cc-action { border-top: 1px solid var(--odyssey-hud-border); padding: 3px 6px; }\r\n\r\n/* Target section \u2014 prominent silhouette (~56% height) + name / zone / distance. */\r\n.ohud-cc-target .ohud-target { justify-content: center; gap: 4px; }\r\n.ohud-cc-target .ohud-figure { width: 64px; height: 92px; }\r\n.ohud-cc-target .ohud-target-name { font-size: 11px; }\r\n.ohud-target-sub { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px; }\r\n.ohud-target-dist { font-size: 8.5px; font-weight: 700; color: var(--odyssey-hud-muted); }\r\n.ohud-target-dist--none { opacity: 0.7; }\r\n.ohud-target-pick {\r\n  margin-top: 2px; height: 20px; padding: 0 8px;\r\n  border: 1px solid var(--odyssey-purple); border-radius: 6px;\r\n  background: rgba(112, 80, 255, 0.22); color: var(--odyssey-hud-text);\r\n  font: inherit; font-size: 9px; font-weight: 800; cursor: pointer;\r\n  pointer-events: auto;\r\n}\r\n.ohud-target-pick:hover { border-color: var(--odyssey-cyan); }\r\n\r\n/* Zone chip grid \u2014 6 clickable body-zone buttons (3 \xD7 2). */\r\n.ohud-zone-chips {\r\n  display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;\r\n  margin-top: 3px;\r\n}\r\n.ohud-zone-chip {\r\n  height: 16px; padding: 0 2px;\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 4px;\r\n  background: transparent; color: var(--odyssey-hud-muted);\r\n  font: inherit; font-size: 7.5px; font-weight: 700; text-transform: uppercase;\r\n  cursor: pointer; pointer-events: auto; overflow: hidden;\r\n  white-space: nowrap; text-overflow: ellipsis;\r\n  transition: border-color 80ms, color 80ms;\r\n}\r\n.ohud-zone-chip:hover { border-color: var(--odyssey-cyan); color: var(--odyssey-hud-text); }\r\n.ohud-zone-chip.is-selected {\r\n  border-color: var(--odyssey-purple); background: rgba(112, 80, 255, 0.22);\r\n  color: var(--odyssey-hud-text);\r\n}\r\n\r\n/* Clear-target button \u2014 small muted link style. */\r\n.ohud-target-clear {\r\n  margin-top: 4px; height: 16px; padding: 0 6px;\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 4px;\r\n  background: transparent; color: var(--odyssey-hud-muted);\r\n  font: inherit; font-size: 8px; font-weight: 700; cursor: pointer;\r\n  pointer-events: auto;\r\n}\r\n.ohud-target-clear:hover { border-color: var(--odyssey-red, #e74c3c); color: var(--odyssey-hud-text); }\r\n\r\n.ohud-gun-caret,\r\n.ohud-ammo-reload,\r\n.ohud-weapon-option,\r\n.ohud-reserve-mag,\r\n.ohud-slot {\r\n  font: inherit;\r\n  cursor: pointer;\r\n}\r\n.ohud-gun-caret,\r\n.ohud-ammo-reload {\r\n  border: 0; background: transparent; color: inherit; padding: 0;\r\n}\r\n.ohud-gun-caret { transition: transform 120ms ease; }\r\n.ohud-ammo-reload:disabled { cursor: not-allowed; opacity: 0.45; }\r\n.ohud-weapon-list {\r\n  display: grid; gap: 3px; align-content: start;\r\n  overflow-y: auto; overflow-x: hidden;\r\n}\r\n.ohud-weapon-option {\r\n  display: grid; grid-template-columns: 1fr auto auto; gap: 4px; align-items: center;\r\n  min-width: 0; height: 18px; padding: 1px 5px;\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;\r\n  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);\r\n  font-size: 8px; text-align: left;\r\n}\r\n.ohud-weapon-option.is-selected { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }\r\n.ohud-weapon-option-name,\r\n.ohud-weapon-option-type {\r\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r\n}\r\n.ohud-weapon-option-type,\r\n.ohud-weapon-option-ammo { color: var(--odyssey-hud-muted); font-size: 7.5px; }\r\n/* Spare-magazine companion popover: a flowing, full-width row list SIZED TO\r\n * CONTENT by the controller (see hudPopoverLifecycle.computeCompanionSelectorHeight)\r\n * \u2014 this list must NEVER be absolutely positioned to a corner (that was the bug:\r\n * rows collapsed into an illegible 76px pill stack inside a large empty popover). */\r\n/* The fire-mode companion popover (Fire Mode v1) shares this exact row\r\n * language \u2014 same content-sized-popover contract, same full-width row shape. */\r\n.ohud-reserve-list,\r\n.ohud-firemode-list {\r\n  display: flex; flex-direction: column; gap: 4px;\r\n  max-height: 220px;\r\n  overflow-y: auto; overflow-x: hidden;\r\n}\r\n.ohud-reserve-list.is-loading,\r\n.ohud-reserve-list.is-empty,\r\n.ohud-firemode-list.is-loading,\r\n.ohud-firemode-list.is-empty {\r\n  display: flex; align-items: center; justify-content: center;\r\n  min-height: 18px; color: var(--odyssey-hud-muted); font-size: 9px; text-align: center;\r\n}\r\n.ohud-reserve-mag,\r\n.ohud-firemode-option {\r\n  display: flex; align-items: center; justify-content: space-between; gap: 8px;\r\n  width: 100%; height: 22px; flex: 0 0 auto; padding: 0 8px;\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;\r\n  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);\r\n  font-size: 9px; white-space: nowrap;\r\n}\r\n.ohud-reserve-mag-label,\r\n.ohud-firemode-option-name {\r\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;\r\n}\r\n.ohud-reserve-mag-rounds,\r\n.ohud-firemode-option-code {\r\n  flex: 0 0 auto; font-variant-numeric: tabular-nums; font-family: "SFMono-Regular", Consolas, monospace;\r\n  color: var(--odyssey-hud-muted);\r\n}\r\n.ohud-reserve-mag.is-selected,\r\n.ohud-firemode-option.is-selected {\r\n  border-color: var(--odyssey-cyan);\r\n  background: rgba(80, 220, 255, 0.1);\r\n}\r\n.ohud-reserve-mag.is-selected .ohud-reserve-mag-rounds,\r\n.ohud-firemode-option.is-selected .ohud-firemode-option-code { color: var(--odyssey-cyan); }\r\n.ohud-reserve-mag:hover,\r\n.ohud-reserve-mag:focus-visible,\r\n.ohud-firemode-option:hover,\r\n.ohud-firemode-option:focus-visible,\r\n.ohud-weapon-option:hover { border-color: var(--odyssey-purple); }\r\n.ohud-reserve-mag:focus-visible,\r\n.ohud-firemode-option:focus-visible { outline: none; }\r\n\r\n.ohud-mag-selector-btn {\r\n  position: absolute; right: 6px; top: 6px;\r\n  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;\r\n  background: rgba(255,255,255,0.03); color: var(--odyssey-hud-text);\r\n  cursor: pointer;\r\n}\r\n.ohud-mag-selector-btn:hover { border-color: var(--odyssey-cyan); }\r\n\r\n/* Debug Log companion popover (Phase 3D.1, ?debug=1 only). */\r\n.ohud-debuglog-clear {\r\n  font-size: 8px; font-weight: 700; padding: 1px 6px;\r\n  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;\r\n  background: transparent; color: var(--odyssey-hud-muted); cursor: pointer;\r\n}\r\n.ohud-debuglog-clear:hover { border-color: var(--odyssey-red, #e74c3c); color: var(--odyssey-hud-text); }\r\n.ohud-debuglog-list {\r\n  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;\r\n  overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;\r\n}\r\n.ohud-debuglog-row {\r\n  display: flex; gap: 5px; align-items: baseline; font-size: 8.5px; line-height: 1.3;\r\n  padding: 1px 3px; border-radius: 4px; background: rgba(10, 16, 31, 0.5);\r\n}\r\n.ohud-debuglog-row.is-fail { background: rgba(231, 76, 60, 0.12); }\r\n.ohud-debuglog-time { color: var(--odyssey-hud-dim); flex: 0 0 auto; font-variant-numeric: tabular-nums; }\r\n.ohud-debuglog-cat { color: var(--odyssey-cyan); font-weight: 700; flex: 0 0 auto; }\r\n.ohud-debuglog-action { color: var(--odyssey-hud-text); flex: 0 0 auto; }\r\n.ohud-debuglog-details {\r\n  color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;\r\n}\r\n.ohud-debuglog-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }\r\n\r\n/* Modifier section \u2014 dense 2-column chip grid, \u22646 then +N, no horizontal overflow. */\r\n.ohud-cc-mod .ohud-panel-head { min-height: 10px; }\r\n.ohud-cc-mod .ohud-mods { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; align-content: start; overflow: hidden; }\r\n.ohud-cc-mod .ohud-mod { height: auto; min-height: 16px; font-size: 9px; padding: 1px 5px; }\r\n.ohud-cc-mod .ohud-mod--more { justify-content: center; }\r\n\r\n/* Action section \u2014 compact button fills the 165\xD740 strip. */\r\n.ohud-cc-action .ohud-action { height: 100%; gap: 5px; }\r\n.ohud-cc-action .ohud-action-btn { height: 100%; }\r\n\r\n/* ===================== Phase 3A - scene-selection binding ===================== */\r\n/* Ready identity card (Player module) - shows REAL bound character only. */\r\n.ohud-bind {\r\n  width: 100%; height: 100%;\r\n  display: flex; flex-direction: column; gap: 5px;\r\n  padding: 10px 12px; justify-content: center;\r\n}\r\n.ohud-bind-badge {\r\n  align-self: flex-start;\r\n  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;\r\n  padding: 2px 7px; border-radius: 6px;\r\n  border: 1px solid var(--odyssey-hud-border-strong); color: var(--odyssey-hud-muted);\r\n}\r\n.ohud-bind-badge--gm { color: #fff; background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); }\r\n.ohud-bind-badge--owned { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }\r\n.ohud-bind-name {\r\n  font-size: 16px; font-weight: 800; color: var(--odyssey-hud-text);\r\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r\n}\r\n.ohud-bind-status { font-size: 10px; color: var(--odyssey-hud-muted); }\r\n.ohud-bind-owner { font-size: 9px; color: var(--odyssey-hud-muted); opacity: 0.8; }\r\n\r\n/* Neutral, clearly-labeled fallback for ready-only modules until their runtime\r\n * mapping lands (never fabricated gameplay data). */\r\n.ohud-bind-fallback {\r\n  width: 100%; height: 100%;\r\n  display: flex; flex-direction: column; gap: 3px;\r\n  align-items: center; justify-content: center; text-align: center; padding: 8px;\r\n}\r\n.ohud-bind-fallback-label { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); }\r\n.ohud-bind-fallback-hint { font-size: 8.5px; color: var(--odyssey-hud-muted); opacity: 0.7; }\r\n\r\n/* Dev-only (?debug=1) error detail under a Player prompt. */\r\n.ohud-bind-dev { font-size: 8px; color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }\r\n\r\n/* ===================== Arrange-HUD editor ===================== */\r\n.ohud-editor-root {\r\n  position: fixed; inset: 0; z-index: 100;\r\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r\n}\r\n.ohud-editor {\r\n  position: absolute; inset: 0;\r\n  background: rgba(8, 12, 22, 0.86);\r\n  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);\r\n}\r\n/* Toolbar floats OVER the canvas so the canvas spans the full viewport and the\r\n * preview cards sit exactly where the real module popovers will. */\r\n.ohud-editor-toolbar {\r\n  position: absolute; top: 0; left: 0; right: 0; z-index: 400;\r\n  display: flex; align-items: center; gap: 12px;\r\n  padding: 8px 14px; background: var(--odyssey-hud-panel);\r\n  border-bottom: 1px solid var(--odyssey-hud-border-strong);\r\n}\r\n.ohud-editor-title { font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--odyssey-hud-text); }\r\n.ohud-editor-hint { font-size: 11px; color: var(--odyssey-hud-muted); }\r\n.ohud-editor-actions { margin-left: auto; display: flex; gap: 8px; }\r\n.ohud-editor-btn {\r\n  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;\r\n  padding: 5px 12px; border-radius: 8px;\r\n  border: 1px solid var(--odyssey-hud-border-strong);\r\n  background: var(--odyssey-panel-base); color: var(--odyssey-hud-text);\r\n}\r\n.ohud-editor-btn:hover { border-color: var(--odyssey-purple); }\r\n.ohud-editor-btn.is-primary { background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); color: #fff; }\r\n\r\n.ohud-editor-canvas {\r\n  position: absolute; inset: 0; overflow: hidden;\r\n  background-image:\r\n    repeating-linear-gradient(0deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px),\r\n    repeating-linear-gradient(90deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px);\r\n}\r\n.ohud-guide { position: absolute; background: var(--odyssey-cyan); opacity: 0.7; pointer-events: none; z-index: 200; }\r\n.ohud-guide--v { top: 0; bottom: 0; width: 1px; }\r\n.ohud-guide--h { left: 0; right: 0; height: 1px; }\r\n\r\n.ohud-card {\r\n  position: absolute; overflow: hidden;\r\n  border: 1px solid var(--odyssey-hud-border-strong);\r\n  border-radius: var(--odyssey-hud-radius);\r\n  box-shadow: var(--odyssey-hud-shadow);\r\n  display: flex; flex-direction: column;\r\n}\r\n.ohud-card.is-dragging { z-index: 300 !important; box-shadow: 0 0 0 2px var(--odyssey-cyan), var(--odyssey-hud-shadow); }\r\n.ohud-card-bar {\r\n  flex: 0 0 18px; display: flex; align-items: center; gap: 5px;\r\n  padding: 0 6px; cursor: grab; touch-action: none;\r\n  background: var(--odyssey-panel-base); border-bottom: 1px solid var(--odyssey-hud-border);\r\n}\r\n.ohud-card.is-dragging .ohud-card-bar { cursor: grabbing; }\r\n.ohud-card-grip { display: inline-flex; color: var(--odyssey-hud-muted); }\r\n.ohud-card-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); }\r\n.ohud-card-body { position: relative; flex: 1 1 auto; min-height: 0; pointer-events: none; }\r\n.ohud-card-body > .ohud-panel { width: 100%; height: 100%; flex: none; }\r\n.ohud-card-body .ohud-panel--bare { background: transparent; border: none; box-shadow: none; }\r\n.ohud-card-body .ohud-panel--bare .ohud-action,\r\n.ohud-card-body .ohud-panel--bare .ohud-action-btn { height: 100%; }\r\n';
+var combatHudModule_default = `/*
+ * Combat HUD \u2014 Phase 2.2 module + editor styles.
+ *
+ * Module mode: each block fills its own (tight) popover iframe so the map stays
+ * clickable in the gaps between modules. Editor mode: a fullscreen arrange
+ * surface with draggable preview cards, snap grid + alignment guides.
+ * Scoped under .ohud-module / .ohud-editor-root. No native scrollbar (except
+ * inside the Log list).
+ */
+
+/* ===================== Single module (normal mode) ===================== */
+.ohud-module {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--odyssey-hud-text);
+}
+/* The single block fills the whole module iframe. */
+.ohud-module > .ohud-panel,
+.ohud-module > .ohud-state-wrap {
+  width: 100%;
+  height: 100%;
+  flex: none;
+  margin: 0;
+}
+.ohud-module .ohud-panel--bare {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+.ohud-module .ohud-panel--bare .ohud-action { height: 100%; }
+.ohud-module .ohud-panel--bare .ohud-action-btn { height: 100%; }
+.ohud-module .ohud-panel--muted { display: grid; place-items: center; opacity: 0.5; }
+
+/* Global controls live only in the Player module (top-right). */
+.ohud-module-controls {
+  position: absolute; top: 4px; right: 4px; z-index: 5;
+  display: flex; gap: 4px;
+}
+
+/* Compact per-module error fallback (production-safe). */
+.ohud-moderr {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 4px; justify-content: center; align-items: center;
+  text-align: center; padding: 8px;
+  border-color: var(--odyssey-hud-negative);
+}
+.ohud-moderr-title { font-size: 11px; font-weight: 800; color: var(--odyssey-hud-negative); }
+.ohud-moderr-detail {
+  font-size: 9px; line-height: 1.3; color: var(--odyssey-hud-muted);
+  max-height: 60%; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+
+/* Dev-only diagnostic badge (?debug=1). Tiny, corner, never in production. */
+.ohud-module-debug {
+  position: absolute; left: 2px; bottom: 2px; z-index: 6; pointer-events: none;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.3px;
+  color: var(--odyssey-cyan); background: rgba(8, 12, 22, 0.7);
+  border: 1px solid var(--odyssey-hud-border); border-radius: 4px; padding: 0 4px;
+}
+
+/* Log scroll allowed only inside its own list. */
+.ohud-module[data-module="log"] .ohud-log-panel { width: 100%; height: 100%; max-height: none; }
+
+/* --- Per-module visual scale-ups (modules are larger than the 2.1 rail) --- */
+/* Player (250\xD7250): prominent silhouette + readable stats. */
+.ohud-module[data-module="player"] .ohud-player-grid { grid-template-columns: 96px 1fr; gap: 12px; }
+.ohud-module[data-module="player"] .ohud-figure { width: 96px; }
+/* Priority UI Fix \u2014 Universal Responsive HUD Scaling (typography floor):
+ * character name, PSI/Shield value, and MAIN/MOVE are critical tokens that
+ * must stay readable no matter how small the module gets \u2014 see the
+ * --ohud-critical-text-ratio comment above .ohud-cc-abtn for the mechanism.
+ * .ohud-res-label ("SHIELD"/"PSI" captions) and .ohud-res-track height are
+ * deliberately left alone \u2014 decorative/secondary, shrinks with everything
+ * else via the outer module transform (per spec: reduce secondary first). */
+.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(16px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }
+.ohud-module[data-module="player"] .ohud-res-track { height: 8px; }
+.ohud-module[data-module="player"] .ohud-pip { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }
+.ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }
+
+/* Skills (600\xD7165): centred content, larger tiles, wrap past one row. This
+ * centering is for the LEGACY category-grouped view (.ohud-skill-groups,
+ * mock/Phase-2 fallback when no quickbar runtime is present). */
+.ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }
+.ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }
+.ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }
+/* Phase 4.0e/4.0i: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE
+ * horizontal behaviour \u2014 full width (so 10 slots can divide it evenly) \u2014 while
+ * still agreeing with the legacy view on vertical centering. Scoped narrowly
+ * so it never touches the legacy category view above. */
+.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: center; align-items: stretch; }
+.ohud-module .ohud-gun { position: relative; }
+
+/* ---------- Combat Control composite (330\xD7165, reworked Phase 4.0f) ---------- */
+/* Outer panel carries the frame; the grid fills it edge-to-edge.
+ *   \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+ *   \u2502 Target       \u2502 AUTO / ARMED \u2502   \u2190 .ohud-cc-top (two columns)
+ *   \u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
+ *   \u2502  ATTACK      \u2502   END TURN   \u2502   \u2190 .ohud-cc-actionbar (full width, always)
+ *   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+ * Dead zone-chip-grid CSS from an earlier Target design (no JS renders
+ * .ohud-zone-chip anymore \u2014 TargetBlock.js uses the clickable humanoid SVG)
+ * was removed here; it was silently shadowing the real .ohud-target-clear/
+ * .ohud-target-pick rules now owned by combatHudLayout.css. */
+.ohud-panel--cc { padding: 0; gap: 0; overflow: hidden; }
+.ohud-cc { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
+.ohud-cc-top { display: grid; grid-template-columns: 1fr 1fr; flex: 1 1 auto; min-height: 0; }
+.ohud-cc-target { min-width: 0; min-height: 0; border-right: 1px solid var(--odyssey-hud-border); padding: 6px 7px; }
+.ohud-cc-mod { min-width: 0; min-height: 0; padding: 6px 7px; display: flex; flex-direction: column; gap: 5px; overflow: hidden; }
+/* Inner Target panel is seamless \u2014 the outer .ohud-panel--cc owns the frame. */
+.ohud-cc-target .ohud-panel { background: transparent; border: none; box-shadow: none; border-radius: 0; width: 100%; height: 100%; padding: 0; }
+
+/* Target column: a slightly shorter silhouette than the old column layout
+ * needs, since it now shares its row with the text column instead of sitting
+ * above it. Selected-target silhouette is 1.25x this base size (57.5x97.5 \u2014
+ * see the rule below); the crosshair placeholder in the EMPTY Target Area
+ * uses a completely different class (.ohud-target-crosshair) and is
+ * unaffected by either of these. */
+.ohud-cc-target .ohud-figure { width: 46px; height: 78px; }
+
+/* Selected-target silhouette only (.ohud-figure--targetable never renders in
+ * the empty/picking states \u2014 see TargetBlock.js). Sized via width/height, NOT
+ * transform:scale(): scale() wouldn't reflow the flex row layout (the figure
+ * would keep its OLD box for sibling positioning while visually overflowing
+ * into the name/zone/Clear text column) and would also scale stroke widths
+ * unevenly. width/height instead make the figure ACTUALLY occupy more layout
+ * space, so the meta column reflows to make room \u2014 the required "no overlap"
+ * behavior falls out of normal flex layout instead of needing extra rules. */
+.ohud-cc-target .ohud-figure--targetable { width: 57.5px; height: 97.5px; }
+
+/* Full-width action bar: two equal buttons, thin divider between them. */
+.ohud-cc-actionbar {
+  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; height: 34px;
+  border-top: 1px solid var(--odyssey-hud-border);
+}
+
+.ohud-gun-caret,
+.ohud-ammo-reload,
+.ohud-weapon-option,
+.ohud-reserve-mag,
+.ohud-slot {
+  font: inherit;
+  cursor: pointer;
+}
+.ohud-gun-caret,
+.ohud-ammo-reload {
+  border: 0; background: transparent; color: inherit; padding: 0;
+}
+.ohud-gun-caret { transition: transform 120ms ease; }
+.ohud-ammo-reload:disabled { cursor: not-allowed; opacity: 0.45; }
+.ohud-weapon-list {
+  display: grid; gap: 3px; align-content: start;
+  overflow-y: auto; overflow-x: hidden;
+}
+.ohud-weapon-option {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 4px; align-items: center;
+  min-width: 0; height: 18px; padding: 1px 5px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
+  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
+  font-size: 8px; text-align: left;
+}
+.ohud-weapon-option.is-selected { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }
+.ohud-weapon-option-name,
+.ohud-weapon-option-type {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-weapon-option-type,
+.ohud-weapon-option-ammo { color: var(--odyssey-hud-muted); font-size: 7.5px; }
+/* Spare-magazine companion popover: a flowing, full-width row list SIZED TO
+ * CONTENT by the controller (see hudPopoverLifecycle.computeCompanionSelectorHeight)
+ * \u2014 this list must NEVER be absolutely positioned to a corner (that was the bug:
+ * rows collapsed into an illegible 76px pill stack inside a large empty popover). */
+/* The fire-mode companion popover (Fire Mode v1) shares this exact row
+ * language \u2014 same content-sized-popover contract, same full-width row shape. */
+.ohud-reserve-list,
+.ohud-firemode-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 220px;
+  overflow-y: auto; overflow-x: hidden;
+}
+.ohud-reserve-list.is-loading,
+.ohud-reserve-list.is-empty,
+.ohud-firemode-list.is-loading,
+.ohud-firemode-list.is-empty {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 18px; color: var(--odyssey-hud-muted); font-size: 9px; text-align: center;
+}
+.ohud-reserve-mag,
+.ohud-firemode-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; height: 22px; flex: 0 0 auto; padding: 0 8px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
+  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
+  font-size: 9px; white-space: nowrap;
+}
+.ohud-reserve-mag-label,
+.ohud-firemode-option-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ohud-reserve-mag-rounds,
+.ohud-firemode-option-code {
+  flex: 0 0 auto; font-variant-numeric: tabular-nums; font-family: "SFMono-Regular", Consolas, monospace;
+  color: var(--odyssey-hud-muted);
+}
+.ohud-reserve-mag.is-selected,
+.ohud-firemode-option.is-selected {
+  border-color: var(--odyssey-cyan);
+  background: rgba(80, 220, 255, 0.1);
+}
+.ohud-reserve-mag.is-selected .ohud-reserve-mag-rounds,
+.ohud-firemode-option.is-selected .ohud-firemode-option-code { color: var(--odyssey-cyan); }
+.ohud-reserve-mag:hover,
+.ohud-reserve-mag:focus-visible,
+.ohud-firemode-option:hover,
+.ohud-firemode-option:focus-visible,
+.ohud-weapon-option:hover { border-color: var(--odyssey-purple); }
+.ohud-reserve-mag:focus-visible,
+.ohud-firemode-option:focus-visible { outline: none; }
+
+.ohud-mag-selector-btn {
+  position: absolute; right: 6px; top: 6px;
+  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: rgba(255,255,255,0.03); color: var(--odyssey-hud-text);
+  cursor: pointer;
+}
+.ohud-mag-selector-btn:hover { border-color: var(--odyssey-cyan); }
+
+/* Debug Log companion popover (Phase 3D.1, ?debug=1 only). */
+.ohud-debuglog-clear {
+  font-size: 8px; font-weight: 700; padding: 1px 6px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: transparent; color: var(--odyssey-hud-muted); cursor: pointer;
+}
+.ohud-debuglog-clear:hover { border-color: var(--odyssey-red, #e74c3c); color: var(--odyssey-hud-text); }
+.ohud-debuglog-list {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;
+}
+.ohud-debuglog-row {
+  display: flex; gap: 5px; align-items: baseline; font-size: 8.5px; line-height: 1.3;
+  padding: 1px 3px; border-radius: 4px; background: rgba(10, 16, 31, 0.5);
+}
+.ohud-debuglog-row.is-fail { background: rgba(231, 76, 60, 0.12); }
+.ohud-debuglog-time { color: var(--odyssey-hud-dim); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.ohud-debuglog-cat { color: var(--odyssey-cyan); font-weight: 700; flex: 0 0 auto; }
+.ohud-debuglog-action { color: var(--odyssey-hud-text); flex: 0 0 auto; }
+.ohud-debuglog-details {
+  color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ohud-debuglog-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }
+
+/* Modifiers \u2014 two mini-sections (AUTO, ARMED) instead of one flat chip wall.
+ * AUTO = passive + narrative (armor/weapon/implant/passive ability/status/GM
+ * effect) \u2014 server-applied, never toggleable here. ARMED = active (attack
+ * modifiers already prepared for the next attack) \u2014 display-only in Phase
+ * 4.0f; no selector, no validation, no spend logic lives here yet. */
+.ohud-cc-mod .ohud-panel-head { min-height: 10px; flex: 0 0 auto; }
+.ohud-cc-modsec { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.ohud-cc-modsec-head { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }
+.ohud-cc-modsec[data-modifier-state="empty"] .ohud-cc-modsec-head { opacity: 0.65; }
+.ohud-cc-modsec-empty { font-size: 8.5px; color: var(--odyssey-hud-dim); }
+.ohud-cc-modsec-chips { display: flex; gap: 3px; flex-wrap: nowrap; overflow: hidden; }
+.ohud-cc-modsec-chips .ohud-mod { flex: 1 1 0; min-width: 0; height: auto; min-height: 16px; font-size: 8.5px; padding: 1px 5px; }
+.ohud-cc-modsec-chips .ohud-mod--more { flex: 0 0 auto; justify-content: center; }
+
+/* Full-width action bar \u2014 ATTACK (primary, cyan) | END TURN (secondary, amber).
+ * Equal width via the 1fr/1fr grid on .ohud-cc-actionbar; a 1px divider (the
+ * attack button's own right border) separates them. Disabled state dims via
+ * opacity only \u2014 it must keep its hue, never turn generic/grayscale, since
+ * End Turn is a normal tactical action, not an error state. */
+/* Priority UI Fix \u2014 Universal Responsive HUD Scaling: typography floor.
+ *
+ * CombatHudModule.js's outer transform:scale(layoutScale) (see hudLayout.js's
+ * computeLayoutScale) shrinks EVERYTHING uniformly, text included \u2014 below a
+ * certain viewport this makes critical labels (ATTACK/END TURN, character/
+ * weapon/target name, PSI/ammo values, armed technique name, combat log,
+ * status toast) render as unreadable microtext. Those specific selectors
+ * (listed in the module-level comment blocks near each one) use
+ * \`font-size: calc(<canonicalPx> * var(--ohud-critical-text-ratio, 1))\`.
+ *
+ * mountCombatHudModule (CombatHudModule.js) sets --ohud-critical-text-ratio
+ * on the module root to \`Math.min(3, Math.max(1, 1/layoutScale))\`:
+ *   - layoutScale >= 1 (viewport at/above the 1920x1080 reference): ratio=1,
+ *     i.e. these tokens behave exactly as before \u2014 they grow with the rest
+ *     of the HUD at large scale, same as any other element.
+ *   - layoutScale < 1 (smaller viewport): ratio = 1/layoutScale, which
+ *     exactly cancels the ancestor transform for THESE elements only \u2014
+ *     their pre-transform font-size grows just enough that the ON-SCREEN
+ *     result never drops below today's already-shipped canonical px size.
+ *     Capped at 3x pre-transform growth as a safety valve for pathologically
+ *     tiny windows (see hud/overlay/hudLayout.js's HUD_SAFE_VIEWPORT_PADDING
+ *     comment for the same "no real SDK-given need for more" reasoning).
+ *
+ * Everything else (icons, artwork, secondary/decorative text, gaps,
+ * padding) is untouched and keeps shrinking with layoutScale \u2014 this is what
+ * "reduce secondary text first" means in practice: critical tokens freeze,
+ * everything around them keeps scaling down.
+ *
+ * This is a FONT-SIZE change, not a nested transform \u2014 increasing font-size
+ * is a real layout property, so flex/inline-box ancestors naturally reflow
+ * (grow) to fit it, instead of a transform's non-reflowing visual overlap.
+ * Any element whose parent had a FIXED px height tall enough to clip a
+ * modestly larger critical font (e.g. the ARMED chip) has that fixed height
+ * relaxed to auto/min-height alongside its own critical-text rule \u2014 see the
+ * comment next to .ohud-mod--armed in combatHudLayout.css. .ohud-cc-abtn's
+ * own parent (.ohud-cc-actionbar) is already 34px tall \u2014 comfortably enough
+ * room for the ratio's realistic range at any of the 8 required viewports.
+ */
+.ohud-cc-abtn {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;
+  border: none; cursor: pointer;
+}
+.ohud-cc-abtn--attack {
+  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac); color: #052421;
+  border-right: 1px solid var(--odyssey-hud-border);
+}
+.ohud-cc-abtn--attack:hover:not(.is-disabled) { filter: brightness(1.08); }
+.ohud-cc-abtn--attack.is-disabled { opacity: 0.42; cursor: not-allowed; }
+.ohud-cc-abtn--endturn { background: rgba(255, 194, 75, 0.18); color: var(--odyssey-hud-warning); }
+.ohud-cc-abtn--endturn:hover:not(.is-disabled) { background: rgba(255, 194, 75, 0.3); }
+.ohud-cc-abtn--endturn.is-disabled { opacity: 0.42; cursor: not-allowed; }
+
+/* ===================== Phase 3A - scene-selection binding ===================== */
+/* Ready identity card (Player module) - shows REAL bound character only. */
+.ohud-bind {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 10px 12px; justify-content: center;
+}
+.ohud-bind-badge {
+  align-self: flex-start;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  padding: 2px 7px; border-radius: 6px;
+  border: 1px solid var(--odyssey-hud-border-strong); color: var(--odyssey-hud-muted);
+}
+.ohud-bind-badge--gm { color: #fff; background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); }
+.ohud-bind-badge--owned { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }
+.ohud-bind-name {
+  font-size: 16px; font-weight: 800; color: var(--odyssey-hud-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-bind-status { font-size: 10px; color: var(--odyssey-hud-muted); }
+.ohud-bind-owner { font-size: 9px; color: var(--odyssey-hud-muted); opacity: 0.8; }
+
+/* Neutral, clearly-labeled fallback for ready-only modules until their runtime
+ * mapping lands (never fabricated gameplay data). */
+.ohud-bind-fallback {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 3px;
+  align-items: center; justify-content: center; text-align: center; padding: 8px;
+}
+.ohud-bind-fallback-label { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); }
+.ohud-bind-fallback-hint { font-size: 8.5px; color: var(--odyssey-hud-muted); opacity: 0.7; }
+
+/* Dev-only (?debug=1) error detail under a Player prompt. */
+.ohud-bind-dev { font-size: 8px; color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }
+
+/* ===================== Arrange-HUD editor ===================== */
+.ohud-editor-root {
+  position: fixed; inset: 0; z-index: 100;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.ohud-editor {
+  position: absolute; inset: 0;
+  background: rgba(8, 12, 22, 0.86);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+/* Toolbar floats OVER the canvas so the canvas spans the full viewport and the
+ * preview cards sit exactly where the real module popovers will. */
+.ohud-editor-toolbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 400;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; background: var(--odyssey-hud-panel);
+  border-bottom: 1px solid var(--odyssey-hud-border-strong);
+}
+.ohud-editor-title { font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--odyssey-hud-text); }
+.ohud-editor-hint { font-size: 11px; color: var(--odyssey-hud-muted); }
+.ohud-editor-actions { margin-left: auto; display: flex; gap: 8px; }
+.ohud-editor-btn {
+  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--odyssey-hud-border-strong);
+  background: var(--odyssey-panel-base); color: var(--odyssey-hud-text);
+}
+.ohud-editor-btn:hover { border-color: var(--odyssey-purple); }
+.ohud-editor-btn.is-primary { background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); color: #fff; }
+
+.ohud-editor-canvas {
+  position: absolute; inset: 0; overflow: hidden;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px),
+    repeating-linear-gradient(90deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px);
+}
+.ohud-guide { position: absolute; background: var(--odyssey-cyan); opacity: 0.7; pointer-events: none; z-index: 200; }
+.ohud-guide--v { top: 0; bottom: 0; width: 1px; }
+.ohud-guide--h { left: 0; right: 0; height: 1px; }
+
+.ohud-card {
+  position: absolute; overflow: hidden;
+  border: 1px solid var(--odyssey-hud-border-strong);
+  border-radius: var(--odyssey-hud-radius);
+  box-shadow: var(--odyssey-hud-shadow);
+  display: flex; flex-direction: column;
+}
+.ohud-card.is-dragging { z-index: 300 !important; box-shadow: 0 0 0 2px var(--odyssey-cyan), var(--odyssey-hud-shadow); }
+.ohud-card-bar {
+  flex: 0 0 18px; display: flex; align-items: center; gap: 5px;
+  padding: 0 6px; cursor: grab; touch-action: none;
+  background: var(--odyssey-panel-base); border-bottom: 1px solid var(--odyssey-hud-border);
+}
+.ohud-card.is-dragging .ohud-card-bar { cursor: grabbing; }
+.ohud-card-grip { display: inline-flex; color: var(--odyssey-hud-muted); }
+.ohud-card-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-card-body { position: relative; flex: 1 1 auto; min-height: 0; pointer-events: none; }
+.ohud-card-body > .ohud-panel { width: 100%; height: 100%; flex: none; }
+.ohud-card-body .ohud-panel--bare { background: transparent; border: none; box-shadow: none; }
+.ohud-card-body .ohud-panel--bare .ohud-action,
+.ohud-card-body .ohud-panel--bare .ohud-action-btn { height: 100%; }
+`;
 
 // hud/adapters/combatHudAdapter.js
 var REQUIRED_METHODS = Object.freeze([
@@ -5181,6 +6019,8 @@ var BC_HUD_SELECTION_REQUEST = "com.odyssey.combat-hud/selection-request";
 var BC_HUD_COMMAND = "com.odyssey.combat-hud/command";
 var BC_HUD_SESSION = "com.odyssey.combat-hud/session-state";
 var BC_HUD_SESSION_REQUEST = "com.odyssey.combat-hud/session-state-request";
+var BC_HUD_ABILITIES = "com.odyssey.combat-hud/abilities-runtime";
+var BC_HUD_ABILITIES_REQUEST = "com.odyssey.combat-hud/abilities-runtime-request";
 var PLAYER_W = 144;
 var PLAYER_HEIGHT = 146;
 var RAIL_GAP = 10;
@@ -5313,6 +6153,203 @@ function accentClass(colorSemantic) {
     default:
       return "neutral";
   }
+}
+
+// hud/overlay/hudLayout.js
+var HUD_LAYOUT_REFERENCE_VIEWPORT = Object.freeze({ width: 1920, height: 1080 });
+var LAYOUT_VERSION = 2;
+var LAYOUT_STORAGE_KEY = "odyssey.hud.layout.v2";
+var HUD_MODULE_IDS = Object.freeze([
+  "player",
+  "gun",
+  "skills",
+  "combatControl",
+  "log"
+]);
+var HUD_MODULE_POPOVER_IDS = Object.freeze({
+  player: "odyssey-hud-player",
+  gun: "odyssey-hud-gun",
+  skills: "odyssey-hud-skills",
+  combatControl: "odyssey-hud-combat-control",
+  log: "odyssey-hud-log"
+});
+var LEGACY_HUD_POPOVER_IDS = Object.freeze([
+  "odyssey-hud-target",
+  "odyssey-hud-modifiers",
+  "odyssey-hud-action"
+]);
+var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
+var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
+var LAYOUT_MARGIN = 16;
+var SNAP_GRID = 8;
+var HUD_SAFE_VIEWPORT_PADDING = 0;
+var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
+  player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
+  gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
+  skills: Object.freeze({ left: 663, bottom: 16, width: 600, height: 165, zIndex: 20 }),
+  // Composite: Target (left 165) + Modifiers/Action (right 165). Replaces the
+  // former three separate target/modifiers/action rects.
+  combatControl: Object.freeze({ left: 1263, bottom: 16, width: 330, height: 165, zIndex: 20 }),
+  log: Object.freeze({ left: 1656, bottom: 16, width: 250, height: 250, zIndex: 20 })
+});
+function clamp012(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+function computeLayoutScale(vw, vh) {
+  const usableWidth = Math.max(1, (Number(vw) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  const usableHeight = Math.max(1, (Number(vh) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  return Math.min(
+    usableWidth / HUD_LAYOUT_REFERENCE_VIEWPORT.width,
+    usableHeight / HUD_LAYOUT_REFERENCE_VIEWPORT.height
+  );
+}
+function computeCriticalTextRatio(layoutScale, cap = 3) {
+  const scale = Number(layoutScale) > 0 ? Number(layoutScale) : 1;
+  if (scale >= 1) return 1;
+  return Math.min(cap, 1 / scale);
+}
+function snapToGrid(value, grid = SNAP_GRID) {
+  const g = grid || 1;
+  return Math.round((Number(value) || 0) / g) * g;
+}
+function moduleSize(moduleId, vw, vh) {
+  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
+  const scale = computeLayoutScale(vw, vh);
+  return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
+}
+function defaultModuleRect(moduleId, vw, vh) {
+  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
+  const scale = computeLayoutScale(vw, vh);
+  const width = Math.round(def.width * scale);
+  const height = Math.round(def.height * scale);
+  return {
+    left: Math.round(def.left * scale),
+    top: Math.round((Number(vh) || 0) - def.bottom * scale - height),
+    width,
+    height,
+    zIndex: def.zIndex
+  };
+}
+function normalizedToPixels(moduleId, placement, vw, vh) {
+  const { width, height } = moduleSize(moduleId, vw, vh);
+  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
+  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
+  return {
+    left: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.x) * availW),
+    top: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.y) * availH),
+    width,
+    height,
+    zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex
+  };
+}
+function pixelsToNormalized(moduleId, left, top, vw, vh) {
+  const { width, height } = moduleSize(moduleId, vw, vh);
+  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
+  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
+  return {
+    x: availW > 0 ? clamp012((left - LAYOUT_MARGIN) / availW) : 0,
+    y: availH > 0 ? clamp012((top - LAYOUT_MARGIN) / availH) : 0
+  };
+}
+function clampRect(rect, vw, vh) {
+  const w = Number(vw) || 0;
+  const h = Number(vh) || 0;
+  return {
+    ...rect,
+    left: Math.max(0, Math.min(rect.left, Math.max(0, w - rect.width))),
+    top: Math.max(0, Math.min(rect.top, Math.max(0, h - rect.height)))
+  };
+}
+function resolveModuleRect(moduleId, placement, vw, vh) {
+  const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
+  return clampRect(rect, vw, vh);
+}
+function computeAlignmentGuides(moving, others, threshold = 6) {
+  const vertical = /* @__PURE__ */ new Set();
+  const horizontal = /* @__PURE__ */ new Set();
+  const mX = [moving.left, moving.left + moving.width / 2, moving.left + moving.width];
+  const mY = [moving.top, moving.top + moving.height / 2, moving.top + moving.height];
+  for (const o of others) {
+    const oX = [o.left, o.left + o.width / 2, o.left + o.width];
+    const oY = [o.top, o.top + o.height / 2, o.top + o.height];
+    for (const a of mX) for (const b of oX) if (Math.abs(a - b) <= threshold) vertical.add(Math.round(b));
+    for (const a of mY) for (const b of oY) if (Math.abs(a - b) <= threshold) horizontal.add(Math.round(b));
+  }
+  return { vertical: [...vertical], horizontal: [...horizontal] };
+}
+function defaultLayoutState() {
+  const modules = {};
+  for (const id of HUD_MODULE_IDS) modules[id] = { mode: "default", x: 0, y: 0 };
+  return { version: LAYOUT_VERSION, modules };
+}
+function migrateLegacyModules(modules) {
+  if (!modules || modules.combatControl) return modules;
+  const hasLegacy = modules.target || modules.modifiers || modules.action;
+  if (!hasLegacy) return modules;
+  const base = modules.target;
+  if (base && base.mode === "custom" && Number.isFinite(base.x) && Number.isFinite(base.y)) {
+    return { ...modules, combatControl: { mode: "custom", x: clamp012(base.x), y: clamp012(base.y) } };
+  }
+  return modules;
+}
+function validateLayoutState(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.version !== LAYOUT_VERSION) return null;
+  if (!raw.modules || typeof raw.modules !== "object") return null;
+  const src = migrateLegacyModules(raw.modules);
+  const out = defaultLayoutState();
+  for (const id of HUD_MODULE_IDS) {
+    const m = src[id];
+    if (m && (m.mode === "default" || m.mode === "custom") && typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y)) {
+      out.modules[id] = { mode: m.mode, x: clamp012(m.x), y: clamp012(m.y) };
+    }
+  }
+  return out;
+}
+function normalizeLayoutState(state) {
+  return validateLayoutState(state) ?? defaultLayoutState();
+}
+function parseLayoutState(rawJson) {
+  if (rawJson == null) return null;
+  let obj = rawJson;
+  if (typeof rawJson === "string") {
+    try {
+      obj = JSON.parse(rawJson);
+    } catch {
+      return null;
+    }
+  }
+  return validateLayoutState(obj);
+}
+function serializeLayoutState(state) {
+  return JSON.stringify(normalizeLayoutState(state));
+}
+function readStoredLayout(storage) {
+  try {
+    const raw = storage && storage.getItem ? storage.getItem(LAYOUT_STORAGE_KEY) : null;
+    return parseLayoutState(raw) ?? defaultLayoutState();
+  } catch {
+    return defaultLayoutState();
+  }
+}
+function writeStoredLayout(storage, state) {
+  try {
+    if (storage && storage.setItem) storage.setItem(LAYOUT_STORAGE_KEY, serializeLayoutState(state));
+  } catch {
+  }
+}
+function setModulePlacement(draft, moduleId, placement) {
+  const next = normalizeLayoutState(draft);
+  if (HUD_MODULE_IDS.includes(moduleId)) {
+    next.modules[moduleId] = {
+      mode: placement && placement.mode === "default" ? "default" : "custom",
+      x: clamp012(placement && placement.x),
+      y: clamp012(placement && placement.y)
+    };
+  }
+  return next;
 }
 
 // hud/core/combatHudSelectors.js
@@ -5511,14 +6548,6 @@ function selectTargetView(state) {
     distance: Number.isFinite(enemy.distance) ? enemy.distance : null
   };
 }
-function selectModifierChips(state) {
-  const groups = selectModifierGroups(state);
-  return [
-    ...groups.passive ?? [],
-    ...groups.active ?? [],
-    ...groups.narrative ?? []
-  ];
-}
 
 // utils/json.js
 function escapeHtml(value) {
@@ -5545,7 +6574,7 @@ var ICON_CARET_DOWN = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidd
 var ICON_RELOAD = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 var ICON_GRIP = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></g></svg>`;
 var ICON_GRID = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></g></svg>`;
-var ICON_SHIELD = `<svg viewBox="0 0 24 28" width="100%" height="100%" aria-hidden="true"><path d="M12 2l9 3v8c0 6-4 9-9 11-5-2-9-5-9-11V5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+var ICON_LOCK = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
 var ICON_MAGAZINE = `<svg viewBox="0 0 40 64" width="100%" height="100%" aria-hidden="true"><rect x="9" y="6" width="22" height="50" rx="5" fill="currentColor"/><rect x="13" y="2" width="14" height="7" rx="2.5" fill="currentColor"/></svg>`;
 function weaponSvg(svgRef) {
   if (svgRef === "pistol") {
@@ -5759,7 +6788,6 @@ function renderPlayerBlock(state) {
     <div class="ohud-player-grid">
       <div class="ohud-figure">
         <div class="ohud-figure-svg">${entitySilhouetteSvg(entity.summary, { zones: zonesMap(entity), zoneTips: zoneTipsMap(entity, authorized) })}</div>
-        <div class="ohud-figure-shield" aria-hidden="true">${ICON_SHIELD}</div>
       </div>
       <div class="ohud-player-stats">
         <div class="ohud-player-name" title="${esc(entity.summary.name)}">${esc(entity.summary.name)}</div>
@@ -5887,6 +6915,308 @@ function renderAmmoCard(weapon, mag, isEmpty, canReload, reloadMag, reloadBlockR
   </div>`;
 }
 
+// hud/abilities/quickbarLayoutPolicy.js
+var DEFAULT_MAX_SLOTS = 20;
+var FIRST_ROW_SIZE = 10;
+function num(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function str(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
+}
+function emptySlot(slotIndex) {
+  return { slotIndex, characterActionId: null, empty: true, missing: false };
+}
+function buildDraft(serverSlots, actionIdSet, maxSlots = DEFAULT_MAX_SLOTS) {
+  const size = Math.max(1, num(maxSlots, DEFAULT_MAX_SLOTS));
+  const draft = Array.from({ length: size }, (_, i) => emptySlot(i));
+  const seen = /* @__PURE__ */ new Set();
+  for (const raw of Array.isArray(serverSlots) ? serverSlots : []) {
+    const idx = num(raw?.slotIndex ?? raw?.index, -1);
+    if (idx < 0 || idx >= size) continue;
+    const actionId = str(raw?.characterActionId ?? raw?.actionId);
+    if (!actionId) continue;
+    if (seen.has(actionId)) continue;
+    seen.add(actionId);
+    draft[idx] = {
+      slotIndex: idx,
+      characterActionId: actionId,
+      empty: false,
+      missing: !actionIdSet.has(actionId)
+    };
+  }
+  return draft;
+}
+function slotIndexOfAction(draft, actionId) {
+  return draft.findIndex((s) => s && s.characterActionId === actionId);
+}
+function assignActionToSlot(draft, actionId, targetIndex, actionIdSet) {
+  const id = str(actionId);
+  const tIdx = num(targetIndex, -1);
+  if (!id || tIdx < 0 || tIdx >= draft.length) return draft.slice();
+  const next = draft.map((s) => ({ ...s }));
+  const fromIdx = slotIndexOfAction(next, id);
+  const displaced = next[tIdx].characterActionId;
+  next[tIdx] = {
+    slotIndex: tIdx,
+    characterActionId: id,
+    empty: false,
+    missing: actionIdSet ? !actionIdSet.has(id) : false
+  };
+  if (fromIdx >= 0 && fromIdx !== tIdx) {
+    if (displaced) {
+      next[fromIdx] = {
+        slotIndex: fromIdx,
+        characterActionId: displaced,
+        empty: false,
+        missing: actionIdSet ? !actionIdSet.has(displaced) : false
+      };
+    } else {
+      next[fromIdx] = emptySlot(fromIdx);
+    }
+  }
+  return next;
+}
+function moveSlot(draft, fromIndex, toIndex) {
+  const f = num(fromIndex, -1);
+  const t = num(toIndex, -1);
+  if (f < 0 || t < 0 || f >= draft.length || t >= draft.length || f === t) return draft.slice();
+  const next = draft.map((s) => ({ ...s }));
+  const a = { ...next[f] };
+  const b = { ...next[t] };
+  next[t] = { ...a, slotIndex: t };
+  next[f] = { ...b, slotIndex: f };
+  return next;
+}
+function removeSlot(draft, slotIndex) {
+  const idx = num(slotIndex, -1);
+  if (idx < 0 || idx >= draft.length) return draft.slice();
+  const next = draft.map((s) => ({ ...s }));
+  next[idx] = emptySlot(idx);
+  return next;
+}
+function unassignedActions(quickActions, draft) {
+  const placed = new Set(
+    (Array.isArray(draft) ? draft : []).map((s) => s?.characterActionId).filter(Boolean)
+  );
+  return (Array.isArray(quickActions) ? quickActions : []).filter(
+    (a) => a?.characterActionId && !placed.has(a.characterActionId)
+  );
+}
+function draftToSavePayload(draft) {
+  return (Array.isArray(draft) ? draft : []).map((s) => {
+    const idx = num(s?.slotIndex, 0);
+    const actionId = s?.missing ? null : str(s?.characterActionId);
+    return { slotIndex: idx, characterActionId: actionId };
+  }).sort((a, b) => a.slotIndex - b.slotIndex);
+}
+function rowOfSlot(slotIndex, firstRowSize = FIRST_ROW_SIZE) {
+  const idx = num(slotIndex, 0);
+  const size = Math.max(1, num(firstRowSize, FIRST_ROW_SIZE));
+  return Math.floor(idx / size);
+}
+function isDraftDirty(draft, originalDraft) {
+  const a = draftToSavePayload(draft);
+  const b = draftToSavePayload(originalDraft);
+  if (a.length !== b.length) return true;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].slotIndex !== b[i].slotIndex) return true;
+    if (a[i].characterActionId !== b[i].characterActionId) return true;
+  }
+  return false;
+}
+
+// hud/abilities/AbilityTooltip.js
+var TYPE_LABEL = {
+  attack_technique: "Attack technique",
+  directed: "Directed action",
+  instant: "Instant action",
+  toggle: "Toggle"
+};
+var TARGET_LABEL = {
+  self: "Self",
+  character: "One character",
+  character_body_zone: "One character (body zone)",
+  body_part: "One character (body zone)",
+  multiple_characters: "Multiple characters",
+  point: "Point on map",
+  area: "Area",
+  none: "No target"
+};
+var EXECUTION_REASON_LABEL = {
+  ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet."
+};
+function costText(costs) {
+  const c = costs ?? {};
+  const parts = [];
+  if (Number(c.main) > 0) parts.push(`MAIN\xD7${c.main}`);
+  if (Number(c.move) > 0) parts.push(`MOVE\xD7${c.move}`);
+  if (parts.length === 0) parts.push("No action cost");
+  return parts.join(" \xB7 ");
+}
+function resourceText(costs) {
+  const c = costs ?? {};
+  const parts = [];
+  if (Number(c.psi) > 0) parts.push(`PSI ${c.psi}`);
+  if (Number(c.charges) > 0) parts.push(`Charges ${c.charges}`);
+  return parts.join(" \xB7 ");
+}
+function abilityTooltipModel(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const costs = a.costs ?? {};
+  const cooldown = a.cooldown ?? {};
+  const targeting = a.targeting ?? {};
+  const requirements = a.requirements ?? {};
+  const state = a.state ?? {};
+  const lines = [];
+  const typeLabel = TYPE_LABEL[a.type] ?? "Action";
+  lines.push({ label: "Type", value: typeLabel });
+  if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+  lines.push({ label: "Cost", value: costText(costs) });
+  const res = resourceText(costs);
+  if (res) lines.push({ label: "Resource", value: res });
+  if (Number(cooldown.max) > 0) {
+    const cur = Number(cooldown.current) || 0;
+    lines.push({
+      label: "Cooldown",
+      value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
+    });
+  }
+  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014") });
+  const reqParts = [];
+  if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
+  if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
+  if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
+  if (state.executionReason) {
+    lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
+  } else if (state.available === false && state.disabledReason) {
+    lines.push({ label: "Unavailable", value: String(state.disabledReason) });
+  } else if (state.active === true) {
+    lines.push({ label: "Status", value: "Active" });
+  }
+  return { title: String(a.name ?? "Action"), type: typeLabel, lines };
+}
+function abilityTooltipLines(action) {
+  const model = abilityTooltipModel(action);
+  return model.lines.map((l) => `${l.label}: ${l.value}`);
+}
+
+// hud/abilities/abilityAvailabilityPolicy.js
+var SLOT_AVAILABILITY = Object.freeze({
+  ready: "ready",
+  armed: "armed",
+  cooldown: "cooldown",
+  insufficientResource: "insufficient_resource",
+  unsupported: "unsupported",
+  unavailable: "unavailable"
+});
+function deriveSlotAvailability(action, isArmed = false) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (isArmed) return SLOT_AVAILABILITY.armed;
+  if (state.executionAvailable === false) return SLOT_AVAILABILITY.unsupported;
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.available === false && state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  if (state.available === false) return SLOT_AVAILABILITY.unavailable;
+  return SLOT_AVAILABILITY.ready;
+}
+
+// hud/abilities/QuickbarView.js
+var SEMANTIC_ACCENT = {
+  attack: "attack",
+  psi: "psionic",
+  tech: "implant",
+  utility: "neutral",
+  intervention: "intervention"
+};
+var TYPE_MARK = {
+  attack_technique: "ATK",
+  directed: "DIR",
+  instant: "INS",
+  toggle: "TGL"
+};
+function actionById(runtime, id) {
+  if (!id) return null;
+  return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
+}
+function stateMarkerHtml(availability, action) {
+  switch (availability) {
+    case SLOT_AVAILABILITY.armed:
+      return `<span class="ohud-qb-state ohud-qb-state--armed">ARMED</span>`;
+    case SLOT_AVAILABILITY.cooldown:
+      return `<span class="ohud-qb-cd">${Number(action.cooldown?.current) || 0}</span>`;
+    case SLOT_AVAILABILITY.insufficientResource: {
+      const costs = action.costs ?? {};
+      const label = Number(costs.psi) > 0 ? `PSI ${costs.psi}` : Number(costs.charges) > 0 ? `CHG ${costs.charges}` : "LOW";
+      return `<span class="ohud-qb-state ohud-qb-state--resource">${esc(label)}</span>`;
+    }
+    case SLOT_AVAILABILITY.unsupported:
+    case SLOT_AVAILABILITY.unavailable:
+      return `<span class="ohud-qb-state ohud-qb-state--lock" aria-hidden="true">${ICON_LOCK}</span>`;
+    default:
+      return "";
+  }
+}
+function occupiedTile(slot, action, armedActionId) {
+  if (!action) {
+    return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
+      <span class="ohud-qb-missing">?</span>
+    </button>`;
+  }
+  const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
+  const disabled = action.state?.available === false;
+  const active = action.state?.active === true;
+  const mark = TYPE_MARK[action.type] ?? "";
+  const isTechnique = action.type === "attack_technique";
+  const armed = isTechnique && armedActionId != null && armedActionId === action.characterActionId;
+  const availability = deriveSlotAvailability(action, armed);
+  const dataAction = isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  const tip = tipAttr(action.name, [
+    ...abilityTooltipLines(action),
+    isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+  ]);
+  const stateMarker = stateMarkerHtml(availability, action);
+  const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
+  const badges = stateMarker || activeMarker ? `<span class="ohud-qb-badges">${stateMarker}${activeMarker}</span>` : "";
+  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
+    <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
+    <span class="ohud-qb-name">${esc(action.name)}</span>
+    ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
+    ${badges}
+  </button>`;
+}
+function emptyTile(slotIndex, canEdit) {
+  if (!canEdit) {
+    return `<div class="${cls("ohud-qb-slot", "is-empty")}" data-slot-index="${slotIndex}" aria-hidden="true"></div>`;
+  }
+  return `<button type="button" class="${cls("ohud-qb-slot", "is-empty", "is-editable")}" data-action="open-quickbar-editor" data-slot-index="${slotIndex}" aria-label="Open quickbar editor"${tipAttr("Edit quickbar", ["Assign, reorder or remove actions."])}></button>`;
+}
+function renderQuickbarStrip(runtime, opts = {}) {
+  const rt = runtime && typeof runtime === "object" ? runtime : { quickActions: [], quickbar: { slots: [], maxSlots: FIRST_ROW_SIZE } };
+  const slots = Array.isArray(rt.quickbar?.slots) ? rt.quickbar.slots : [];
+  const canEdit = opts.canEdit !== false;
+  const armedActionId = opts.armedActionId ?? null;
+  const rows = /* @__PURE__ */ new Map();
+  for (const slot of slots) {
+    const r = rowOfSlot(slot.slotIndex);
+    if (!rows.has(r)) rows.set(r, []);
+    rows.get(r).push(slot);
+  }
+  const rowKeys = [...rows.keys()].sort((a, b) => a - b);
+  const rowsHtml = rowKeys.map((r) => {
+    const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
+      if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
+      return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId);
+    }).join("");
+    return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;
+  }).join("");
+  const body = slots.length ? `<div class="ohud-qb">${rowsHtml}</div>` : canEdit ? `<button type="button" class="ohud-qb ohud-qb--empty ohud-qb--empty-clickable" data-action="open-quickbar-editor" aria-label="Open quickbar editor"${tipAttr("Edit quickbar", ["No actions assigned yet \u2014 click to add some."])}><div class="ohud-muted-fill">No quickbar actions</div></button>` : `<div class="ohud-qb ohud-qb--empty"><div class="ohud-muted-fill">No quickbar actions</div></div>`;
+  return `<div class="ohud-qb-wrap">${body}</div>`;
+}
+
 // hud/components/SkillBlock.js
 var COST_ABBR = { FREE: "F", MOVE: "Mv", MAIN: "M", TURN: "T" };
 var CATEGORY_ORDER = [
@@ -5920,6 +7250,13 @@ function skillTile(skill2, selectedId) {
   </button>`;
 }
 function renderSkillBlock(state) {
+  const quickbar = state?.snapshot?.quickbar ?? null;
+  if (quickbar && quickbar.ok !== false) {
+    const role = String(state?.viewer?.role ?? "").toLowerCase();
+    const canEdit = role === "gm" || role === "player";
+    const armedActionId = state?.snapshot?.armedActionId ?? null;
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId }) });
+  }
   const slots = selectQuickSlots(state);
   const selectedId = selectSelectedSkill(state)?.id ?? null;
   const skills = slots.map((slot) => selectSkillById(state, slot.skillId)).filter(Boolean);
@@ -5968,32 +7305,35 @@ var SVG_PART_TO_ZONE = Object.freeze(
   Object.fromEntries(Object.entries(ZONE_TO_SVG_PART).map(([zoneId, svgPart]) => [svgPart, zoneId]))
 );
 
+// hud/targeting/targetCursorSvg.js
+var TARGET_CROSSHAIR_ICON = `<svg viewBox="0 0 48 48" width="100%" height="100%" aria-hidden="true"><circle cx="24" cy="24" r="14" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="24" y1="2" x2="24" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="24" y1="38" x2="24" y2="46" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="2" y1="24" x2="10" y2="24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="38" y1="24" x2="46" y2="24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+
 // hud/components/TargetBlock.js
 function renderTargetBlock(state) {
   const tv = selectTargetView(state);
   if (!tv.hasTarget) {
     const picking = tv.isPicking;
-    const body2 = `<div class="ohud-target is-empty">
-      <div class="ohud-figure ohud-figure--ghost"><div class="ohud-figure-svg">${humanoidSvg({ neutral: true })}</div></div>
-      <div class="ohud-target-hint">${picking ? "PICK A TARGET" : "No target selected"}</div>
-      <button type="button" class="ohud-target-pick" data-action="${picking ? "cancel-target" : "pick-target"}">
-        ${picking ? "Cancel" : "Pick target"}
-      </button>
-    </div>`;
+    const body2 = picking ? `<div class="ohud-target is-empty ohud-target-pickarea is-picking" role="status" aria-live="polite">
+          <span class="ohud-target-crosshair" aria-hidden="true">${TARGET_CROSSHAIR_ICON}</span>
+          <div class="ohud-target-hint">Selecting target\u2026</div>
+          <div class="ohud-target-subhint">Press Esc to cancel</div>
+        </div>` : `<button type="button" class="ohud-target is-empty ohud-target-pickarea" data-action="pick-target" role="button" tabindex="0" aria-label="Pick target on map">
+          <span class="ohud-target-crosshair" aria-hidden="true">${TARGET_CROSSHAIR_ICON}</span>
+          <div class="ohud-target-hint">Pick target on map</div>
+        </button>`;
     return panel({ key: "target", label: "Target", bodyHtml: body2 });
   }
-  const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : "\u2014";
+  const distLabel = Number.isFinite(tv.distance) ? `${tv.distance} m` : null;
   const svgPart = zoneIdToSvgPart(tv.bodyPartId);
   const body = `<div class="ohud-target">
     <div class="ohud-figure ohud-figure--targetable">
       <div class="ohud-figure-svg">${humanoidSvg({ zones: tv.zonesMap, highlight: svgPart, targetable: true })}</div>
-      <div class="ohud-figure-shield" aria-hidden="true"${tipAttr("Target shield", ["Defence detail hidden for non-owned entities"])}>${ICON_SHIELD}</div>
     </div>
     <div class="ohud-target-meta">
       <div class="ohud-target-name" title="${esc(tv.name)}">${esc(tv.name)}</div>
       <div class="ohud-target-sub">
         <span class="ohud-target-zone"${tipAttr("Aimed zone", ["Click a body zone on the silhouette"])}>${esc(tv.bodyPartLabel)}</span>
-        <span class="ohud-target-dist"${tipAttr("Distance to target", [])}>${esc(distLabel)}</span>
+        ${distLabel ? `<span class="ohud-target-dist"${tipAttr("Distance to target", [])}>${esc(distLabel)}</span>` : ""}
       </div>
       <button type="button" class="ohud-target-clear" data-action="clear-target"${tipAttr("Clear target", [])}>Clear</button>
     </div>
@@ -6001,53 +7341,7 @@ function renderTargetBlock(state) {
   return panel({ key: "target", label: "Target", bodyHtml: body });
 }
 
-// hud/components/ActionBlock.js
-function titleCase(word) {
-  if (!word) return "";
-  return word.charAt(0) + word.slice(1).toLowerCase();
-}
-function renderEndTurnButton(state) {
-  const session = state?.snapshot?.combatSession ?? null;
-  if (!canEndTurn(session, state?.viewer?.role)) return "";
-  return `<button type="button" class="ohud-action-btn ohud-endturn-btn" data-action="end-turn"
-    ${tipAttr("End turn", ["Unspent MAIN/MOVE are lost"])}>END TURN</button>`;
-}
-function renderBasicAttackButton(state) {
-  const ba = state?.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." };
-  const disabled = ba.inFlight || !ba.uiAllowed;
-  const tip = disabled ? tipAttr("Action unavailable", [esc(ba.uiBlockReason || (ba.inFlight ? "Attack is resolving." : "Not available"))]) : tipAttr("Attack", ["Costs: MAIN"]);
-  return `<div class="ohud-action">
-    <span class="ohud-action-econ">
-      <span class="ohud-econ-pip is-spend">M</span>
-      <span class="ohud-econ-pip">Mv</span>
-    </span>
-    <button type="button" class="${cls("ohud-action-btn", disabled ? "is-disabled" : "is-ready")}"
-      data-action="basic-attack"${disabled ? ' aria-disabled="true"' : ""}${tip}>Attack</button>
-    ${renderEndTurnButton(state)}
-  </div>`;
-}
-function renderActionButton(state) {
-  if (!selectSelectedSkill(state)) return renderBasicAttackButton(state);
-  const label = titleCase(selectActionLabel(state));
-  const can = selectCanAct(state);
-  const reason = selectDisabledReason(state);
-  const disabled = !can || Boolean(reason);
-  const cost = selectCurrentActionCost(state);
-  const displayLabel = reason === "Select a target." ? "Select target" : label;
-  const tip = disabled ? tipAttr("Action unavailable", [esc(reason || "Not available")]) : tipAttr(label, [`Costs: ${cost}`, "Resolution arrives in a later phase"]);
-  return `<div class="ohud-action">
-    <span class="ohud-action-econ">
-      <span class="${cls("ohud-econ-pip", cost === "MAIN" ? "is-spend" : "")}">M</span>
-      <span class="${cls("ohud-econ-pip", cost === "MOVE" ? "is-spend" : "")}">Mv</span>
-    </span>
-    <button type="button" class="${cls("ohud-action-btn", disabled ? "is-disabled" : "is-ready")}"
-      data-action="primary"${disabled ? ' aria-disabled="true"' : ""}${tip}>${esc(displayLabel)}</button>
-    ${renderEndTurnButton(state)}
-  </div>`;
-}
-
 // hud/components/ModifierBlock.js
-var MAX_CHIPS = 4;
 function chipAccent(mod) {
   if (mod.source === "intervention") return "intervention";
   if (mod.kind === "narrative" || mod.requiresGMApproval) return "narrative";
@@ -6069,34 +7363,96 @@ function modChip(mod) {
     <span class="ohud-mod-name">${esc(mod.name)}</span>${sign ? `<span class="ohud-mod-val">${esc(sign)}</span>` : ""}
   </span>`;
 }
-function renderModifierChips(state, limit = MAX_CHIPS) {
-  const all = selectModifierChips(state);
-  const shown = all.slice(0, limit);
-  let html = shown.map(modChip).join("");
-  if (all.length > shown.length) {
-    const hidden = all.slice(limit);
-    const tip = tipAttr(`${hidden.length} more`, hidden.map((m) => m.name));
-    html += `<span class="ohud-mod ohud-mod--more"${tip}>+${hidden.length}</span>`;
-  }
-  return `<div class="ohud-mods">${html}</div>`;
+function armedChip(mod) {
+  const tip = tipAttr(mod.name, [mod.description || "Prepared for next attack"]);
+  return `<span class="${cls("ohud-mod", "ohud-mod--armed", mod.invalid ? "is-invalid" : "is-selected")}"${tip}>
+    <span class="ohud-mod-name">${esc(mod.name)}</span>
+    <button type="button" class="ohud-mod-remove" data-action="disarm-technique" data-action-id="${esc(mod.id)}" aria-label="Remove ${esc(mod.name)}">\xD7</button>
+  </span>`;
 }
 
 // hud/components/CombatControlBlock.js
-var COMBAT_CONTROL_MAX_CHIPS = 6;
-function renderCombatControlBlock(state) {
+var MAX_SECTION_CHIPS = 2;
+function titleCase(word) {
+  if (!word) return "";
+  return word.charAt(0) + word.slice(1).toLowerCase();
+}
+function modifierSection({ key, title, mods, emptyText, chipRenderer = modChip }) {
+  const list = Array.isArray(mods) ? mods : [];
+  const shown = list.slice(0, MAX_SECTION_CHIPS);
+  const hidden = list.slice(MAX_SECTION_CHIPS);
+  const state = list.length ? "active" : "empty";
+  let body;
+  if (!list.length) {
+    body = `<div class="ohud-cc-modsec-empty">${esc(emptyText)}</div>`;
+  } else {
+    const chips = shown.map(chipRenderer).join("");
+    const overflow = hidden.length ? `<span class="ohud-mod ohud-mod--more"${tipAttr(`${hidden.length} more`, hidden.map((m) => m.name))}>+${hidden.length}</span>` : "";
+    body = `<div class="ohud-cc-modsec-chips">${chips}${overflow}</div>`;
+  }
+  return `<div class="ohud-cc-modsec" data-modifier-section="${key}" data-modifier-state="${state}">
+    <div class="ohud-cc-modsec-head">${esc(title)} \xB7 ${list.length}</div>
+    ${body}
+  </div>`;
+}
+function renderModifiers(state) {
+  const groups = selectModifierGroups(state);
+  const auto = [...groups.passive ?? [], ...groups.narrative ?? []];
+  const armed = groups.active ?? [];
   const combatButton = state?.viewer?.role === "gm" ? `<button type="button" class="ohud-cc-combat-btn" data-action="toggle-gm-tracker" title="GM Combat Tracker">COMBAT</button>` : "";
+  return `<section class="ohud-cc-mod" data-block="modifiers">
+    <div class="ohud-panel-head"><span class="ohud-panel-label">Modifiers</span>${combatButton}</div>
+    ${modifierSection({ key: "auto", title: "AUTO", mods: auto, emptyText: "No automatic effects" })}
+    ${modifierSection({ key: "armed", title: "ARMED", mods: armed, emptyText: "None selected", chipRenderer: armedChip })}
+  </section>`;
+}
+function endTurnDisabledReason(session, viewerRole) {
+  if (!session || session.exists !== true || session.status !== "active" || session.currentParticipantId == null) {
+    return "No active combat session";
+  }
+  const isGm = String(viewerRole ?? "").toLowerCase() === "gm";
+  if (isGm && session.isSelectedCharacterTurn) return null;
+  if (session.isCurrentPlayerTurn === true) return null;
+  return "Not your turn";
+}
+function resolveAttackSlot(state) {
+  if (!selectSelectedSkill(state)) {
+    const ba = state?.ui?.basicAttack ?? { inFlight: false, uiAllowed: false, uiBlockReason: "No character loaded." };
+    const disabled2 = ba.inFlight || !ba.uiAllowed;
+    const tip2 = disabled2 ? tipAttr("Action unavailable", [esc(ba.uiBlockReason || (ba.inFlight ? "Attack is resolving." : "Not available"))]) : tipAttr("Attack", ["Costs: MAIN"]);
+    return { label: "Attack", action: "basic-attack", disabled: disabled2, tip: tip2 };
+  }
+  const label = titleCase(selectActionLabel(state));
+  const can = selectCanAct(state);
+  const reason = selectDisabledReason(state);
+  const disabled = !can || Boolean(reason);
+  const cost = selectCurrentActionCost(state);
+  const displayLabel = reason === "Select a target." ? "Select target" : label;
+  const tip = disabled ? tipAttr("Action unavailable", [esc(reason || "Not available")]) : tipAttr(label, [`Costs: ${cost}`, "Resolution arrives in a later phase"]);
+  return { label: displayLabel, action: "primary", disabled, tip };
+}
+function renderActionBar(state) {
+  const attack = resolveAttackSlot(state);
+  const session = state?.snapshot?.combatSession ?? null;
+  const role = state?.viewer?.role;
+  const endTurnDisabled = !canEndTurn(session, role);
+  const endTurnReason = endTurnDisabled ? endTurnDisabledReason(session, role) : null;
+  const endTurnTip = endTurnDisabled ? tipAttr("End turn unavailable", [esc(endTurnReason || "Not available")]) : tipAttr("End turn", ["Unspent MAIN/MOVE are lost"]);
+  return `<div class="ohud-cc-actionbar" data-block="action">
+    <button type="button" class="${cls("ohud-cc-abtn", "ohud-cc-abtn--attack", attack.disabled ? "is-disabled" : "")}"
+      data-action="${attack.action}"${attack.disabled ? ' aria-disabled="true"' : ""}${attack.tip}>${esc(attack.label)}</button>
+    <button type="button" class="${cls("ohud-cc-abtn", "ohud-cc-abtn--endturn", endTurnDisabled ? "is-disabled" : "")}"
+      data-action="end-turn"${endTurnDisabled ? ' aria-disabled="true"' : ""}${endTurnTip}>END TURN</button>
+  </div>`;
+}
+function renderCombatControlBlock(state) {
   return `<section class="ohud-panel ohud-panel--cc" data-block="combatControl">
     <div class="ohud-cc">
-      <div class="ohud-cc-target">${renderTargetBlock(state)}</div>
-      <div class="ohud-cc-right">
-        <section class="ohud-panel ohud-panel--modifiers ohud-cc-mod" data-block="modifiers">
-          <div class="ohud-panel-head"><span class="ohud-panel-label">Mod</span>${combatButton}</div>
-          ${renderModifierChips(state, COMBAT_CONTROL_MAX_CHIPS)}
-        </section>
-        <section class="ohud-panel ohud-panel--action ohud-panel--bare ohud-cc-action" data-block="action">
-          ${renderActionButton(state)}
-        </section>
+      <div class="ohud-cc-top">
+        <div class="ohud-cc-target">${renderTargetBlock(state)}</div>
+        ${renderModifiers(state)}
       </div>
+      ${renderActionBar(state)}
     </div>
   </section>`;
 }
@@ -6389,7 +7745,16 @@ var ERROR_MESSAGES = Object.freeze({
   BODY_PART_NOT_ALLOWED: "This item can't be equipped to that body part.",
   EQUIPMENT_ITEM_NOT_FOUND: "Equipment item was not found.",
   ALREADY_EQUIPPED: "This item is already equipped.",
-  SLOT_OCCUPIED: "That body part already has equipment in this slot."
+  SLOT_OCCUPIED: "That body part already has equipment in this slot.",
+  // Phase 4.1A: armed attack technique validation (perform_attack, migration 100)
+  ARMED_ACTION_INVALID: "Armed attack technique is invalid.",
+  ARMED_ACTION_ON_COOLDOWN: "Armed attack technique is on cooldown.",
+  NOT_ENOUGH_PSI: "Not enough PSI for the armed attack technique.",
+  NOT_ENOUGH_CHARGES: "Armed attack technique has no charges left.",
+  WEAPON_REQUIREMENT_NOT_MET: "Armed attack technique requires a different weapon type.",
+  TARGET_REQUIREMENT_NOT_MET: "Armed attack technique cannot target this.",
+  ACTION_STACK_CONFLICT: "Only one attack technique may be armed at a time.",
+  ACTION_EFFECT_NOT_IMPLEMENTED: "This attack technique's effect isn't supported yet."
 });
 
 // hud/scene/selectionState.js
@@ -6646,6 +8011,64 @@ function createTooltip(host) {
   };
 }
 
+// hud/abilities/quickbarDetailCardController.js
+var OPEN_DELAY_MS = 220;
+function createQuickbarDetailCardController(sendCommand) {
+  let openTimer = null;
+  let openActionId = null;
+  function clearOpenTimer() {
+    if (openTimer) {
+      clearTimeout(openTimer);
+      openTimer = null;
+    }
+  }
+  function showNow(action, opts = {}) {
+    clearOpenTimer();
+    openActionId = action?.characterActionId ?? null;
+    sendCommand({ type: "show", characterActionId: openActionId, armed: !!opts.armed });
+  }
+  function scheduleOpen(action, opts = {}) {
+    clearOpenTimer();
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      showNow(action, opts);
+    }, OPEN_DELAY_MS);
+  }
+  function scheduleClose() {
+    clearOpenTimer();
+    sendCommand({ type: "maybe-hide" });
+  }
+  function cancelClose() {
+    sendCommand({ type: "cancel-hide" });
+  }
+  function closeNow() {
+    clearOpenTimer();
+    openActionId = null;
+    sendCommand({ type: "hide" });
+  }
+  function toggle(action, opts = {}) {
+    if (openActionId === (action?.characterActionId ?? null)) {
+      closeNow();
+      return;
+    }
+    showNow(action, opts);
+  }
+  return {
+    scheduleOpen,
+    scheduleClose,
+    cancelClose,
+    closeNow,
+    toggle,
+    isOpenFor(actionId) {
+      return openActionId === actionId;
+    },
+    destroy() {
+      clearOpenTimer();
+      closeNow();
+    }
+  };
+}
+
 // hud/components/CombatHudModule.js
 var DEV = (() => {
   try {
@@ -6668,6 +8091,8 @@ function mountCombatHudModule(options) {
   const { root, moduleId } = options;
   const integration = options.integration ?? {};
   const restored = normalizeHudUiState(options.uiState);
+  const scale = Number(options.scale) > 0 ? Number(options.scale) : 1;
+  const canonical = DEFAULT_HUD_LAYOUT_V2[moduleId];
   const adapter = createMockCombatHudAdapter({ scenarioId: restored.mockScenarioId });
   adapter.setViewerRole(restored.viewerRole);
   if (restored.selectedTokenId) adapter.selectToken(restored.selectedTokenId);
@@ -6677,9 +8102,34 @@ function mountCombatHudModule(options) {
   const el = document.createElement("div");
   el.className = cls("odyssey-hud", "ohud-module");
   el.setAttribute("data-module", moduleId);
+  if (canonical) {
+    el.style.width = `${canonical.width}px`;
+    el.style.height = `${canonical.height}px`;
+    if (scale !== 1) {
+      el.style.transform = `scale(${scale})`;
+      el.style.transformOrigin = "top left";
+    }
+    el.style.setProperty("--ohud-critical-text-ratio", String(computeCriticalTextRatio(scale)));
+    el.style.setProperty("--ohud-slot-marker-ratio", String(computeCriticalTextRatio(scale, 1.5)));
+  }
   root.appendChild(el);
   const tooltip = createTooltip(el);
+  const detailCard = moduleId === "skills" ? createQuickbarDetailCardController((cmd) => {
+    integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "ability-detail", ...cmd });
+  }) : null;
   let toastTimer = null;
+  function resolveQuickAction(actionId) {
+    if (!actionId) return null;
+    let list = liveSelection?.hudSnapshot?.quickbar?.quickActions;
+    if (!Array.isArray(list)) {
+      try {
+        list = store.getState()?.snapshot?.quickbar?.quickActions;
+      } catch (_e) {
+        list = null;
+      }
+    }
+    return Array.isArray(list) ? list.find((a) => a.characterActionId === actionId) ?? null : null;
+  }
   function controlsHtml() {
     if (moduleId !== "player") return "";
     return `<div class="ohud-module-controls">
@@ -6848,6 +8298,36 @@ function mountCombatHudModule(options) {
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
         break;
+      case "open-quickbar-editor":
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "quickbar", type: "open-editor" });
+        break;
+      case "show-ability-detail": {
+        if (t.classList.contains("is-disabled")) break;
+        const action = resolveQuickAction(t.getAttribute("data-action-id"));
+        if (action && detailCard) detailCard.toggle(action);
+        else showToast("Ability details \u2014 execution arrives in Phase 4.1");
+        break;
+      }
+      case "toggle-armed-technique": {
+        const isArmed = t.classList.contains("is-armed");
+        if (isArmed || !t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud",
+            feature: "quickbar",
+            type: "toggle-armed",
+            characterActionId: t.getAttribute("data-action-id")
+          });
+        }
+        break;
+      }
+      case "disarm-technique":
+        integration.onCommand && integration.onCommand({
+          scope: "combat-hud",
+          feature: "quickbar",
+          type: "toggle-armed",
+          characterActionId: t.getAttribute("data-action-id")
+        });
+        break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "end-turn" });
@@ -6865,8 +8345,51 @@ function mountCombatHudModule(options) {
       integration.onCommand && integration.onCommand({ type: "close-weapon-selector" });
       integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "fire-mode", type: "close-selector" });
     }
+    if (e.key === "Escape" && moduleId === "combatControl") {
+      integration.onCommand && integration.onCommand({ type: "cancel-target" });
+    }
   }
   el.addEventListener("keydown", onKeyDown);
+  function techniqueSlotFromTarget(target) {
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
+    return t && el.contains(t) ? t : null;
+  }
+  function onSlotDetailOver(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const to = e.relatedTarget;
+    if (to && techniqueSlotFromTarget(to) === t) return;
+    detailCard.scheduleClose();
+  }
+  function onSlotDetailFocusIn(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailFocusOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    detailCard.scheduleClose();
+  }
+  if (detailCard) {
+    el.addEventListener("mouseover", onSlotDetailOver);
+    el.addEventListener("mouseout", onSlotDetailOut);
+    el.addEventListener("focusin", onSlotDetailFocusIn);
+    el.addEventListener("focusout", onSlotDetailFocusOut);
+  }
   const unsubscribe = store.subscribe(render);
   render();
   return {
@@ -6877,241 +8400,18 @@ function mountCombatHudModule(options) {
       tooltip.destroy();
       el.removeEventListener("click", onClick);
       el.removeEventListener("keydown", onKeyDown);
+      if (detailCard) {
+        el.removeEventListener("mouseover", onSlotDetailOver);
+        el.removeEventListener("mouseout", onSlotDetailOut);
+        el.removeEventListener("focusin", onSlotDetailFocusIn);
+        el.removeEventListener("focusout", onSlotDetailFocusOut);
+        detailCard.destroy();
+      }
       if (toastTimer) clearTimeout(toastTimer);
       store.dispose();
       el.remove();
     }
   };
-}
-
-// hud/overlay/hudLayout.js
-var HUD_LAYOUT_REFERENCE_VIEWPORT = Object.freeze({ width: 1920, height: 1080 });
-var LAYOUT_VERSION = 2;
-var LAYOUT_STORAGE_KEY = "odyssey.hud.layout.v2";
-var HUD_MODULE_IDS = Object.freeze([
-  "player",
-  "gun",
-  "skills",
-  "combatControl",
-  "log"
-]);
-var HUD_MODULE_POPOVER_IDS = Object.freeze({
-  player: "odyssey-hud-player",
-  gun: "odyssey-hud-gun",
-  skills: "odyssey-hud-skills",
-  combatControl: "odyssey-hud-combat-control",
-  log: "odyssey-hud-log"
-});
-var LEGACY_HUD_POPOVER_IDS = Object.freeze([
-  "odyssey-hud-target",
-  "odyssey-hud-modifiers",
-  "odyssey-hud-action"
-]);
-var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
-var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
-var LAYOUT_MARGIN = 16;
-var SNAP_GRID = 8;
-var COMPACT_LAYOUT_BREAKPOINT = 1100;
-var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
-  player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
-  gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
-  skills: Object.freeze({ left: 663, bottom: 16, width: 600, height: 165, zIndex: 20 }),
-  // Composite: Target (left 165) + Modifiers/Action (right 165). Replaces the
-  // former three separate target/modifiers/action rects.
-  combatControl: Object.freeze({ left: 1263, bottom: 16, width: 330, height: 165, zIndex: 20 }),
-  log: Object.freeze({ left: 1656, bottom: 16, width: 250, height: 250, zIndex: 20 })
-});
-function clamp012(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-function computeLayoutScale(vw, vh) {
-  const w = Math.max(1, Number(vw) || 0);
-  const h = Math.max(1, Number(vh) || 0);
-  return Math.min(w / HUD_LAYOUT_REFERENCE_VIEWPORT.width, h / HUD_LAYOUT_REFERENCE_VIEWPORT.height, 1);
-}
-function isCompactViewport(vw) {
-  return (Number(vw) || 0) < COMPACT_LAYOUT_BREAKPOINT;
-}
-function snapToGrid(value, grid = SNAP_GRID) {
-  const g = grid || 1;
-  return Math.round((Number(value) || 0) / g) * g;
-}
-function moduleSize(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleSize(moduleId, vw);
-  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
-  const scale = computeLayoutScale(vw, vh);
-  return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
-}
-function defaultModuleRect(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleRect(moduleId, vw, vh);
-  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
-  const scale = computeLayoutScale(vw, vh);
-  const width = Math.round(def.width * scale);
-  const height = Math.round(def.height * scale);
-  return {
-    left: Math.round(def.left * scale),
-    top: Math.round((Number(vh) || 0) - def.bottom * scale - height),
-    width,
-    height,
-    zIndex: def.zIndex
-  };
-}
-function normalizedToPixels(moduleId, placement, vw, vh) {
-  const { width, height } = moduleSize(moduleId, vw, vh);
-  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
-  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
-  return {
-    left: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.x) * availW),
-    top: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.y) * availH),
-    width,
-    height,
-    zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex
-  };
-}
-function pixelsToNormalized(moduleId, left, top, vw, vh) {
-  const { width, height } = moduleSize(moduleId, vw, vh);
-  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
-  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
-  return {
-    x: availW > 0 ? clamp012((left - LAYOUT_MARGIN) / availW) : 0,
-    y: availH > 0 ? clamp012((top - LAYOUT_MARGIN) / availH) : 0
-  };
-}
-function clampRect(rect, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  return {
-    ...rect,
-    left: Math.max(0, Math.min(rect.left, Math.max(0, w - rect.width))),
-    top: Math.max(0, Math.min(rect.top, Math.max(0, h - rect.height)))
-  };
-}
-function resolveModuleRect(moduleId, placement, vw, vh) {
-  const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
-  return clampRect(rect, vw, vh);
-}
-var COMPACT_SIZES = {
-  player: { width: 150, height: 150 },
-  gun: { width: 190, height: 92 },
-  skills: { width: 300, height: 92 },
-  target: { width: 92, height: 92 },
-  modifiers: { width: 92, height: 92 },
-  action: { width: 120, height: 34 },
-  log: { width: 180, height: 140 }
-};
-function compactModuleSize(moduleId, vw) {
-  const s = COMPACT_SIZES[moduleId];
-  const maxW = Math.max(80, (Number(vw) || 0) - 2 * LAYOUT_MARGIN);
-  return { width: Math.min(s.width, maxW), height: s.height };
-}
-function compactModuleRect(moduleId, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  let x = LAYOUT_MARGIN;
-  let rowTopFromBottom = LAYOUT_MARGIN;
-  let rowHeight = 0;
-  for (const id of HUD_MODULE_IDS) {
-    const size = compactModuleSize(id, vw);
-    if (x + size.width + LAYOUT_MARGIN > w && x > LAYOUT_MARGIN) {
-      rowTopFromBottom += rowHeight + 8;
-      x = LAYOUT_MARGIN;
-      rowHeight = 0;
-    }
-    if (id === moduleId) {
-      const top = Math.max(0, h - rowTopFromBottom - size.height);
-      return clampRect({ left: x, top, width: size.width, height: size.height, zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex }, vw, vh);
-    }
-    x += size.width + 8;
-    rowHeight = Math.max(rowHeight, size.height);
-  }
-  return clampRect({ left: LAYOUT_MARGIN, top: LAYOUT_MARGIN, ...compactModuleSize(moduleId, vw), zIndex: 20 }, vw, vh);
-}
-function computeAlignmentGuides(moving, others, threshold = 6) {
-  const vertical = /* @__PURE__ */ new Set();
-  const horizontal = /* @__PURE__ */ new Set();
-  const mX = [moving.left, moving.left + moving.width / 2, moving.left + moving.width];
-  const mY = [moving.top, moving.top + moving.height / 2, moving.top + moving.height];
-  for (const o of others) {
-    const oX = [o.left, o.left + o.width / 2, o.left + o.width];
-    const oY = [o.top, o.top + o.height / 2, o.top + o.height];
-    for (const a of mX) for (const b of oX) if (Math.abs(a - b) <= threshold) vertical.add(Math.round(b));
-    for (const a of mY) for (const b of oY) if (Math.abs(a - b) <= threshold) horizontal.add(Math.round(b));
-  }
-  return { vertical: [...vertical], horizontal: [...horizontal] };
-}
-function defaultLayoutState() {
-  const modules = {};
-  for (const id of HUD_MODULE_IDS) modules[id] = { mode: "default", x: 0, y: 0 };
-  return { version: LAYOUT_VERSION, modules };
-}
-function migrateLegacyModules(modules) {
-  if (!modules || modules.combatControl) return modules;
-  const hasLegacy = modules.target || modules.modifiers || modules.action;
-  if (!hasLegacy) return modules;
-  const base = modules.target;
-  if (base && base.mode === "custom" && Number.isFinite(base.x) && Number.isFinite(base.y)) {
-    return { ...modules, combatControl: { mode: "custom", x: clamp012(base.x), y: clamp012(base.y) } };
-  }
-  return modules;
-}
-function validateLayoutState(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  if (raw.version !== LAYOUT_VERSION) return null;
-  if (!raw.modules || typeof raw.modules !== "object") return null;
-  const src = migrateLegacyModules(raw.modules);
-  const out = defaultLayoutState();
-  for (const id of HUD_MODULE_IDS) {
-    const m = src[id];
-    if (m && (m.mode === "default" || m.mode === "custom") && typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y)) {
-      out.modules[id] = { mode: m.mode, x: clamp012(m.x), y: clamp012(m.y) };
-    }
-  }
-  return out;
-}
-function normalizeLayoutState(state) {
-  return validateLayoutState(state) ?? defaultLayoutState();
-}
-function parseLayoutState(rawJson) {
-  if (rawJson == null) return null;
-  let obj = rawJson;
-  if (typeof rawJson === "string") {
-    try {
-      obj = JSON.parse(rawJson);
-    } catch {
-      return null;
-    }
-  }
-  return validateLayoutState(obj);
-}
-function serializeLayoutState(state) {
-  return JSON.stringify(normalizeLayoutState(state));
-}
-function readStoredLayout(storage) {
-  try {
-    const raw = storage && storage.getItem ? storage.getItem(LAYOUT_STORAGE_KEY) : null;
-    return parseLayoutState(raw) ?? defaultLayoutState();
-  } catch {
-    return defaultLayoutState();
-  }
-}
-function writeStoredLayout(storage, state) {
-  try {
-    if (storage && storage.setItem) storage.setItem(LAYOUT_STORAGE_KEY, serializeLayoutState(state));
-  } catch {
-  }
-}
-function setModulePlacement(draft, moduleId, placement) {
-  const next = normalizeLayoutState(draft);
-  if (HUD_MODULE_IDS.includes(moduleId)) {
-    next.modules[moduleId] = {
-      mode: placement && placement.mode === "default" ? "default" : "custom",
-      x: clamp012(placement && placement.x),
-      y: clamp012(placement && placement.y)
-    };
-  }
-  return next;
 }
 
 // hud/components/CombatHudLayoutEditor.js
@@ -7337,6 +8637,225 @@ function renderGmCombatTracker({ session, candidates, viewerRole, busy = false }
   </section>`;
 }
 
+// hud/abilities/AbilityDetailCard.js
+var SEMANTIC_ACCENT2 = { attack: "attack", psi: "psionic", tech: "implant", utility: "neutral", intervention: "intervention" };
+var SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
+var SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
+function categoryLabel(action) {
+  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
+  const src = SOURCE_LABEL[action.sourceType] ?? null;
+  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
+  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
+}
+function renderAbilityDetailCard(action, opts = {}) {
+  if (!action) {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">${esc(opts.emptyText ?? "No action selected.")}</div></div>`;
+  }
+  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const model = abilityTooltipModel(action);
+  const descLine = model.lines.find((l) => l.label === "Description");
+  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
+  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
+  const pillsHtml = pillLines.map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`).join("");
+  const statusHtml = statusLine ? `<div class="${cls("ohud-qbe-desc-status", statusLine.value === "Active" ? "is-active" : "is-warning")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>` : "";
+  const armedHtml = opts.armed ? `<div class="ohud-qbe-desc-status is-active">Prepared for next attack</div>` : "";
+  const headHtml = `<div class="ohud-qbe-desc-head">
+      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
+      <div class="ohud-qbe-desc-head-text">
+        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
+        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
+      </div>
+    </div>`;
+  const bodyInnerHtml = `${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
+    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>`;
+  if (opts.scrollableBody) {
+    return `<div class="${cls("ohud-qbe-desc", "ohud-qbe-desc--card", `ohud-accent--${accent}`)}">
+      ${headHtml}
+      <div class="ohud-qbe-desc-body">${bodyInnerHtml}</div>
+      ${armedHtml}
+      ${statusHtml}
+    </div>`;
+  }
+  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
+    ${headHtml}
+    ${bodyInnerHtml}
+    ${armedHtml}
+    ${statusHtml}
+  </div>`;
+}
+
+// hud/abilities/QuickbarEditorPanel.js
+var SEMANTIC_ACCENT3 = {
+  attack: "attack",
+  psi: "psionic",
+  tech: "implant",
+  utility: "neutral",
+  intervention: "intervention"
+};
+var TYPE_MARK2 = { attack_technique: "ATK", directed: "DIR", instant: "INS", toggle: "TGL" };
+function costBadges(action) {
+  const badges = [];
+  const c = action.costs ?? {};
+  if (c.main > 0) badges.push({ text: `MAIN ${c.main}`, kind: "cost" });
+  else if (c.move > 0) badges.push({ text: `MOVE ${c.move}`, kind: "cost" });
+  else if (c.charges > 0) badges.push({ text: `CHG ${c.charges}`, kind: "cost" });
+  if (c.psi > 0) badges.push({ text: `PSI ${c.psi}`, kind: "resource" });
+  if (action.cooldown?.max > 0) badges.push({ text: `CD ${action.cooldown.max}`, kind: "cooldown" });
+  return badges;
+}
+function badgeHtml(badge) {
+  return `<span class="${cls("ohud-qbe-badge", `ohud-qbe-badge--${badge.kind}`)}">${esc(badge.text)}</span>`;
+}
+function actionById2(runtime, id) {
+  if (!id) return null;
+  return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
+}
+function libraryCard(action, selected) {
+  const accent = SEMANTIC_ACCENT3[action.semanticKind] ?? "neutral";
+  const disabled = action.state?.available === false;
+  const tip = tipAttr(action.name, abilityTooltipLines(action));
+  const badges = costBadges(action).map(badgeHtml).join("");
+  return `<div class="${cls("ohud-qbe-card", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", selected ? "is-selected" : "")}" draggable="true" data-qbe-action="${esc(action.characterActionId)}"${tip}>
+    <span class="ohud-qbe-card-icon">${skillIconSvg(action.iconKey)}</span>
+    <span class="ohud-qbe-card-main">
+      <span class="ohud-qbe-card-name">${esc(action.name)}</span>
+      <span class="ohud-qbe-card-type">${esc(categoryLabel(action))}</span>
+    </span>
+    <span class="ohud-qbe-card-badges">${badges}</span>
+    ${disabled ? `<span class="ohud-qbe-card-off" ${tipAttr("Currently unavailable", [String(action.state.disabledReason ?? "")])}>!</span>` : ""}
+  </div>`;
+}
+function editorSlot(slot, action, selected) {
+  const idx = slot.slotIndex;
+  if (slot.empty || slot.characterActionId == null) {
+    return `<div class="${cls("ohud-qbe-slot", "is-empty", selected ? "is-selected" : "")}" data-qbe-slot="${idx}">
+      <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+    </div>`;
+  }
+  if (slot.missing || !action) {
+    return `<div class="${cls("ohud-qbe-slot", "is-missing", selected ? "is-selected" : "")}" data-qbe-slot="${idx}" ${tipAttr("Missing action", ["No longer available \u2014 remove it."])}>
+      <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+      <span class="ohud-qbe-missing">?</span>
+      <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
+    </div>`;
+  }
+  const accent = SEMANTIC_ACCENT3[action.semanticKind] ?? "neutral";
+  const mark = TYPE_MARK2[action.type] ?? "";
+  const tip = tipAttr(action.name, abilityTooltipLines(action));
+  return `<div class="${cls("ohud-qbe-slot", "is-filled", `ohud-accent--${accent}`, selected ? "is-selected" : "")}" draggable="true" data-qbe-slot="${idx}" data-qbe-action="${esc(action.characterActionId)}"${tip}>
+    <span class="ohud-qbe-slot-idx">${idx + 1}</span>
+    ${mark ? `<span class="ohud-qbe-slot-type">${esc(mark)}</span>` : ""}
+    <span class="ohud-qbe-slot-icon">${skillIconSvg(action.iconKey)}</span>
+    <span class="ohud-qbe-slot-name">${esc(action.name)}</span>
+    <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
+  </div>`;
+}
+function footerStatus({ busy, conflict, dirty }) {
+  if (busy) return { text: "Saving\u2026", tone: "busy" };
+  if (conflict) return { text: "Resolve the conflict to continue", tone: "warning" };
+  if (dirty) return { text: "Unsaved changes", tone: "warning" };
+  return { text: "All changes saved", tone: "neutral" };
+}
+function resolveSelection(selection, runtime, draft) {
+  if (!selection) return null;
+  if (selection.kind === "action") {
+    const action = actionById2(runtime, selection.actionId);
+    return action ? { kind: "action", action } : null;
+  }
+  if (selection.kind === "slot") {
+    const slot = draft.find((s) => s.slotIndex === selection.slotIndex);
+    if (!slot || slot.empty || slot.characterActionId == null) return { kind: "empty-slot" };
+    if (slot.missing) return { kind: "missing-slot" };
+    const action = actionById2(runtime, slot.characterActionId);
+    return action ? { kind: "action", action } : { kind: "missing-slot" };
+  }
+  return null;
+}
+function renderDescriptionPanel(resolved) {
+  if (!resolved) {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">Select an ability to view details.</div></div>`;
+  }
+  if (resolved.kind === "empty-slot") {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">Empty slot \u2014 drag an action here to assign it.</div></div>`;
+  }
+  if (resolved.kind === "missing-slot") {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">This action is no longer available. Remove it from the slot.</div></div>`;
+  }
+  return renderAbilityDetailCard(resolved.action);
+}
+function renderQuickbarEditor(args = {}) {
+  const runtime = args.runtime && typeof args.runtime === "object" ? args.runtime : null;
+  const draft = Array.isArray(args.draft) ? args.draft : [];
+  const library = Array.isArray(args.library) ? args.library : [];
+  const busy = !!args.busy;
+  const dirty = !!args.dirty;
+  const conflict = !!args.conflict;
+  const name = String(args.characterName ?? "Character");
+  const selection = args.selection ?? null;
+  const header = `<div class="ohud-qbe-header">
+    <span class="ohud-qbe-header-icon">${ICON_GRID}</span>
+    <span class="ohud-qbe-header-text">
+      <span class="ohud-qbe-header-title">Quickbar Editor</span>
+      <span class="ohud-qbe-header-subtitle">Assign combat abilities to quick slots \u2014 ${esc(name)}</span>
+    </span>
+    <button type="button" class="ohud-qbe-close" data-action="qbe-cancel" aria-label="Close">\xD7</button>
+  </div>`;
+  if (!runtime) {
+    return `<div class="ohud-qbe">${header}<div class="ohud-qbe-empty">Loading quickbar\u2026</div></div>`;
+  }
+  const conflictBar = conflict ? `<div class="ohud-qbe-conflict" role="alert">
+        <span>Layout changed on the server. Your edits were not saved.</span>
+        <button type="button" class="ohud-qbe-reload" data-action="qbe-reload">Reload layout</button>
+      </div>` : "";
+  const resolvedSelection = resolveSelection(selection, runtime, draft);
+  const highlightActionId = resolvedSelection?.kind === "action" ? resolvedSelection.action.characterActionId : null;
+  const highlightSlotIndex = selection?.kind === "slot" ? selection.slotIndex : null;
+  const libraryHtml = library.length ? library.map((action) => libraryCard(action, action.characterActionId === highlightActionId)).join("") : `<div class="ohud-qbe-lib-empty">All actions are placed.</div>`;
+  const rows = /* @__PURE__ */ new Map();
+  for (const slot of draft) {
+    const r = rowOfSlot(slot.slotIndex);
+    if (!rows.has(r)) rows.set(r, []);
+    rows.get(r).push(slot);
+  }
+  const slotsHtml = [...rows.keys()].sort((a, b) => a - b).map((r) => {
+    const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
+      const isSelected = slot.slotIndex === highlightSlotIndex || highlightActionId != null && slot.characterActionId === highlightActionId;
+      return editorSlot(slot, actionById2(runtime, slot.characterActionId), isSelected);
+    }).join("");
+    return `<div class="ohud-qbe-slot-row" data-row="${r}">${tiles}</div>`;
+  }).join("");
+  const descriptionHtml = renderDescriptionPanel(resolvedSelection);
+  const saveDisabled = busy || !dirty;
+  const resetDisabled = busy || !dirty && !conflict;
+  const status2 = footerStatus({ busy, conflict, dirty });
+  return `<div class="${cls("ohud-qbe", busy ? "is-busy" : "")}">
+    ${header}
+    <div class="ohud-qbe-body">
+      ${conflictBar}
+      <div class="ohud-qbe-cols">
+        <div class="ohud-qbe-col ohud-qbe-col--library">
+          <div class="ohud-qbe-section-label">Available actions</div>
+          <div class="ohud-qbe-library" data-qbe-library>${libraryHtml}</div>
+        </div>
+        <div class="ohud-qbe-col ohud-qbe-col--slots">
+          <div class="ohud-qbe-section-label">Quickbar slots</div>
+          <div class="ohud-qbe-hint">Drag an action onto a slot to assign it, or drag between slots to swap. Click a card or slot to see its details.</div>
+          ${descriptionHtml}
+          <div class="ohud-qbe-slots">${slotsHtml}</div>
+        </div>
+      </div>
+    </div>
+    <div class="ohud-qbe-footer">
+      <span class="${cls("ohud-qbe-status", `ohud-qbe-status--${status2.tone}`)}">${esc(status2.text)}</span>
+      <div class="ohud-qbe-actions">
+        <button type="button" class="ohud-qbe-btn" data-action="qbe-reset" ${resetDisabled ? "disabled" : ""}>Reset</button>
+        <button type="button" class="ohud-qbe-btn" data-action="qbe-cancel" ${busy ? "disabled" : ""}>Cancel</button>
+        <button type="button" class="ohud-qbe-btn is-primary" data-action="qbe-save" ${saveDisabled ? "disabled" : ""}>Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 // hud/overlay/combatHudOverlayPage.js
 var COMPANION_DEBUG = (() => {
   try {
@@ -7370,6 +8889,14 @@ function getModuleParam() {
     return new URLSearchParams(window.location.search).get("module") || "";
   } catch {
     return "";
+  }
+}
+function getScaleParam() {
+  try {
+    const raw = Number(new URLSearchParams(window.location.search).get("scale"));
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  } catch {
+    return 1;
   }
 }
 function renderPill(root, available) {
@@ -7430,6 +8957,7 @@ function start() {
       root,
       moduleId: moduleParam,
       uiState,
+      scale: getScaleParam(),
       integration: {
         onArrange() {
           if (available) send(BC_HUD_EDITOR, { open: true });
@@ -7567,6 +9095,199 @@ function start() {
       }
     }
     renderTracker();
+    return;
+  }
+  if (moduleParam === "ability-detail") {
+    let resolveShownAction = function() {
+      if (!shown?.characterActionId) return null;
+      const list = rawPayload?.hudSnapshot?.quickbar?.quickActions;
+      return Array.isArray(list) ? list.find((a) => a.characterActionId === shown.characterActionId) ?? null : null;
+    }, renderCard = function() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-ability-detail-page";
+      host.innerHTML = renderAbilityDetailCard(resolveShownAction(), { armed: !!shown?.armed, scrollableBody: true });
+      root.appendChild(host);
+    };
+    let rawPayload = null;
+    let shown = null;
+    root.addEventListener("mouseenter", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "cancel-hide" });
+    });
+    root.addEventListener("mouseleave", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "maybe-hide" });
+    });
+    if (available) {
+      try {
+        lib_default.broadcast.onMessage(BC_HUD_SELECTION, (event) => {
+          rawPayload = event?.data ?? null;
+          renderCard();
+        });
+        lib_default.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
+          const data = event?.data ?? {};
+          if (data?.scope !== "combat-hud" || data?.feature !== "ability-detail") return;
+          if (String(data.type ?? "") === "show") {
+            shown = { characterActionId: data.characterActionId ?? null, armed: !!data.armed };
+            renderCard();
+          }
+        });
+        send(BC_HUD_SELECTION_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "request-current" });
+      } catch (_e) {
+      }
+    }
+    renderCard();
+    return;
+  }
+  if (moduleParam === "quickbar-editor") {
+    let actionIdSet = function() {
+      return new Set((runtime?.quickActions ?? []).map((a) => a.characterActionId).filter(Boolean));
+    }, rebuildDraftFromRuntime = function() {
+      const ids = actionIdSet();
+      const maxSlots = runtime?.quickbar?.maxSlots ?? 20;
+      draft = buildDraft(runtime?.quickbar?.slots ?? [], ids, maxSlots);
+      originalDraft = draft.map((s) => ({ ...s }));
+      baseVersion = runtime?.quickbar?.version ?? null;
+    }, renderEditor = function() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-module";
+      host.setAttribute("data-module", "quickbar-editor");
+      const library = runtime ? unassignedActions(runtime.quickActions, draft) : [];
+      host.innerHTML = renderQuickbarEditor({
+        runtime,
+        draft,
+        library,
+        characterName: runtime?.characterName ?? "",
+        busy,
+        dirty: isDraftDirty(draft, originalDraft),
+        conflict,
+        selection
+      });
+      root.appendChild(host);
+      wireDragAndDrop();
+    }, notifyDraftChanged = function() {
+      const occupied = draft.filter((s) => s.characterActionId && !s.empty).length;
+      send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "draft-changed", occupiedSlots: occupied });
+    }, wireDragAndDrop = function() {
+      const ids = actionIdSet();
+      root.querySelectorAll("[draggable='true']").forEach((el) => {
+        el.addEventListener("dragstart", (e) => {
+          const actionId = el.getAttribute("data-qbe-action");
+          const fromSlot = el.getAttribute("data-qbe-slot");
+          const payload = JSON.stringify({ actionId: actionId ?? null, fromSlot: fromSlot != null ? Number(fromSlot) : null });
+          try {
+            e.dataTransfer.setData("text/plain", payload);
+            e.dataTransfer.effectAllowed = "move";
+          } catch (_e) {
+          }
+        });
+      });
+      root.querySelectorAll("[data-qbe-slot]").forEach((slotEl) => {
+        slotEl.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          try {
+            e.dataTransfer.dropEffect = "move";
+          } catch (_e) {
+          }
+        });
+        slotEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const targetIdx = Number(slotEl.getAttribute("data-qbe-slot"));
+          let data = {};
+          try {
+            data = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
+          } catch (_e) {
+            data = {};
+          }
+          if (data.fromSlot != null && !Number.isNaN(data.fromSlot)) {
+            draft = moveSlot(draft, data.fromSlot, targetIdx);
+          } else if (data.actionId) {
+            draft = assignActionToSlot(draft, data.actionId, targetIdx, ids);
+          } else {
+            return;
+          }
+          notifyDraftChanged();
+          renderEditor();
+        });
+      });
+    };
+    let runtime = null;
+    let draft = [];
+    let originalDraft = [];
+    let baseVersion = null;
+    let busy = false;
+    let conflict = false;
+    let selection = null;
+    root.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("[data-qbe-remove]");
+      if (removeBtn && !busy) {
+        draft = removeSlot(draft, Number(removeBtn.getAttribute("data-qbe-remove")));
+        notifyDraftChanged();
+        renderEditor();
+        return;
+      }
+      const slotEl = e.target.closest(".ohud-qbe-slot");
+      const cardEl = !slotEl ? e.target.closest(".ohud-qbe-card") : null;
+      if (slotEl) {
+        selection = { kind: "slot", slotIndex: Number(slotEl.getAttribute("data-qbe-slot")) };
+        renderEditor();
+        return;
+      }
+      if (cardEl) {
+        selection = { kind: "action", actionId: cardEl.getAttribute("data-qbe-action") };
+        renderEditor();
+        return;
+      }
+      const target = e.target.closest("[data-action]");
+      if (!target || busy) return;
+      const action = target.getAttribute("data-action");
+      if (action === "qbe-save") {
+        busy = true;
+        renderEditor();
+        send(BC_HUD_COMMAND, {
+          scope: "combat-hud",
+          feature: "quickbar",
+          type: "save-layout",
+          expectedVersion: baseVersion,
+          slots: draftToSavePayload(draft)
+        });
+      } else if (action === "qbe-cancel") {
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "close-editor" });
+      } else if (action === "qbe-reload" || action === "qbe-reset") {
+        conflict = false;
+        rebuildDraftFromRuntime();
+        renderEditor();
+      }
+    });
+    if (available) {
+      try {
+        lib_default.broadcast.onMessage(BC_HUD_ABILITIES, (event) => {
+          const nextRuntime = event?.data?.runtime ?? null;
+          const nextVersion = nextRuntime?.quickbar?.version ?? null;
+          const wasBusy = busy;
+          busy = false;
+          if (!runtime) {
+            runtime = nextRuntime;
+            rebuildDraftFromRuntime();
+          } else if (wasBusy) {
+            runtime = nextRuntime;
+            conflict = false;
+            rebuildDraftFromRuntime();
+          } else if (nextVersion != null && baseVersion != null && nextVersion !== baseVersion) {
+            runtime = nextRuntime;
+            conflict = true;
+          } else {
+            runtime = nextRuntime;
+          }
+          renderEditor();
+        });
+        send(BC_HUD_ABILITIES_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "editor-opened" });
+      } catch (_e) {
+      }
+    }
+    renderEditor();
     return;
   }
   mountCombatHudLayoutEditor({ root, uiState, layout: readStoredLayout(window.localStorage), integration: {} });

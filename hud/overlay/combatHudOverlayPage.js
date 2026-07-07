@@ -20,7 +20,7 @@ import moduleStyles from "../components/combatHudModule.css";
 
 import { mountCombatHudModule } from "../components/CombatHudModule.js";
 import { mountCombatHudLayoutEditor } from "../components/CombatHudLayoutEditor.js";
-import { BC_HUD_COMMAND, BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_SESSION, BC_HUD_SESSION_REQUEST, parseHudUiState } from "./overlayConstants.js";
+import { BC_HUD_COMMAND, BC_HUD_UI_STATE, BC_HUD_SELECTION, BC_HUD_SELECTION_REQUEST, BC_HUD_SESSION, BC_HUD_SESSION_REQUEST, BC_HUD_ABILITIES, BC_HUD_ABILITIES_REQUEST, parseHudUiState } from "./overlayConstants.js";
 import {
   HUD_MODULE_IDS,
   BC_HUD_LAYOUT,
@@ -33,6 +33,17 @@ import { renderWeaponSelectorPanel } from "../components/WeaponSelectorPanel.js"
 import { renderMagazineSelectorPanel } from "../components/MagazineSelectorPanel.js";
 import { renderFireModeSelectorPanel } from "../components/FireModeSelectorPanel.js";
 import { renderGmCombatTracker } from "../session/GmCombatTrackerPanel.js";
+import { renderQuickbarEditor } from "../abilities/QuickbarEditorPanel.js";
+import { renderAbilityDetailCard } from "../abilities/AbilityDetailCard.js";
+import {
+  buildDraft,
+  assignActionToSlot,
+  moveSlot,
+  removeSlot,
+  unassignedActions,
+  draftToSavePayload,
+  isDraftDirty,
+} from "../abilities/quickbarLayoutPolicy.js";
 import { buildCompanionSelectorState } from "../scene/selectionView.js";
 
 const COMPANION_DEBUG = (() => {
@@ -60,6 +71,17 @@ function send(channel, data) {
 
 function getModuleParam() {
   try { return new URLSearchParams(window.location.search).get("module") || ""; } catch { return ""; }
+}
+
+/** Priority UI Fix — Universal Responsive HUD Scaling: the uniform scale the
+ *  background controller computed for this module's outer popover size
+ *  (see combatHudOverlayController.js's pageUrl()). Falls back to 1 (no
+ *  scaling) if absent/invalid — never NaN, never negative, never zero. */
+function getScaleParam() {
+  try {
+    const raw = Number(new URLSearchParams(window.location.search).get("scale"));
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  } catch { return 1; }
 }
 
 function renderPill(root, available) {
@@ -130,6 +152,7 @@ function start() {
       root,
       moduleId: moduleParam,
       uiState,
+      scale: getScaleParam(),
       integration: {
         onArrange() { if (available) send(BC_HUD_EDITOR, { open: true }); },
         onCollapse(collapsed) { if (available) send(BC_HUD_UI_STATE, { isHudCollapsed: !!collapsed }); },
@@ -297,6 +320,240 @@ function start() {
       } catch (_e) { /* standalone */ }
     }
     renderTracker();
+    return;
+  }
+
+  // --- Ability Detail Card companion popover (clipping bug fix) ---
+  // A `position:fixed` div rendered INSIDE the Skills module's own tiny
+  // iframe could never render outside that iframe's box (an iframe is its
+  // own browsing context) — this is now its own independent popover, sized/
+  // positioned by the background controller (abilityDetailPlacement.js),
+  // exactly like the other companions above. Content arrives via
+  // BC_HUD_COMMAND's "show" (never a URL param, so switching which ability
+  // is shown never needs a full iframe reload) — "request-current" recovers
+  // the state if this iframe missed the original "show" while still loading.
+  if (moduleParam === "ability-detail") {
+    let rawPayload = null;
+    let shown = null; // { characterActionId, armed } | null
+
+    function resolveShownAction() {
+      if (!shown?.characterActionId) return null;
+      const list = rawPayload?.hudSnapshot?.quickbar?.quickActions;
+      return Array.isArray(list) ? (list.find((a) => a.characterActionId === shown.characterActionId) ?? null) : null;
+    }
+
+    function renderCard() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-ability-detail-page";
+      host.innerHTML = renderAbilityDetailCard(resolveShownAction(), { armed: !!shown?.armed, scrollableBody: true });
+      root.appendChild(host);
+    }
+
+    // Hovering the card itself must keep it open, and leaving it (to
+    // anywhere but back onto the slot, which the Skills module's own
+    // listeners already handle) must schedule the same shared close-grace
+    // window the slot uses — see combatHudOverlayController.js's
+    // abilityDetailCloseTimer doc comment for why this lives there.
+    root.addEventListener("mouseenter", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "cancel-hide" });
+    });
+    root.addEventListener("mouseleave", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "maybe-hide" });
+    });
+
+    if (available) {
+      try {
+        OBR.broadcast.onMessage(BC_HUD_SELECTION, (event) => {
+          rawPayload = event?.data ?? null;
+          renderCard();
+        });
+        OBR.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
+          const data = event?.data ?? {};
+          if (data?.scope !== "combat-hud" || data?.feature !== "ability-detail") return;
+          if (String(data.type ?? "") === "show") {
+            shown = { characterActionId: data.characterActionId ?? null, armed: !!data.armed };
+            renderCard();
+          }
+        });
+        send(BC_HUD_SELECTION_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "request-current" });
+      } catch (_e) { /* standalone */ }
+    }
+    renderCard();
+    return;
+  }
+
+  // --- Quickbar editor companion popover (Phase 4.0b) ---
+  // Receives the pre-mapped SAFE abilities runtime on BC_HUD_ABILITIES; builds a
+  // local draft (quickbarLayoutPolicy) that is edited by drag-and-drop and never
+  // treated as authoritative — Save sends the draft + expected version to the
+  // quickbar controller, which the server validates. A server version bump while
+  // editing surfaces a conflict + Reload; Cancel discards only the local draft.
+  if (moduleParam === "quickbar-editor") {
+    let runtime = null;      // mapped abilities runtime (library + layout + version)
+    let draft = [];          // dense working draft
+    let originalDraft = [];  // baseline for the dirty/cancel guard
+    let baseVersion = null;  // layout version this draft was built from
+    let busy = false;
+    let conflict = false;
+    // What the user last clicked in the Ability Description Panel: a library
+    // card or a quickbar slot (any state — empty/missing/filled). Content is
+    // re-resolved from the LIVE draft/runtime on every render (see
+    // resolveSelection in QuickbarEditorPanel.js), so it never goes stale
+    // when drag-drop moves things around underneath it.
+    let selection = null;
+
+    function actionIdSet() {
+      return new Set((runtime?.quickActions ?? []).map((a) => a.characterActionId).filter(Boolean));
+    }
+
+    function rebuildDraftFromRuntime() {
+      const ids = actionIdSet();
+      const maxSlots = runtime?.quickbar?.maxSlots ?? 20;
+      draft = buildDraft(runtime?.quickbar?.slots ?? [], ids, maxSlots);
+      originalDraft = draft.map((s) => ({ ...s }));
+      baseVersion = runtime?.quickbar?.version ?? null;
+    }
+
+    function renderEditor() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-module";
+      host.setAttribute("data-module", "quickbar-editor");
+      const library = runtime ? unassignedActions(runtime.quickActions, draft) : [];
+      host.innerHTML = renderQuickbarEditor({
+        runtime,
+        draft,
+        library,
+        characterName: runtime?.characterName ?? "",
+        busy,
+        dirty: isDraftDirty(draft, originalDraft),
+        conflict,
+        selection,
+      });
+      root.appendChild(host);
+      wireDragAndDrop();
+    }
+
+    function notifyDraftChanged() {
+      const occupied = draft.filter((s) => s.characterActionId && !s.empty).length;
+      send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "draft-changed", occupiedSlots: occupied });
+    }
+
+    // Read the drag source from the dataTransfer payload we set on dragstart.
+    function wireDragAndDrop() {
+      const ids = actionIdSet();
+      root.querySelectorAll("[draggable='true']").forEach((el) => {
+        el.addEventListener("dragstart", (e) => {
+          const actionId = el.getAttribute("data-qbe-action");
+          const fromSlot = el.getAttribute("data-qbe-slot");
+          const payload = JSON.stringify({ actionId: actionId ?? null, fromSlot: fromSlot != null ? Number(fromSlot) : null });
+          try { e.dataTransfer.setData("text/plain", payload); e.dataTransfer.effectAllowed = "move"; } catch (_e) { /* ignore */ }
+        });
+      });
+      root.querySelectorAll("[data-qbe-slot]").forEach((slotEl) => {
+        slotEl.addEventListener("dragover", (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = "move"; } catch (_e) { /* ignore */ } });
+        slotEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const targetIdx = Number(slotEl.getAttribute("data-qbe-slot"));
+          let data = {};
+          try { data = JSON.parse(e.dataTransfer.getData("text/plain") || "{}"); } catch (_e) { data = {}; }
+          if (data.fromSlot != null && !Number.isNaN(data.fromSlot)) {
+            draft = moveSlot(draft, data.fromSlot, targetIdx);
+          } else if (data.actionId) {
+            draft = assignActionToSlot(draft, data.actionId, targetIdx, ids);
+          } else {
+            return;
+          }
+          notifyDraftChanged();
+          renderEditor();
+        });
+      });
+    }
+
+    root.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("[data-qbe-remove]");
+      if (removeBtn && !busy) {
+        draft = removeSlot(draft, Number(removeBtn.getAttribute("data-qbe-remove")));
+        notifyDraftChanged();
+        renderEditor();
+        return;
+      }
+      // Ability Description Panel selection: a plain click (never fired by a
+      // completed drag gesture — the browser suppresses click after drag) on
+      // a library card or a slot (any state) selects it for the panel above
+      // the slot grid. Checked by CLASS, not data-qbe-action, because a
+      // filled slot carries data-qbe-action too (for its own drag payload).
+      const slotEl = e.target.closest(".ohud-qbe-slot");
+      const cardEl = !slotEl ? e.target.closest(".ohud-qbe-card") : null;
+      if (slotEl) {
+        selection = { kind: "slot", slotIndex: Number(slotEl.getAttribute("data-qbe-slot")) };
+        renderEditor();
+        return;
+      }
+      if (cardEl) {
+        selection = { kind: "action", actionId: cardEl.getAttribute("data-qbe-action") };
+        renderEditor();
+        return;
+      }
+      const target = e.target.closest("[data-action]");
+      if (!target || busy) return;
+      const action = target.getAttribute("data-action");
+      if (action === "qbe-save") {
+        busy = true;
+        renderEditor();
+        send(BC_HUD_COMMAND, {
+          scope: "combat-hud", feature: "quickbar", type: "save-layout",
+          expectedVersion: baseVersion,
+          slots: draftToSavePayload(draft),
+        });
+      } else if (action === "qbe-cancel") {
+        // Discard only the local draft, then close the popover.
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "close-editor" });
+      } else if (action === "qbe-reload" || action === "qbe-reset") {
+        // Reset (footer) and Reload (conflict banner) share the exact same safe
+        // rebuild: re-sync the draft to the last-known server layout, discarding
+        // any local edits. Reset is just reachable without a conflict first.
+        conflict = false;
+        rebuildDraftFromRuntime();
+        renderEditor();
+      }
+    });
+
+    if (available) {
+      try {
+        OBR.broadcast.onMessage(BC_HUD_ABILITIES, (event) => {
+          const nextRuntime = event?.data?.runtime ?? null;
+          const nextVersion = nextRuntime?.quickbar?.version ?? null;
+          const wasBusy = busy;
+          busy = false;
+          if (!runtime) {
+            // First load → build the initial draft.
+            runtime = nextRuntime;
+            rebuildDraftFromRuntime();
+          } else if (wasBusy) {
+            // A save just completed → adopt the fresh server layout as truth.
+            runtime = nextRuntime;
+            conflict = false;
+            rebuildDraftFromRuntime();
+          } else if (nextVersion != null && baseVersion != null && nextVersion !== baseVersion) {
+            // Server layout changed under us while editing → surface a conflict
+            // and keep the user's draft until they Reload (never silent clobber).
+            runtime = nextRuntime;
+            conflict = true;
+          } else {
+            // Same version, non-save refresh (e.g. library metadata) → refresh the
+            // library view without disturbing the working draft.
+            runtime = nextRuntime;
+          }
+          renderEditor();
+        });
+        send(BC_HUD_ABILITIES_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "quickbar", type: "editor-opened" });
+      } catch (_e) { /* standalone */ }
+    }
+    renderEditor();
     return;
   }
 

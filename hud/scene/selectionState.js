@@ -365,6 +365,50 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         },
       };
     }
+    // Phase 4.0b: the persisted quickbar runtime (already SAFE + mapped by the
+    // quickbar controller — quickActions library + slot layout + version). The
+    // Skills block renders the real quickbar from this; ability parsing stays in
+    // hud/abilities/* and never smears into SkillBlock/selectionState. Absent →
+    // SkillBlock falls back to its legacy category view (keeps Phase 2 tests).
+    if (ephemeral.abilitiesRuntime && ephemeral.abilitiesRuntime.ok !== false) {
+      hudSnapshot = { ...hudSnapshot, quickbar: ephemeral.abilitiesRuntime };
+    }
+    // Phase 4.1A: the armed attack technique (ephemeral UI-only "prepared for
+    // next attack" state — never persisted, never trusted by the server on
+    // its own) surfaces two ways: the raw id for the Skills Block's own
+    // is-armed highlight, and a display-shaped entry in modifiers.active for
+    // Combat Control's ARMED section. Resolved against the SAME already-
+    // mapped quickActions list the Skills Block already renders, so ARMED
+    // never shows a name the server didn't already provide. AUTO is left
+    // untouched (still the Phase-3A.1 empty stub — no real passive-modifier
+    // producer exists yet, see docs/PHASE_4_1A_ATTACK_TECHNIQUES_AUDIT.md §6).
+    const armedActionId = ephemeral.armedActionId ?? null;
+    if (armedActionId) {
+      hudSnapshot = { ...hudSnapshot, armedActionId };
+      const armedAction = ephemeral.abilitiesRuntime?.quickActions?.find(
+        (a) => a.characterActionId === armedActionId,
+      );
+      if (armedAction) {
+        hudSnapshot = {
+          ...hudSnapshot,
+          modifiers: {
+            ...hudSnapshot.modifiers,
+            active: [{
+              id: armedAction.characterActionId,
+              name: armedAction.name,
+              value: 0,
+              source: "Prepared",
+              description: "Prepared for next attack",
+              polarity: "neutral",
+              alwaysActive: false,
+              selected: true,
+              requiresGMApproval: false,
+              invalid: armedAction.state?.available === false,
+            }],
+          },
+        };
+      }
+    }
   }
   const debug = ready && s.runtimeBundle
     ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {

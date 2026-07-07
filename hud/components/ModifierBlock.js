@@ -10,7 +10,7 @@ import { esc, tipAttr, cls } from "./hudDom.js";
 
 const MAX_CHIPS = 4;
 
-function chipAccent(mod) {
+export function chipAccent(mod) {
   if (mod.source === "intervention") return "intervention";
   if (mod.kind === "narrative" || mod.requiresGMApproval) return "narrative";
   if (mod.polarity === "negative") return "negative";
@@ -18,7 +18,7 @@ function chipAccent(mod) {
   return "neutral";
 }
 
-function modChip(mod) {
+export function modChip(mod) {
   const accent = chipAccent(mod);
   const sign = mod.value > 0 ? `+${mod.value}` : (mod.value < 0 ? `${mod.value}` : "");
   const tip = tipAttr(mod.name, [
@@ -30,6 +30,20 @@ function modChip(mod) {
   ]);
   return `<span class="${cls("ohud-mod", `ohud-mod--${accent}`, mod.selected ? "is-selected" : "", mod.alwaysActive ? "is-passive" : "")}"${tip}>
     <span class="ohud-mod-name">${esc(mod.name)}</span>${sign ? `<span class="ohud-mod-val">${esc(sign)}</span>` : ""}
+  </span>`;
+}
+
+/**
+ * Phase 4.1A: ARMED-only chip — an armed attack technique "prepared for next
+ * attack", with its own × remove control (data-action="disarm-technique").
+ * Deliberately a SEPARATE renderer from modChip (AUTO/legacy chips stay
+ * read-only) so a remove button can never appear anywhere but here.
+ */
+export function armedChip(mod) {
+  const tip = tipAttr(mod.name, [mod.description || "Prepared for next attack"]);
+  return `<span class="${cls("ohud-mod", "ohud-mod--armed", mod.invalid ? "is-invalid" : "is-selected")}"${tip}>
+    <span class="ohud-mod-name">${esc(mod.name)}</span>
+    <button type="button" class="ohud-mod-remove" data-action="disarm-technique" data-action-id="${esc(mod.id)}" aria-label="Remove ${esc(mod.name)}">×</button>
   </span>`;
 }
 

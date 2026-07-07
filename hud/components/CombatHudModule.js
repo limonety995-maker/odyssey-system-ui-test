@@ -13,6 +13,7 @@ import { createMockCombatHudAdapter } from "../adapters/mockCombatHudAdapter.js"
 import { createCombatHudStore } from "../core/combatHudStore.js";
 import { normalizeHudUiState } from "../overlay/overlayConstants.js";
 import { resolveBodyMode } from "./hudLayoutModel.js";
+import { DEFAULT_HUD_LAYOUT_V2, computeCriticalTextRatio } from "../overlay/hudLayout.js";
 
 import { renderPlayerBlock } from "./PlayerBlock.js";
 import { renderGunBlock } from "./GunBlock.js";
@@ -26,6 +27,7 @@ import { renderEmptyState, renderErrorState, renderLoadingState } from "./EmptyH
 import { renderSelectionModule } from "../scene/selectionView.js";
 import { normalizeSelectionPayload } from "../scene/selectionState.js";
 import { createTooltip } from "./Tooltip.js";
+import { createQuickbarDetailCardController } from "../abilities/quickbarDetailCardController.js";
 import { ICON_GRID, ICON_CARET_DOWN } from "./hudIcons.js";
 import { cls, esc } from "./hudDom.js";
 
@@ -58,6 +60,15 @@ export function mountCombatHudModule(options) {
   const { root, moduleId } = options;
   const integration = options.integration ?? {};
   const restored = normalizeHudUiState(options.uiState);
+  // Priority UI Fix — Universal Responsive HUD Scaling: `scale` is the SAME
+  // factor combatHudOverlayController.js used to size this module's OUTER
+  // popover (computeLayoutScale(vw, vh) in hudLayout.js). Only one of the 5
+  // canonical modules gets rescaled here — companion selector panels
+  // (weapon/magazine/fire-mode) share this mount function but have no entry
+  // in DEFAULT_HUD_LAYOUT_V2, so `canonical` is undefined for them and they
+  // render exactly as before (untouched by this feature, per scope).
+  const scale = Number(options.scale) > 0 ? Number(options.scale) : 1;
+  const canonical = DEFAULT_HUD_LAYOUT_V2[moduleId];
 
   const adapter = createMockCombatHudAdapter({ scenarioId: restored.mockScenarioId });
   adapter.setViewerRole(restored.viewerRole);
@@ -81,10 +92,65 @@ export function mountCombatHudModule(options) {
   // `.ohud-module` carries the neutral fill/sizing for one block per iframe.
   el.className = cls("odyssey-hud", "ohud-module");
   el.setAttribute("data-module", moduleId);
+  if (canonical) {
+    // The outer popover box is already sized to width*scale/height*scale
+    // (moduleRect() in combatHudOverlayController.js). This element instead
+    // stays at its CANONICAL (1920×1080-reference) pixel size — every
+    // existing CSS rule in combatHudLayout.css/combatHudModule.css keeps
+    // authoring against those same unscaled numbers — and a single transform
+    // visually fits it to the scaled popover box. transform-origin "top
+    // left" matches the popover's own anchorOrigin/transformOrigin (both
+    // LEFT/TOP), so there is no offset drift between the scaled visual
+    // content and the click-hit-testing the browser already does post-
+    // transform (no CSS zoom, no separate click-coordinate math needed).
+    el.style.width = `${canonical.width}px`;
+    el.style.height = `${canonical.height}px`;
+    if (scale !== 1) {
+      el.style.transform = `scale(${scale})`;
+      el.style.transformOrigin = "top left";
+    }
+    // Priority UI Fix — typography floor: a handful of "must remain
+    // readable" selectors (see the comment block above .ohud-cc-abtn in
+    // combatHudModule.css) multiply their font-size by this ratio instead of
+    // riding the transform above unmodified — see computeCriticalTextRatio's
+    // own doc comment in hudLayout.js for the full reasoning.
+    el.style.setProperty("--ohud-critical-text-ratio", String(computeCriticalTextRatio(scale)));
+    // Phase 4.1A.2: quickbar slot state markers (.ohud-qb-cd/.ohud-qb-active/
+    // .ohud-qb-state) get the SAME formula with a much tighter cap — a
+    // 56×50px slot has far less room to counter-grow into than a full
+    // Combat Control action bar before its tiny corner badge overwhelms the
+    // icon/name (see the comment above .ohud-qb-badges in
+    // combatHudLayout.css).
+    el.style.setProperty("--ohud-slot-marker-ratio", String(computeCriticalTextRatio(scale, 1.5)));
+  }
   root.appendChild(el);
 
   const tooltip = createTooltip(el);
+  // Phase 4.1A.2 (bug-fix rewrite): the bigger Ability Detail Card only ever
+  // appears in the Skills module (the only one with quickbar slots) — a null
+  // controller elsewhere means every call site below is a safe no-op. It no
+  // longer owns a local DOM element (that used to get clipped by this
+  // module's own tiny iframe boundary) — it sends namespaced commands for
+  // the background controller to open/resize/close a SEPARATE companion
+  // popover instead (see quickbarDetailCardController.js's header comment).
+  const detailCard = moduleId === "skills"
+    ? createQuickbarDetailCardController((cmd) => {
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "ability-detail", ...cmd });
+      })
+    : null;
   let toastTimer = null;
+
+  /** Resolve the CURRENT (live-selection-first, mock-fallback) mapped quick
+   *  action by id — the same runtime SkillBlock.js already renders from,
+   *  never a second copy. */
+  function resolveQuickAction(actionId) {
+    if (!actionId) return null;
+    let list = liveSelection?.hudSnapshot?.quickbar?.quickActions;
+    if (!Array.isArray(list)) {
+      try { list = store.getState()?.snapshot?.quickbar?.quickActions; } catch (_e) { list = null; }
+    }
+    return Array.isArray(list) ? (list.find((a) => a.characterActionId === actionId) ?? null) : null;
+  }
 
   function controlsHtml() {
     // Only the Player module carries the global HUD controls.
@@ -270,6 +336,52 @@ export function mountCombatHudModule(options) {
       case "prepare-skill":
         integration.onCommand && integration.onCommand({ type: "prepare-skill", skillId: t.getAttribute("data-skill-id") });
         break;
+      case "open-quickbar-editor":
+        // Phase 4.0b: open the editor companion popover (overlay controller owns
+        // the popover lifecycle, exactly like the GM tracker toggle).
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "quickbar", type: "open-editor" });
+        break;
+      case "show-ability-detail": {
+        // Phase 4.0b: a normal-mode click only surfaces detail — it must NEVER
+        // execute, change Target/Action, or spend resources.
+        // Phase 4.1A.2: for directed/instant/toggle slots (never
+        // attack_technique — that click is arm/disarm, see below), this now
+        // opens the real Ability Detail Card instead of a placeholder toast.
+        // A slot whose action vanished from the library (is-missing, action
+        // resolves to null) still falls back to a short toast — there is no
+        // ability data to show a card for.
+        if (t.classList.contains("is-disabled")) break;
+        const action = resolveQuickAction(t.getAttribute("data-action-id"));
+        if (action && detailCard) detailCard.toggle(action);
+        else showToast("Ability details — execution arrives in Phase 4.1");
+        break;
+      }
+      case "toggle-armed-technique": {
+        // Phase 4.1A: arming is blocked while the tile itself is disabled
+        // (unavailable/on cooldown/etc), but DISARMING an already-armed
+        // technique must always work even if it went invalid after arming —
+        // "the user can always remove it manually" (spec). is-armed is the
+        // one signal this generic delegated handler has for "already armed".
+        // Phase 4.1A.2: click stays arm/disarm ONLY — the detail card for a
+        // technique opens on hover/focus instead (see onSlotDetailHover/
+        // onSlotDetailFocus below), since click is already spoken for here.
+        const isArmed = t.classList.contains("is-armed");
+        if (isArmed || !t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud", feature: "quickbar", type: "toggle-armed",
+            characterActionId: t.getAttribute("data-action-id"),
+          });
+        }
+        break;
+      }
+      case "disarm-technique":
+        // Combat Control's ARMED × — always disarms (it only ever renders on
+        // an already-armed entry), same underlying toggle as the Skills Block.
+        integration.onCommand && integration.onCommand({
+          scope: "combat-hud", feature: "quickbar", type: "toggle-armed",
+          characterActionId: t.getAttribute("data-action-id"),
+        });
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the
@@ -289,8 +401,76 @@ export function mountCombatHudModule(options) {
       integration.onCommand && integration.onCommand({ type: "close-weapon-selector" });
       integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "fire-mode", type: "close-selector" });
     }
+    // Phase 4.0g: Esc cancels an in-progress target pick. Reuses the EXACT
+    // existing "cancel-target" command — targetSelectionController's onCancel()
+    // already no-ops when not currently picking, so this is safe to dispatch
+    // unconditionally (mirrors the gun-module Escape handler above, which
+    // does the same for its own selectors).
+    if (e.key === "Escape" && moduleId === "combatControl") {
+      integration.onCommand && integration.onCommand({ type: "cancel-target" });
+    }
   }
   el.addEventListener("keydown", onKeyDown);
+
+  // Phase 4.1A.2 (bug-fix rewrite): attack_technique slots open the Ability
+  // Detail Card on hover/focus (with a short delay), never on click (click is
+  // arm/disarm — see the "toggle-armed-technique" case above). Delegated the
+  // same way Tooltip.js already delegates its own hover — one listener set
+  // per event type on the module root, not one per slot.
+  //
+  // The card is now a SEPARATE companion popover/iframe (see
+  // quickbarDetailCardController.js's header comment for why), so this
+  // module can no longer detect "the pointer moved onto the card itself" —
+  // that used to be a local `detailCard.contains(to)` DOM check, which is
+  // meaningless across iframes. Leaving a technique slot always schedules a
+  // close; the card's OWN mounted page (combatHudOverlayPage.js's
+  // "ability-detail" route) independently sends its own cancel-hide/
+  // maybe-hide on its own mouseenter/mouseleave, and the background
+  // controller (the one shared arbiter reachable by both iframes) is what
+  // actually coordinates the shared grace window.
+  function techniqueSlotFromTarget(target) {
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
+    return t && el.contains(t) ? t : null;
+  }
+  function onSlotDetailOver(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const to = e.relatedTarget;
+    // Moving within the same slot is not a "leave" — anything else
+    // (including onto the now-separate card popover, which this module
+    // cannot observe) schedules the shared grace-close.
+    if (to && techniqueSlotFromTarget(to) === t) return;
+    detailCard.scheduleClose();
+  }
+  function onSlotDetailFocusIn(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailFocusOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    detailCard.scheduleClose();
+  }
+  if (detailCard) {
+    el.addEventListener("mouseover", onSlotDetailOver);
+    el.addEventListener("mouseout", onSlotDetailOut);
+    el.addEventListener("focusin", onSlotDetailFocusIn);
+    el.addEventListener("focusout", onSlotDetailFocusOut);
+  }
 
   const unsubscribe = store.subscribe(render);
   render();
@@ -303,6 +483,13 @@ export function mountCombatHudModule(options) {
       tooltip.destroy();
       el.removeEventListener("click", onClick);
       el.removeEventListener("keydown", onKeyDown);
+      if (detailCard) {
+        el.removeEventListener("mouseover", onSlotDetailOver);
+        el.removeEventListener("mouseout", onSlotDetailOut);
+        el.removeEventListener("focusin", onSlotDetailFocusIn);
+        el.removeEventListener("focusout", onSlotDetailFocusOut);
+        detailCard.destroy();
+      }
       if (toastTimer) clearTimeout(toastTimer);
       store.dispose();
       el.remove();

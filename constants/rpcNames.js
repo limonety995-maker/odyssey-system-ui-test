@@ -18,6 +18,10 @@ export const ABILITY_RPC_NAMES = Object.freeze({
   syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
   useAbility: "use_ability",
   advanceCharacterAbilityStates: "advance_character_ability_states",
+  // Phase 4.0 — quick-actions runtime + quickbar layout persistence (migration 92).
+  getQuickActionsRuntime: "odyssey_get_character_quick_actions_runtime",
+  getQuickbarLayout: "odyssey_get_character_quickbar_layout",
+  saveQuickbarLayout: "odyssey_save_character_quickbar_layout",
 });
 
 export const FEATURE_RPC_NAMES = Object.freeze({

@@ -31,6 +31,7 @@ import {
 import { logDebugEvent } from "../debug/debugLogStore.js";
 import { setupSceneSelection } from "../scene/sceneSelectionController.js";
 import { setupTargetSelection } from "../targeting/targetSelectionController.js";
+import { setupTargetingVisuals } from "../targeting/visuals/targetingVisualController.js";
 import {
   SELECTION_STATUS,
   SECONDARY_MODULE_IDS,
@@ -51,6 +52,8 @@ import {
   GUN_MAGAZINE_SELECTOR_POPOVER_ID,
   GUN_FIRE_MODE_SELECTOR_POPOVER_ID,
   GM_COMBAT_TRACKER_POPOVER_ID,
+  QUICKBAR_EDITOR_POPOVER_ID,
+  ABILITY_DETAIL_POPOVER_ID,
   HUD_EDITOR_POPOVER_ID,
   HUD_PILL_POPOVER_ID,
   DEFAULT_HUD_LAYOUT_V2,
@@ -60,7 +63,9 @@ import {
   normalizeLayoutState,
   resolveModuleRect,
   clampRect,
+  computeLayoutScale,
 } from "./hudLayout.js";
+import { estimateAbilityDetailHeight, computeAbilityDetailRect } from "../abilities/abilityDetailPlacement.js";
 
 const VIEWPORT_POLL_MS = 600;
 const PILL_W = 150;
@@ -83,10 +88,24 @@ let pollTimer = null;
 let lastSelectionStatus = SELECTION_STATUS.loading;
 let sceneCleanup = null;
 let targetSelection = null;
+let targetingVisuals = null;
 let gunWeaponSelectorOpen = false;
 let gunMagazineSelectorOpen = false;
 let gunFireModeSelectorOpen = false;
 let gmTrackerOpen = false;
+let quickbarEditorOpen = false;
+let abilityDetailOpen = false;
+/** What the Ability Detail companion is currently showing (or null when
+ *  closed) — replayed to a just-mounted companion iframe that asks via
+ *  "request-current" (it may have missed the original "show" broadcast
+ *  while it was still loading). */
+let abilityDetailShown = null;
+/** Centralizes the close-grace window here (not in either iframe) because
+ *  the slot AND the card itself are two SEPARATE iframes/popovers — neither
+ *  can observe the other's hover state directly, so this is the one shared
+ *  arbiter both send "maybe-hide"/"cancel-hide" to. */
+let abilityDetailCloseTimer = null;
+const ABILITY_DETAIL_CLOSE_GRACE_MS = 180;
 let lastActiveCharacterId = null;
 /** Latest full trimmed selection payload (the same one module iframes get),
  *  kept ONLY to size the magazine-selector companion popover to its content
@@ -130,6 +149,12 @@ function pageUrl(moduleId) {
   params.set("module", moduleId);
   params.set("vw", String(Math.round(lastVW)));
   params.set("vh", String(Math.round(lastVH)));
+  // Priority UI Fix — Universal Responsive HUD Scaling: the SAME uniform
+  // scale used to size/position this module's outer popover (moduleRect())
+  // travels with it, so the module's own internal canvas can render at its
+  // canonical (1920×1080-reference) pixel dimensions and visually scale to
+  // match — one source of truth, never two independently-derived numbers.
+  params.set("scale", String(computeLayoutScale(lastVW, lastVH)));
   try {
     const baseParams = new URL(baseHref()).searchParams;
     if (baseParams.get("debug") === "1") params.set("debug", "1");
@@ -284,6 +309,10 @@ async function closeAllCompanionSelectors() {
   try { await setGunWeaponSelectorOpen(false); } catch (_e) { /* best effort */ }
   try { await setGunMagazineSelectorOpen(false); } catch (_e) { /* best effort */ }
   try { await setGunFireModeSelectorOpen(false); } catch (_e) { /* best effort */ }
+  // A different source character means a different quickbar entirely — a
+  // still-open detail card would describe an ability that no longer belongs
+  // to the selected character.
+  try { await closeAbilityDetail(); } catch (_e) { /* best effort */ }
 }
 
 /** Phase 3E.0: GM Combat Tracker companion popover — anchored above the
@@ -325,6 +354,96 @@ async function setGmTrackerOpen(open) {
     }
   } else {
     try { await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID); } catch (_e) { /* ignore */ }
+  }
+}
+
+/** Bug fix (Ability Detail Card clipping): resolve the currently-selected
+ *  character's quick action by id from the SAME trimmed selection payload
+ *  the magazine-selector row count already reads — never a second lookup
+ *  path, never private data beyond what the HUD already receives. */
+function currentQuickAction(characterActionId) {
+  if (!characterActionId) return null;
+  const list = lastSelectionPayload?.hudSnapshot?.quickbar?.quickActions;
+  return Array.isArray(list) ? (list.find((a) => a.characterActionId === characterActionId) ?? null) : null;
+}
+
+function clearAbilityDetailCloseTimer() {
+  if (abilityDetailCloseTimer) { clearTimeout(abilityDetailCloseTimer); abilityDetailCloseTimer = null; }
+}
+
+/** Open the Ability Detail companion popover (first "show"), or — if it's
+ *  already open for a different/updated ability — resize it in place via
+ *  setWidth/setHeight (OBR's PopoverApi has no setPosition, so a genuine
+ *  reposition still needs a re-open; a content-length change alone does
+ *  not, and IS the common case here). The card's own content updates via
+ *  the SAME "show" broadcast the (already-mounted) companion iframe also
+ *  listens for — never a re-open just to change what's displayed. */
+async function openOrResizeAbilityDetail(characterActionId, armed) {
+  abilityDetailShown = { characterActionId, armed };
+  const skillsRect = lastLayout.modules?.skills ? moduleRect("skills") : null;
+  if (!skillsRect) return;
+  const action = currentQuickAction(characterActionId);
+  const estimatedHeight = estimateAbilityDetailHeight(action, { armed });
+  const rect = computeAbilityDetailRect(skillsRect, estimatedHeight, lastVW, lastVH);
+  if (!abilityDetailOpen) {
+    abilityDetailOpen = true;
+    try {
+      await OBR.popover.open({ id: ABILITY_DETAIL_POPOVER_ID, url: pageUrl("ability-detail"), ...paramsForRect(rect) });
+    } catch (_e) { /* best effort */ }
+  } else {
+    try { await OBR.popover.setWidth(ABILITY_DETAIL_POPOVER_ID, rect.width); } catch (_e) { /* ignore */ }
+    try { await OBR.popover.setHeight(ABILITY_DETAIL_POPOVER_ID, rect.height); } catch (_e) { /* ignore */ }
+  }
+}
+
+async function closeAbilityDetail() {
+  clearAbilityDetailCloseTimer();
+  abilityDetailShown = null;
+  if (!abilityDetailOpen) return;
+  abilityDetailOpen = false;
+  try { await OBR.popover.close(ABILITY_DETAIL_POPOVER_ID); } catch (_e) { /* ignore */ }
+}
+
+/** Phase 4.0c: Quickbar editor companion popover — anchored above the Skills
+ *  module. A two-column layout (library + a 10-wide slot row) needs real
+ *  width, so this is deliberately much larger than the other selectors;
+ *  clampRect keeps it fully on-screen regardless of where Skills sits. */
+function quickbarEditorRect() {
+  if (!lastLayout.modules?.skills) return null;
+  const skRect = moduleRect("skills");
+  const width = 780;
+  const height = 560;
+  const gap = 4;
+  const rect = {
+    left: skRect.left + (skRect.width - width) / 2,
+    top: skRect.top - height - gap,
+    width,
+    height,
+  };
+  return clampRect(rect, lastVW, lastVH);
+}
+
+async function setQuickbarEditorOpen(open) {
+  const next = Boolean(open);
+  if (next === quickbarEditorOpen) return;
+  quickbarEditorOpen = next;
+  if (mode !== "modules") return;
+  if (next) {
+    const rect = quickbarEditorRect();
+    if (rect) {
+      try {
+        const url = new URL(pageUrl("quickbar-editor"));
+        const role = String(lastSelectionPayload?.viewer?.role ?? "").toLowerCase() === "gm" ? "gm" : "player";
+        url.searchParams.set("role", role);
+        await OBR.popover.open({
+          id: QUICKBAR_EDITOR_POPOVER_ID,
+          url: url.toString(),
+          ...paramsForRect(rect),
+        });
+      } catch (_e) { /* best effort */ }
+    }
+  } else {
+    try { await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID); } catch (_e) { /* ignore */ }
   }
 }
 
@@ -411,10 +530,13 @@ async function applyMode() {
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
     gmTrackerOpen = false;
+    quickbarEditorOpen = false;
     await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {});
+    await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {});
+    await closeAbilityDetail();
     await closeEditorPopover();
     await closeAllModules();
     await openPill();
@@ -423,10 +545,13 @@ async function applyMode() {
     gunMagazineSelectorOpen = false;
     gunFireModeSelectorOpen = false;
     gmTrackerOpen = false;
+    quickbarEditorOpen = false;
     await OBR.popover.close(GUN_WEAPON_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
     await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {});
+    await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {});
+    await closeAbilityDetail();
     await closePill();
     await closeAllModules();
     await openEditor();
@@ -463,6 +588,12 @@ export function setupCombatHudOverlay() {
       await applyMode();
       startViewportPoll();
 
+      // Phase 4.0g: local-only map visuals (source outline, target ring, the
+      // picking cursor). A pure CONSUMER of the same two broadcasts below —
+      // it never sends targeting commands itself and never mutates canonical
+      // combat state; see hud/targeting/visuals/targetingVisualController.js.
+      targetingVisuals = setupTargetingVisuals();
+
       // Phase 3A: scene-selection layer. The scene controller broadcasts the
       // trimmed selection payload to the iframes (and replays it on request);
       // here we only reconcile which popovers are open when the selection
@@ -470,6 +601,7 @@ export function setupCombatHudOverlay() {
       targetSelection = setupTargetSelection({
         onTargetingState: (payload) => {
           try { sceneCleanup?.applyTargetingPayload?.(payload); } catch (_e) { /* bridge best-effort */ }
+          try { targetingVisuals?.handleTargetingState?.(payload); } catch (_e) { /* visuals are best-effort */ }
         },
       });
 
@@ -478,6 +610,7 @@ export function setupCombatHudOverlay() {
         onSelectionState: async (payload) => {
           lastSelectionPayload = payload ?? null;
           try { targetSelection?.handleActiveSelection?.(payload); } catch (_e) { /* targeting owns its errors */ }
+          try { targetingVisuals?.handleSelectionState?.(payload); } catch (_e) { /* visuals are best-effort */ }
           try {
             const nextCharId = payload?.characterId ?? null;
             if (characterChangeClosesCompanions(lastActiveCharacterId, nextCharId)) {
@@ -531,6 +664,53 @@ export function setupCombatHudOverlay() {
             if (role !== "GM") return;
             logDebugEvent("popover", gmTrackerOpen ? "gm-tracker-closed" : "gm-tracker-opened", {});
             await setGmTrackerOpen(!gmTrackerOpen);
+          }
+          return;
+        }
+
+        // Bug fix: Ability Detail Card lifecycle. "show"/"hide" are immediate;
+        // "maybe-hide"/"cancel-hide" implement the shared close-grace window
+        // (see the module-level doc comment on abilityDetailCloseTimer for
+        // why it lives HERE rather than in either iframe — the slot and the
+        // card are two separate popovers that can't observe each other's
+        // hover state directly). "request-current" lets a just-mounted
+        // companion iframe recover the state it may have missed while
+        // loading (mirrors the BC_HUD_SELECTION_REQUEST reply pattern).
+        if (data?.scope === "combat-hud" && data?.feature === "ability-detail") {
+          const adType = String(data.type ?? "");
+          if (adType === "show") {
+            clearAbilityDetailCloseTimer();
+            await openOrResizeAbilityDetail(data.characterActionId ?? null, !!data.armed);
+          } else if (adType === "cancel-hide") {
+            clearAbilityDetailCloseTimer();
+          } else if (adType === "maybe-hide") {
+            clearAbilityDetailCloseTimer();
+            abilityDetailCloseTimer = setTimeout(() => {
+              abilityDetailCloseTimer = null;
+              void closeAbilityDetail();
+            }, ABILITY_DETAIL_CLOSE_GRACE_MS);
+          } else if (adType === "hide") {
+            await closeAbilityDetail();
+          } else if (adType === "request-current" && abilityDetailShown) {
+            try {
+              OBR.broadcast.sendMessage(BC_HUD_COMMAND, {
+                scope: "combat-hud", feature: "ability-detail", type: "show", ...abilityDetailShown,
+              }, { destination: "LOCAL" });
+            } catch (_e) { /* best effort */ }
+          }
+          return;
+        }
+
+        // Phase 4.0b: Quickbar editor popover lifecycle. The quickbar controller
+        // handles save/refresh/draft commands itself; here we only open/close the
+        // editor companion popover. open-editor toggles; close-editor closes.
+        if (data?.scope === "combat-hud" && data?.feature === "quickbar") {
+          const qType = String(data.type ?? "");
+          if (qType === "open-editor") {
+            logDebugEvent("quickbar", quickbarEditorOpen ? "editor-closed" : "editor-opened", {});
+            await setQuickbarEditorOpen(!quickbarEditorOpen);
+          } else if (qType === "close-editor") {
+            await setQuickbarEditorOpen(false);
           }
           return;
         }
@@ -593,6 +773,7 @@ export async function teardownCombatHudOverlay() {
   for (const fn of cleanups.splice(0)) { try { fn(); } catch (_e) { /* ignore */ } }
   if (typeof sceneCleanup === "function") { try { sceneCleanup(); } catch (_e) { /* ignore */ } sceneCleanup = null; }
   if (targetSelection?.cleanup) { try { targetSelection.cleanup(); } catch (_e) { /* ignore */ } targetSelection = null; }
+  if (targetingVisuals?.cleanup) { await targetingVisuals.cleanup().catch(() => {}); targetingVisuals = null; }
   started = false;
   lastUiState = { ...DEFAULT_HUD_UI_STATE };
   lastLayout = defaultLayoutState();
@@ -601,6 +782,10 @@ export async function teardownCombatHudOverlay() {
   gunMagazineSelectorOpen = false;
   gunFireModeSelectorOpen = false;
   gmTrackerOpen = false;
+  quickbarEditorOpen = false;
+  clearAbilityDetailCloseTimer();
+  abilityDetailOpen = false;
+  abilityDetailShown = null;
   lastActiveCharacterId = null;
   lastSelectionPayload = null;
   mode = "modules";
@@ -611,5 +796,7 @@ export async function teardownCombatHudOverlay() {
   await OBR.popover.close(GUN_MAGAZINE_SELECTOR_POPOVER_ID).catch(() => {});
   await OBR.popover.close(GUN_FIRE_MODE_SELECTOR_POPOVER_ID).catch(() => {});
   await OBR.popover.close(GM_COMBAT_TRACKER_POPOVER_ID).catch(() => {});
+  await OBR.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {});
+  await OBR.popover.close(ABILITY_DETAIL_POPOVER_ID).catch(() => {});
   await closeLegacyPopovers();
 }

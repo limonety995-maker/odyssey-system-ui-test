@@ -77,6 +77,15 @@ export const ERROR_MESSAGES = Object.freeze({
   EQUIPMENT_ITEM_NOT_FOUND: "Equipment item was not found.",
   ALREADY_EQUIPPED: "This item is already equipped.",
   SLOT_OCCUPIED: "That body part already has equipment in this slot.",
+  // Phase 4.1A: armed attack technique validation (perform_attack, migration 100)
+  ARMED_ACTION_INVALID: "Armed attack technique is invalid.",
+  ARMED_ACTION_ON_COOLDOWN: "Armed attack technique is on cooldown.",
+  NOT_ENOUGH_PSI: "Not enough PSI for the armed attack technique.",
+  NOT_ENOUGH_CHARGES: "Armed attack technique has no charges left.",
+  WEAPON_REQUIREMENT_NOT_MET: "Armed attack technique requires a different weapon type.",
+  TARGET_REQUIREMENT_NOT_MET: "Armed attack technique cannot target this.",
+  ACTION_STACK_CONFLICT: "Only one attack technique may be armed at a time.",
+  ACTION_EFFECT_NOT_IMPLEMENTED: "This attack technique's effect isn't supported yet.",
 });
 
 export function describeError(code, fallback) {
@@ -115,6 +124,15 @@ export function buildAttackPayload(ctx = {}) {
     distance_m: Math.max(Number(ctx.distanceM) || 0, 0),
     attack_context: splitManualModifiers(ctx.modifiers),
   };
+
+  // Phase 4.1A: armed attack technique id(s) — server re-validates everything
+  // (ownership, type, cooldown, PSI/charges, target/weapon fit); the client
+  // sends only the id, never a computed bonus/cost. Omitted entirely when
+  // empty, so legacy callers (old Resolve Attack screen, plain HUD attacks)
+  // are byte-identical to before this phase.
+  if (Array.isArray(ctx.armedActionIds) && ctx.armedActionIds.length) {
+    payload.armed_action_ids = ctx.armedActionIds.filter(Boolean).map(String);
+  }
 
   if (mode === "skill") {
     payload.character_ability_id = requireId(ctx.abilityId, "No ability selected.");
@@ -202,6 +220,9 @@ export function normalizeResult(raw) {
     targetAlive: typeof targetState.is_alive === "boolean" ? targetState.is_alive : null,
     targetConscious: typeof targetState.is_conscious === "boolean" ? targetState.is_conscious : null,
     combatLogId: firstDefined(r.log_id, r.combat_log_id),
+    // Phase 4.1A: per-armed-technique outcome (applied/consumed/remaining/
+    // rejected) — verbatim from the server, empty array for legacy attacks.
+    armedActions: asArray(r.armed_actions),
   };
 }
 

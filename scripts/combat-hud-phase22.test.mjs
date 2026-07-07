@@ -91,13 +91,17 @@ test("1. exact default rects at 1920×1080 (incl. Combat Control)", () => {
   assert.deepEqual(defaultModuleRect("log", RW, RH), { left: 1656, top: 814, width: 250, height: 250, zIndex: 20 });
 });
 
-test("2. default layout scales proportionally below reference", () => {
+test("2. default layout scales proportionally below AND above reference (Priority UI Fix — Universal Responsive HUD Scaling: uncapped, no artificial minimum)", () => {
   const scale = computeLayoutScale(1600, 900);
   assert.ok(Math.abs(scale - (900 / 1080)) < 1e-9);
   const cc = defaultModuleRect("combatControl", 1600, 900);
   assert.equal(cc.width, Math.round(330 * scale));
   assert.equal(cc.height, Math.round(165 * scale));
-  assert.equal(computeLayoutScale(2560, 1440), 1); // never upscales
+  // Reversed from the earlier Phase 2.2 "never upscales" rule — see
+  // scripts/hud-responsive-layout.test.mjs for the full 8-viewport suite.
+  const upScale = computeLayoutScale(2560, 1440);
+  assert.ok(upScale > 1, "a viewport larger than 1920×1080 now upscales the whole HUD");
+  assert.ok(Math.abs(upScale - (1440 / 1080)) < 1e-9);
 });
 
 test("3. custom normalized placement → pixels", () => {
@@ -229,16 +233,21 @@ test("13. migration: old target/modifiers/action placement → combatControl", (
   assert.equal(reread.modules.target, undefined);
 });
 
-test("14. composite render model contains Target + Modifier + Action sections", () => {
+test("14. composite render model contains Target + Modifier + Action sections (Phase 4.0f structure)", () => {
+  // Reworked in Phase 4.0f (HUD Visual Pass 2 — Combat Control): Modifiers
+  // split into AUTO/ARMED sections instead of one flat "Mod" chip wall, and
+  // Action is now a full-width two-button bar (no more a nested action panel
+  // with MAIN/MOVE econ pips) — see combat-control.test.mjs for the dedicated
+  // coverage of that new structure.
   const html = renderCombatControlBlock(buildState("A"));
   assert.ok(html.includes('data-block="combatControl"'), "outer combatControl panel");
   assert.ok(html.includes('data-block="target"'), "target section");
   assert.ok(html.includes('data-block="modifiers"'), "modifier section");
   assert.ok(html.includes('data-block="action"'), "action section");
-  assert.ok(html.includes("ohud-mods"), "modifier chips container");
-  assert.ok(html.includes("ohud-action-btn"), "action button");
+  assert.ok(html.includes("ohud-cc-modsec-chips") || html.includes("ohud-cc-modsec-empty"), "AUTO/ARMED modifier containers");
+  assert.ok(html.includes("ohud-cc-abtn"), "action bar buttons");
   assert.ok(html.includes(">Target<") || html.includes("Target"), "Target label");
-  assert.ok(html.includes(">Mod<"), "Mod label");
+  assert.ok(html.includes("Modifiers"), "Modifiers label");
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

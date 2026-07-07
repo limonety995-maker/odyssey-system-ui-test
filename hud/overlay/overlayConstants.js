@@ -65,6 +65,17 @@ export const BC_HUD_SESSION = "com.odyssey.combat-hud/session-state";
  *  asking it to replay the current session state. */
 export const BC_HUD_SESSION_REQUEST = "com.odyssey.combat-hud/session-state-request";
 
+/** LOCAL broadcast: quickbar controller (background) → Skills module + quickbar
+ *  editor iframe, carrying the pre-mapped SAFE abilities runtime (quick-action
+ *  library + persisted quickbar layout + version). Phase 4.0. Whitelist-only:
+ *  never inventory, private target state, raw ability JSON, or auth. */
+export const BC_HUD_ABILITIES = "com.odyssey.combat-hud/abilities-runtime";
+
+/** LOCAL broadcast: freshly-mounted quickbar editor / Skills module →
+ *  quickbar controller, asking it to replay the current abilities runtime for
+ *  the selected character. */
+export const BC_HUD_ABILITIES_REQUEST = "com.odyssey.combat-hud/abilities-runtime-request";
+
 // NOTE: the temporary Debug Console (hud/debug/*) intentionally does NOT use
 // this shared overlay-constants file — it defines its own, fully separate
 // broadcast channels so it stays trivially deletable later without touching
