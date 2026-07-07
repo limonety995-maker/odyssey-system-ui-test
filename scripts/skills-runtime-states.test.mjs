@@ -245,13 +245,11 @@ test("the toggle-armed-technique click case is unchanged by the hover/focus wiri
 
 /* ── 12. Safe dismiss: grace timer + cancelClose on card re-entry ──────── */
 
-test("12. the detail card controller uses a grace-period close (not instant) and lets re-entering the slot or the card cancel a pending close — no flicker moving between them", () => {
-  assert.match(controllerSrc, /CLOSE_GRACE_MS\s*=\s*\d+/);
+test("12. the detail card controller exposes scheduleClose/cancelClose (grace-period close, not instant) — see ability-detail-card-placement.test.mjs for where the grace window itself now lives (the background controller, since the card is its own popover)", () => {
   assert.match(controllerSrc, /function scheduleClose\(\)/);
   assert.match(controllerSrc, /function cancelClose\(\)/);
-  assert.match(controllerSrc, /closeTimer = setTimeout/);
-  // The module wires cancelClose on the card's own mouseenter.
-  assert.match(moduleSrc, /detailCard\.element\.addEventListener\("mouseenter", \(\) => detailCard\.cancelClose\(\)\)/);
+  assert.match(controllerSrc, /sendCommand\(\{ type: "maybe-hide" \}\)/);
+  assert.match(controllerSrc, /sendCommand\(\{ type: "cancel-hide" \}\)/);
 });
 
 test("keyboard focus keeps the card open the same way hover does (focusin schedules, focusout schedules a close) — a tabbed-to slot behaves consistently with a hovered one", () => {
@@ -297,15 +295,14 @@ test("17. slot state markers (.ohud-qb-cd/.ohud-qb-active/.ohud-qb-state) use --
 });
 
 test("17b. the Ability Detail Card's name/body text meet the section-G floors (14px name, 12px body) via a scoped override — the Quickbar Editor's own (unscoped) rule is untouched", () => {
-  assert.match(layoutCss, /\.ohud-ability-card \.ohud-qbe-desc-name \{ font-size: 14px; \}/);
-  assert.match(layoutCss, /\.ohud-ability-card \.ohud-qbe-desc-text,\s*\n\.ohud-ability-card \.ohud-qbe-desc-pill,\s*\n\.ohud-ability-card \.ohud-qbe-desc-status \{ font-size: 12px; \}/);
+  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-name \{ font-size: 14px; \}/);
+  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-text,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-pill,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-status \{ font-size: 12px; \}/);
   // The base (editor) rule is unchanged — still its original, smaller size.
   assert.match(layoutCss, /^\.ohud-qbe-desc-name \{ font-size: 13px/m);
 });
 
-test("the detail card lives outside the transform-scaled module canvas (appended to document.body, like the tooltip) — so its typography floor is a fixed size, never a ratio-compensated one", () => {
-  assert.match(controllerSrc, /\(doc\.body \|\| host\)\.appendChild\(el\)/);
-  assert.ok(!controllerSrc.includes("--ohud-critical-text-ratio") && !controllerSrc.includes("--ohud-slot-marker-ratio"), "no ratio variable is read here — the fixed 12/14px CSS floor already holds unconditionally");
+test("the detail card is its own companion popover (bug fix) — it never reads the module-canvas typography ratio variables, since it isn't wrapped in that transform at all; see ability-detail-card-placement.test.mjs for the full architecture coverage", () => {
+  assert.ok(!controllerSrc.includes("--ohud-critical-text-ratio") && !controllerSrc.includes("--ohud-slot-marker-ratio"));
 });
 
 console.log("");
