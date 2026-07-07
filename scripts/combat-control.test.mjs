@@ -196,18 +196,19 @@ test("8. ARMED empty state shows 'None selected' — never a fabricated selectio
   assert.match(armedBlock, /data-modifier-state="empty"/);
 });
 
-test("9. real AUTO (passive+narrative) and ARMED (active) modifiers render verbatim, without altering their data", () => {
+test("9. real AUTO (passive+narrative) modifiers render verbatim, without altering their data; ARMED shows the real name with its own disarm control (Phase 4.1A: armedChip, not modChip)", () => {
   const armor = mod({ id: "a1", name: "Optics", kind: "passive", value: 1 });
   const gmEffect = mod({ id: "n1", name: "Blessed", kind: "narrative", value: 2, requiresGMApproval: true });
-  const prepared = mod({ id: "x1", name: "Overcharge", kind: "active", value: 3, selected: true });
+  const prepared = { id: "x1", name: "Overcharge", description: "Prepared for next attack", selected: true, invalid: false };
   const html = renderCombatControlBlock(stateWithModifiers({ passive: [armor], active: [prepared], narrative: [gmEffect] }));
 
   assert.match(html, /data-modifier-section="auto"[^]*?AUTO · 2/, "AUTO count = passive(1) + narrative(1)");
   assert.match(html, /data-modifier-section="armed"[^]*?ARMED · 1/, "ARMED count = active(1)");
   assert.match(html, />Optics</);
+  assert.match(html, />\+1</, "AUTO's real modChip value is shown, not rewritten");
   assert.match(html, />Blessed</);
   assert.match(html, />Overcharge</);
-  assert.match(html, />\+3</, "the real value is shown, not rewritten");
+  assert.match(html, /data-action="disarm-technique" data-action-id="x1"/, "ARMED chip carries its own real disarm control, id verbatim from the data");
   const autoIdx = html.indexOf('data-modifier-section="auto"');
   const autoBlock = html.slice(autoIdx, html.indexOf('data-modifier-section="armed"'));
   assert.ok(!/Overcharge/.test(autoBlock), "ARMED's active modifier never leaks into the AUTO section");
