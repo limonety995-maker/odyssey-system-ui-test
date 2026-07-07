@@ -141,6 +141,13 @@ function mapCooldown(raw) {
 
 // State block: availability + disabledReason are SERVER-provided. The client
 // only supplies a generic fallback label when the server truly returned nothing.
+//
+// Phase 4.1A.2: executionAvailable/executionReason are a SEPARATE axis from
+// available — an ability can be available (selectable/armable) yet have an
+// effect the current execution path can't run (e.g. a technique with a
+// damage/armor-pierce effect, migration 100's ACTION_EFFECT_NOT_IMPLEMENTED).
+// Both are copied verbatim from the server (migration 101) — never derived
+// from the ability's name or a client-side effect-grammar copy.
 function mapState(raw) {
   const s = raw?.state && typeof raw.state === "object" ? raw.state : {};
   const available = bool(s.available, false);
@@ -152,6 +159,11 @@ function mapState(raw) {
     // never invent a specific cause (e.g. do not claim "cooldown" ourselves).
     disabledReason: serverReason ?? (available ? null : "Not available"),
     selectable: bool(s.selectable, available),
+    executionAvailable: bool(s.executionAvailable, true),
+    executionReason: str(s.executionReason),
+    // Structural signal (migration 101) — lets the UI distinguish "insufficient
+    // resource" from any other unavailable reason without parsing disabledReason.
+    resourceSufficient: bool(s.resourceSufficient, true),
   };
 }
 

@@ -24,6 +24,13 @@ const TARGET_LABEL = {
   none: "No target",
 };
 
+// Phase 4.1A.2: canonical executionReason codes (migration 101) → human text.
+// The code itself is never shown raw — same "map the code, never the string"
+// convention resolveAttackService.js's ERROR_MESSAGES already uses.
+const EXECUTION_REASON_LABEL = {
+  ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet.",
+};
+
 function costText(costs) {
   const c = costs ?? {};
   const parts = [];
@@ -80,8 +87,15 @@ export function abilityTooltipModel(action) {
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
   if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" · ") });
 
-  // The disabled reason is ALWAYS server-provided when unavailable; shown last.
-  if (state.available === false && state.disabledReason) {
+  // Phase 4.1A.2: executionReason (canonical code, mapped to human text here —
+  // never shown raw) takes the "Status" label — it's the more fundamentally
+  // important reason (won't change until the server supports the effect,
+  // unlike cooldown/resource, which are transient). Any other disabled
+  // reason still shows as "Unavailable"; the server-provided text is used
+  // verbatim (never re-derived), shown last.
+  if (state.executionReason) {
+    lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
+  } else if (state.available === false && state.disabledReason) {
     lines.push({ label: "Unavailable", value: String(state.disabledReason) });
   } else if (state.active === true) {
     lines.push({ label: "Status", value: "Active" });
