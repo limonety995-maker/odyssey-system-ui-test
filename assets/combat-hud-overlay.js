@@ -6028,6 +6028,198 @@ function accentClass(colorSemantic) {
   }
 }
 
+// hud/overlay/hudLayout.js
+var HUD_LAYOUT_REFERENCE_VIEWPORT = Object.freeze({ width: 1920, height: 1080 });
+var LAYOUT_VERSION = 2;
+var LAYOUT_STORAGE_KEY = "odyssey.hud.layout.v2";
+var HUD_MODULE_IDS = Object.freeze([
+  "player",
+  "gun",
+  "skills",
+  "combatControl",
+  "log"
+]);
+var HUD_MODULE_POPOVER_IDS = Object.freeze({
+  player: "odyssey-hud-player",
+  gun: "odyssey-hud-gun",
+  skills: "odyssey-hud-skills",
+  combatControl: "odyssey-hud-combat-control",
+  log: "odyssey-hud-log"
+});
+var LEGACY_HUD_POPOVER_IDS = Object.freeze([
+  "odyssey-hud-target",
+  "odyssey-hud-modifiers",
+  "odyssey-hud-action"
+]);
+var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
+var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
+var LAYOUT_MARGIN = 16;
+var SNAP_GRID = 8;
+var HUD_SAFE_VIEWPORT_PADDING = 0;
+var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
+  player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
+  gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
+  skills: Object.freeze({ left: 663, bottom: 16, width: 600, height: 165, zIndex: 20 }),
+  // Composite: Target (left 165) + Modifiers/Action (right 165). Replaces the
+  // former three separate target/modifiers/action rects.
+  combatControl: Object.freeze({ left: 1263, bottom: 16, width: 330, height: 165, zIndex: 20 }),
+  log: Object.freeze({ left: 1656, bottom: 16, width: 250, height: 250, zIndex: 20 })
+});
+function clamp012(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+function computeLayoutScale(vw, vh) {
+  const usableWidth = Math.max(1, (Number(vw) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  const usableHeight = Math.max(1, (Number(vh) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  return Math.min(
+    usableWidth / HUD_LAYOUT_REFERENCE_VIEWPORT.width,
+    usableHeight / HUD_LAYOUT_REFERENCE_VIEWPORT.height
+  );
+}
+function snapToGrid(value, grid = SNAP_GRID) {
+  const g = grid || 1;
+  return Math.round((Number(value) || 0) / g) * g;
+}
+function moduleSize(moduleId, vw, vh) {
+  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
+  const scale = computeLayoutScale(vw, vh);
+  return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
+}
+function defaultModuleRect(moduleId, vw, vh) {
+  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
+  const scale = computeLayoutScale(vw, vh);
+  const width = Math.round(def.width * scale);
+  const height = Math.round(def.height * scale);
+  return {
+    left: Math.round(def.left * scale),
+    top: Math.round((Number(vh) || 0) - def.bottom * scale - height),
+    width,
+    height,
+    zIndex: def.zIndex
+  };
+}
+function normalizedToPixels(moduleId, placement, vw, vh) {
+  const { width, height } = moduleSize(moduleId, vw, vh);
+  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
+  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
+  return {
+    left: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.x) * availW),
+    top: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.y) * availH),
+    width,
+    height,
+    zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex
+  };
+}
+function pixelsToNormalized(moduleId, left, top, vw, vh) {
+  const { width, height } = moduleSize(moduleId, vw, vh);
+  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
+  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
+  return {
+    x: availW > 0 ? clamp012((left - LAYOUT_MARGIN) / availW) : 0,
+    y: availH > 0 ? clamp012((top - LAYOUT_MARGIN) / availH) : 0
+  };
+}
+function clampRect(rect, vw, vh) {
+  const w = Number(vw) || 0;
+  const h = Number(vh) || 0;
+  return {
+    ...rect,
+    left: Math.max(0, Math.min(rect.left, Math.max(0, w - rect.width))),
+    top: Math.max(0, Math.min(rect.top, Math.max(0, h - rect.height)))
+  };
+}
+function resolveModuleRect(moduleId, placement, vw, vh) {
+  const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
+  return clampRect(rect, vw, vh);
+}
+function computeAlignmentGuides(moving, others, threshold = 6) {
+  const vertical = /* @__PURE__ */ new Set();
+  const horizontal = /* @__PURE__ */ new Set();
+  const mX = [moving.left, moving.left + moving.width / 2, moving.left + moving.width];
+  const mY = [moving.top, moving.top + moving.height / 2, moving.top + moving.height];
+  for (const o of others) {
+    const oX = [o.left, o.left + o.width / 2, o.left + o.width];
+    const oY = [o.top, o.top + o.height / 2, o.top + o.height];
+    for (const a of mX) for (const b of oX) if (Math.abs(a - b) <= threshold) vertical.add(Math.round(b));
+    for (const a of mY) for (const b of oY) if (Math.abs(a - b) <= threshold) horizontal.add(Math.round(b));
+  }
+  return { vertical: [...vertical], horizontal: [...horizontal] };
+}
+function defaultLayoutState() {
+  const modules = {};
+  for (const id of HUD_MODULE_IDS) modules[id] = { mode: "default", x: 0, y: 0 };
+  return { version: LAYOUT_VERSION, modules };
+}
+function migrateLegacyModules(modules) {
+  if (!modules || modules.combatControl) return modules;
+  const hasLegacy = modules.target || modules.modifiers || modules.action;
+  if (!hasLegacy) return modules;
+  const base = modules.target;
+  if (base && base.mode === "custom" && Number.isFinite(base.x) && Number.isFinite(base.y)) {
+    return { ...modules, combatControl: { mode: "custom", x: clamp012(base.x), y: clamp012(base.y) } };
+  }
+  return modules;
+}
+function validateLayoutState(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.version !== LAYOUT_VERSION) return null;
+  if (!raw.modules || typeof raw.modules !== "object") return null;
+  const src = migrateLegacyModules(raw.modules);
+  const out = defaultLayoutState();
+  for (const id of HUD_MODULE_IDS) {
+    const m = src[id];
+    if (m && (m.mode === "default" || m.mode === "custom") && typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y)) {
+      out.modules[id] = { mode: m.mode, x: clamp012(m.x), y: clamp012(m.y) };
+    }
+  }
+  return out;
+}
+function normalizeLayoutState(state) {
+  return validateLayoutState(state) ?? defaultLayoutState();
+}
+function parseLayoutState(rawJson) {
+  if (rawJson == null) return null;
+  let obj = rawJson;
+  if (typeof rawJson === "string") {
+    try {
+      obj = JSON.parse(rawJson);
+    } catch {
+      return null;
+    }
+  }
+  return validateLayoutState(obj);
+}
+function serializeLayoutState(state) {
+  return JSON.stringify(normalizeLayoutState(state));
+}
+function readStoredLayout(storage) {
+  try {
+    const raw = storage && storage.getItem ? storage.getItem(LAYOUT_STORAGE_KEY) : null;
+    return parseLayoutState(raw) ?? defaultLayoutState();
+  } catch {
+    return defaultLayoutState();
+  }
+}
+function writeStoredLayout(storage, state) {
+  try {
+    if (storage && storage.setItem) storage.setItem(LAYOUT_STORAGE_KEY, serializeLayoutState(state));
+  } catch {
+  }
+}
+function setModulePlacement(draft, moduleId, placement) {
+  const next = normalizeLayoutState(draft);
+  if (HUD_MODULE_IDS.includes(moduleId)) {
+    next.modules[moduleId] = {
+      mode: placement && placement.mode === "default" ? "default" : "custom",
+      x: clamp012(placement && placement.x),
+      y: clamp012(placement && placement.y)
+    };
+  }
+  return next;
+}
+
 // hud/core/combatHudSelectors.js
 var COMPACT_LOG_LIMIT = 5;
 function selectCurrentEntity(state) {
@@ -7662,6 +7854,8 @@ function mountCombatHudModule(options) {
   const { root, moduleId } = options;
   const integration = options.integration ?? {};
   const restored = normalizeHudUiState(options.uiState);
+  const scale = Number(options.scale) > 0 ? Number(options.scale) : 1;
+  const canonical = DEFAULT_HUD_LAYOUT_V2[moduleId];
   const adapter = createMockCombatHudAdapter({ scenarioId: restored.mockScenarioId });
   adapter.setViewerRole(restored.viewerRole);
   if (restored.selectedTokenId) adapter.selectToken(restored.selectedTokenId);
@@ -7671,6 +7865,14 @@ function mountCombatHudModule(options) {
   const el = document.createElement("div");
   el.className = cls("odyssey-hud", "ohud-module");
   el.setAttribute("data-module", moduleId);
+  if (canonical) {
+    el.style.width = `${canonical.width}px`;
+    el.style.height = `${canonical.height}px`;
+    if (scale !== 1) {
+      el.style.transform = `scale(${scale})`;
+      el.style.transformOrigin = "top left";
+    }
+  }
   root.appendChild(el);
   const tooltip = createTooltip(el);
   let toastTimer = null;
@@ -7905,236 +8107,6 @@ function mountCombatHudModule(options) {
       el.remove();
     }
   };
-}
-
-// hud/overlay/hudLayout.js
-var HUD_LAYOUT_REFERENCE_VIEWPORT = Object.freeze({ width: 1920, height: 1080 });
-var LAYOUT_VERSION = 2;
-var LAYOUT_STORAGE_KEY = "odyssey.hud.layout.v2";
-var HUD_MODULE_IDS = Object.freeze([
-  "player",
-  "gun",
-  "skills",
-  "combatControl",
-  "log"
-]);
-var HUD_MODULE_POPOVER_IDS = Object.freeze({
-  player: "odyssey-hud-player",
-  gun: "odyssey-hud-gun",
-  skills: "odyssey-hud-skills",
-  combatControl: "odyssey-hud-combat-control",
-  log: "odyssey-hud-log"
-});
-var LEGACY_HUD_POPOVER_IDS = Object.freeze([
-  "odyssey-hud-target",
-  "odyssey-hud-modifiers",
-  "odyssey-hud-action"
-]);
-var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
-var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
-var LAYOUT_MARGIN = 16;
-var SNAP_GRID = 8;
-var COMPACT_LAYOUT_BREAKPOINT = 1100;
-var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
-  player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
-  gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
-  skills: Object.freeze({ left: 663, bottom: 16, width: 600, height: 165, zIndex: 20 }),
-  // Composite: Target (left 165) + Modifiers/Action (right 165). Replaces the
-  // former three separate target/modifiers/action rects.
-  combatControl: Object.freeze({ left: 1263, bottom: 16, width: 330, height: 165, zIndex: 20 }),
-  log: Object.freeze({ left: 1656, bottom: 16, width: 250, height: 250, zIndex: 20 })
-});
-function clamp012(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-function computeLayoutScale(vw, vh) {
-  const w = Math.max(1, Number(vw) || 0);
-  const h = Math.max(1, Number(vh) || 0);
-  return Math.min(w / HUD_LAYOUT_REFERENCE_VIEWPORT.width, h / HUD_LAYOUT_REFERENCE_VIEWPORT.height, 1);
-}
-function isCompactViewport(vw) {
-  return (Number(vw) || 0) < COMPACT_LAYOUT_BREAKPOINT;
-}
-function snapToGrid(value, grid = SNAP_GRID) {
-  const g = grid || 1;
-  return Math.round((Number(value) || 0) / g) * g;
-}
-function moduleSize(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleSize(moduleId, vw);
-  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
-  const scale = computeLayoutScale(vw, vh);
-  return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
-}
-function defaultModuleRect(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleRect(moduleId, vw, vh);
-  const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
-  const scale = computeLayoutScale(vw, vh);
-  const width = Math.round(def.width * scale);
-  const height = Math.round(def.height * scale);
-  return {
-    left: Math.round(def.left * scale),
-    top: Math.round((Number(vh) || 0) - def.bottom * scale - height),
-    width,
-    height,
-    zIndex: def.zIndex
-  };
-}
-function normalizedToPixels(moduleId, placement, vw, vh) {
-  const { width, height } = moduleSize(moduleId, vw, vh);
-  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
-  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
-  return {
-    left: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.x) * availW),
-    top: Math.round(LAYOUT_MARGIN + clamp012(placement && placement.y) * availH),
-    width,
-    height,
-    zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex
-  };
-}
-function pixelsToNormalized(moduleId, left, top, vw, vh) {
-  const { width, height } = moduleSize(moduleId, vw, vh);
-  const availW = Math.max(0, (Number(vw) || 0) - width - 2 * LAYOUT_MARGIN);
-  const availH = Math.max(0, (Number(vh) || 0) - height - 2 * LAYOUT_MARGIN);
-  return {
-    x: availW > 0 ? clamp012((left - LAYOUT_MARGIN) / availW) : 0,
-    y: availH > 0 ? clamp012((top - LAYOUT_MARGIN) / availH) : 0
-  };
-}
-function clampRect(rect, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  return {
-    ...rect,
-    left: Math.max(0, Math.min(rect.left, Math.max(0, w - rect.width))),
-    top: Math.max(0, Math.min(rect.top, Math.max(0, h - rect.height)))
-  };
-}
-function resolveModuleRect(moduleId, placement, vw, vh) {
-  const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
-  return clampRect(rect, vw, vh);
-}
-var COMPACT_SIZES = {
-  player: { width: 150, height: 150 },
-  gun: { width: 190, height: 92 },
-  skills: { width: 300, height: 92 },
-  target: { width: 92, height: 92 },
-  modifiers: { width: 92, height: 92 },
-  action: { width: 120, height: 34 },
-  log: { width: 180, height: 140 }
-};
-function compactModuleSize(moduleId, vw) {
-  const s = COMPACT_SIZES[moduleId];
-  const maxW = Math.max(80, (Number(vw) || 0) - 2 * LAYOUT_MARGIN);
-  return { width: Math.min(s.width, maxW), height: s.height };
-}
-function compactModuleRect(moduleId, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  let x = LAYOUT_MARGIN;
-  let rowTopFromBottom = LAYOUT_MARGIN;
-  let rowHeight = 0;
-  for (const id of HUD_MODULE_IDS) {
-    const size = compactModuleSize(id, vw);
-    if (x + size.width + LAYOUT_MARGIN > w && x > LAYOUT_MARGIN) {
-      rowTopFromBottom += rowHeight + 8;
-      x = LAYOUT_MARGIN;
-      rowHeight = 0;
-    }
-    if (id === moduleId) {
-      const top = Math.max(0, h - rowTopFromBottom - size.height);
-      return clampRect({ left: x, top, width: size.width, height: size.height, zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex }, vw, vh);
-    }
-    x += size.width + 8;
-    rowHeight = Math.max(rowHeight, size.height);
-  }
-  return clampRect({ left: LAYOUT_MARGIN, top: LAYOUT_MARGIN, ...compactModuleSize(moduleId, vw), zIndex: 20 }, vw, vh);
-}
-function computeAlignmentGuides(moving, others, threshold = 6) {
-  const vertical = /* @__PURE__ */ new Set();
-  const horizontal = /* @__PURE__ */ new Set();
-  const mX = [moving.left, moving.left + moving.width / 2, moving.left + moving.width];
-  const mY = [moving.top, moving.top + moving.height / 2, moving.top + moving.height];
-  for (const o of others) {
-    const oX = [o.left, o.left + o.width / 2, o.left + o.width];
-    const oY = [o.top, o.top + o.height / 2, o.top + o.height];
-    for (const a of mX) for (const b of oX) if (Math.abs(a - b) <= threshold) vertical.add(Math.round(b));
-    for (const a of mY) for (const b of oY) if (Math.abs(a - b) <= threshold) horizontal.add(Math.round(b));
-  }
-  return { vertical: [...vertical], horizontal: [...horizontal] };
-}
-function defaultLayoutState() {
-  const modules = {};
-  for (const id of HUD_MODULE_IDS) modules[id] = { mode: "default", x: 0, y: 0 };
-  return { version: LAYOUT_VERSION, modules };
-}
-function migrateLegacyModules(modules) {
-  if (!modules || modules.combatControl) return modules;
-  const hasLegacy = modules.target || modules.modifiers || modules.action;
-  if (!hasLegacy) return modules;
-  const base = modules.target;
-  if (base && base.mode === "custom" && Number.isFinite(base.x) && Number.isFinite(base.y)) {
-    return { ...modules, combatControl: { mode: "custom", x: clamp012(base.x), y: clamp012(base.y) } };
-  }
-  return modules;
-}
-function validateLayoutState(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  if (raw.version !== LAYOUT_VERSION) return null;
-  if (!raw.modules || typeof raw.modules !== "object") return null;
-  const src = migrateLegacyModules(raw.modules);
-  const out = defaultLayoutState();
-  for (const id of HUD_MODULE_IDS) {
-    const m = src[id];
-    if (m && (m.mode === "default" || m.mode === "custom") && typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y)) {
-      out.modules[id] = { mode: m.mode, x: clamp012(m.x), y: clamp012(m.y) };
-    }
-  }
-  return out;
-}
-function normalizeLayoutState(state) {
-  return validateLayoutState(state) ?? defaultLayoutState();
-}
-function parseLayoutState(rawJson) {
-  if (rawJson == null) return null;
-  let obj = rawJson;
-  if (typeof rawJson === "string") {
-    try {
-      obj = JSON.parse(rawJson);
-    } catch {
-      return null;
-    }
-  }
-  return validateLayoutState(obj);
-}
-function serializeLayoutState(state) {
-  return JSON.stringify(normalizeLayoutState(state));
-}
-function readStoredLayout(storage) {
-  try {
-    const raw = storage && storage.getItem ? storage.getItem(LAYOUT_STORAGE_KEY) : null;
-    return parseLayoutState(raw) ?? defaultLayoutState();
-  } catch {
-    return defaultLayoutState();
-  }
-}
-function writeStoredLayout(storage, state) {
-  try {
-    if (storage && storage.setItem) storage.setItem(LAYOUT_STORAGE_KEY, serializeLayoutState(state));
-  } catch {
-  }
-}
-function setModulePlacement(draft, moduleId, placement) {
-  const next = normalizeLayoutState(draft);
-  if (HUD_MODULE_IDS.includes(moduleId)) {
-    next.modules[moduleId] = {
-      mode: placement && placement.mode === "default" ? "default" : "custom",
-      x: clamp012(placement && placement.x),
-      y: clamp012(placement && placement.y)
-    };
-  }
-  return next;
 }
 
 // hud/components/CombatHudLayoutEditor.js
@@ -8594,6 +8566,14 @@ function getModuleParam() {
     return "";
   }
 }
+function getScaleParam() {
+  try {
+    const raw = Number(new URLSearchParams(window.location.search).get("scale"));
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  } catch {
+    return 1;
+  }
+}
 function renderPill(root, available) {
   const host = document.createElement("div");
   host.className = "odyssey-hud ohud-overlay is-collapsed";
@@ -8652,6 +8632,7 @@ function start() {
       root,
       moduleId: moduleParam,
       uiState,
+      scale: getScaleParam(),
       integration: {
         onArrange() {
           if (available) send(BC_HUD_EDITOR, { open: true });

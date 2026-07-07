@@ -9604,7 +9604,7 @@ var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
 var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
 var BC_HUD_EDITOR = "com.odyssey.combat-hud/editor";
 var LAYOUT_MARGIN = 16;
-var COMPACT_LAYOUT_BREAKPOINT = 1100;
+var HUD_SAFE_VIEWPORT_PADDING = 0;
 var DEFAULT_HUD_LAYOUT_V2 = Object.freeze({
   player: Object.freeze({ left: 16, bottom: 16, width: 250, height: 250, zIndex: 30 }),
   gun: Object.freeze({ left: 126, bottom: 16, width: 340, height: 165, zIndex: 20 }),
@@ -9620,21 +9620,19 @@ function clamp012(n) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 function computeLayoutScale(vw, vh) {
-  const w = Math.max(1, Number(vw) || 0);
-  const h = Math.max(1, Number(vh) || 0);
-  return Math.min(w / HUD_LAYOUT_REFERENCE_VIEWPORT.width, h / HUD_LAYOUT_REFERENCE_VIEWPORT.height, 1);
-}
-function isCompactViewport(vw) {
-  return (Number(vw) || 0) < COMPACT_LAYOUT_BREAKPOINT;
+  const usableWidth = Math.max(1, (Number(vw) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  const usableHeight = Math.max(1, (Number(vh) || 0) - 2 * HUD_SAFE_VIEWPORT_PADDING);
+  return Math.min(
+    usableWidth / HUD_LAYOUT_REFERENCE_VIEWPORT.width,
+    usableHeight / HUD_LAYOUT_REFERENCE_VIEWPORT.height
+  );
 }
 function moduleSize(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleSize(moduleId, vw);
   const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
   const scale = computeLayoutScale(vw, vh);
   return { width: Math.round(def.width * scale), height: Math.round(def.height * scale) };
 }
 function defaultModuleRect(moduleId, vw, vh) {
-  if (isCompactViewport(vw)) return compactModuleRect(moduleId, vw, vh);
   const def = DEFAULT_HUD_LAYOUT_V2[moduleId];
   const scale = computeLayoutScale(vw, vh);
   const width = Math.round(def.width * scale);
@@ -9671,42 +9669,6 @@ function clampRect(rect, vw, vh) {
 function resolveModuleRect(moduleId, placement, vw, vh) {
   const rect = placement && placement.mode === "custom" ? normalizedToPixels(moduleId, placement, vw, vh) : defaultModuleRect(moduleId, vw, vh);
   return clampRect(rect, vw, vh);
-}
-var COMPACT_SIZES = {
-  player: { width: 150, height: 150 },
-  gun: { width: 190, height: 92 },
-  skills: { width: 300, height: 92 },
-  target: { width: 92, height: 92 },
-  modifiers: { width: 92, height: 92 },
-  action: { width: 120, height: 34 },
-  log: { width: 180, height: 140 }
-};
-function compactModuleSize(moduleId, vw) {
-  const s = COMPACT_SIZES[moduleId];
-  const maxW = Math.max(80, (Number(vw) || 0) - 2 * LAYOUT_MARGIN);
-  return { width: Math.min(s.width, maxW), height: s.height };
-}
-function compactModuleRect(moduleId, vw, vh) {
-  const w = Number(vw) || 0;
-  const h = Number(vh) || 0;
-  let x = LAYOUT_MARGIN;
-  let rowTopFromBottom = LAYOUT_MARGIN;
-  let rowHeight = 0;
-  for (const id of HUD_MODULE_IDS) {
-    const size = compactModuleSize(id, vw);
-    if (x + size.width + LAYOUT_MARGIN > w && x > LAYOUT_MARGIN) {
-      rowTopFromBottom += rowHeight + 8;
-      x = LAYOUT_MARGIN;
-      rowHeight = 0;
-    }
-    if (id === moduleId) {
-      const top = Math.max(0, h - rowTopFromBottom - size.height);
-      return clampRect({ left: x, top, width: size.width, height: size.height, zIndex: DEFAULT_HUD_LAYOUT_V2[moduleId].zIndex }, vw, vh);
-    }
-    x += size.width + 8;
-    rowHeight = Math.max(rowHeight, size.height);
-  }
-  return clampRect({ left: LAYOUT_MARGIN, top: LAYOUT_MARGIN, ...compactModuleSize(moduleId, vw), zIndex: 20 }, vw, vh);
 }
 function defaultLayoutState() {
   const modules = {};
@@ -9828,6 +9790,7 @@ function pageUrl(moduleId) {
   params.set("module", moduleId);
   params.set("vw", String(Math.round(lastVW)));
   params.set("vh", String(Math.round(lastVH)));
+  params.set("scale", String(computeLayoutScale(lastVW, lastVH)));
   try {
     const baseParams = new URL(baseHref()).searchParams;
     if (baseParams.get("debug") === "1") params.set("debug", "1");

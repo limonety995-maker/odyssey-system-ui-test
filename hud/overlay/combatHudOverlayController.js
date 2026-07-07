@@ -62,6 +62,7 @@ import {
   normalizeLayoutState,
   resolveModuleRect,
   clampRect,
+  computeLayoutScale,
 } from "./hudLayout.js";
 
 const VIEWPORT_POLL_MS = 600;
@@ -134,6 +135,12 @@ function pageUrl(moduleId) {
   params.set("module", moduleId);
   params.set("vw", String(Math.round(lastVW)));
   params.set("vh", String(Math.round(lastVH)));
+  // Priority UI Fix — Universal Responsive HUD Scaling: the SAME uniform
+  // scale used to size/position this module's outer popover (moduleRect())
+  // travels with it, so the module's own internal canvas can render at its
+  // canonical (1920×1080-reference) pixel dimensions and visually scale to
+  // match — one source of truth, never two independently-derived numbers.
+  params.set("scale", String(computeLayoutScale(lastVW, lastVH)));
   try {
     const baseParams = new URL(baseHref()).searchParams;
     if (baseParams.get("debug") === "1") params.set("debug", "1");

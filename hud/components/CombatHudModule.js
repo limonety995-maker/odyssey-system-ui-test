@@ -13,6 +13,7 @@ import { createMockCombatHudAdapter } from "../adapters/mockCombatHudAdapter.js"
 import { createCombatHudStore } from "../core/combatHudStore.js";
 import { normalizeHudUiState } from "../overlay/overlayConstants.js";
 import { resolveBodyMode } from "./hudLayoutModel.js";
+import { DEFAULT_HUD_LAYOUT_V2 } from "../overlay/hudLayout.js";
 
 import { renderPlayerBlock } from "./PlayerBlock.js";
 import { renderGunBlock } from "./GunBlock.js";
@@ -58,6 +59,15 @@ export function mountCombatHudModule(options) {
   const { root, moduleId } = options;
   const integration = options.integration ?? {};
   const restored = normalizeHudUiState(options.uiState);
+  // Priority UI Fix — Universal Responsive HUD Scaling: `scale` is the SAME
+  // factor combatHudOverlayController.js used to size this module's OUTER
+  // popover (computeLayoutScale(vw, vh) in hudLayout.js). Only one of the 5
+  // canonical modules gets rescaled here — companion selector panels
+  // (weapon/magazine/fire-mode) share this mount function but have no entry
+  // in DEFAULT_HUD_LAYOUT_V2, so `canonical` is undefined for them and they
+  // render exactly as before (untouched by this feature, per scope).
+  const scale = Number(options.scale) > 0 ? Number(options.scale) : 1;
+  const canonical = DEFAULT_HUD_LAYOUT_V2[moduleId];
 
   const adapter = createMockCombatHudAdapter({ scenarioId: restored.mockScenarioId });
   adapter.setViewerRole(restored.viewerRole);
@@ -81,6 +91,24 @@ export function mountCombatHudModule(options) {
   // `.ohud-module` carries the neutral fill/sizing for one block per iframe.
   el.className = cls("odyssey-hud", "ohud-module");
   el.setAttribute("data-module", moduleId);
+  if (canonical) {
+    // The outer popover box is already sized to width*scale/height*scale
+    // (moduleRect() in combatHudOverlayController.js). This element instead
+    // stays at its CANONICAL (1920×1080-reference) pixel size — every
+    // existing CSS rule in combatHudLayout.css/combatHudModule.css keeps
+    // authoring against those same unscaled numbers — and a single transform
+    // visually fits it to the scaled popover box. transform-origin "top
+    // left" matches the popover's own anchorOrigin/transformOrigin (both
+    // LEFT/TOP), so there is no offset drift between the scaled visual
+    // content and the click-hit-testing the browser already does post-
+    // transform (no CSS zoom, no separate click-coordinate math needed).
+    el.style.width = `${canonical.width}px`;
+    el.style.height = `${canonical.height}px`;
+    if (scale !== 1) {
+      el.style.transform = `scale(${scale})`;
+      el.style.transformOrigin = "top left";
+    }
+  }
   root.appendChild(el);
 
   const tooltip = createTooltip(el);

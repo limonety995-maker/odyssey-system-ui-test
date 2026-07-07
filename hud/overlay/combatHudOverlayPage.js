@@ -72,6 +72,17 @@ function getModuleParam() {
   try { return new URLSearchParams(window.location.search).get("module") || ""; } catch { return ""; }
 }
 
+/** Priority UI Fix — Universal Responsive HUD Scaling: the uniform scale the
+ *  background controller computed for this module's outer popover size
+ *  (see combatHudOverlayController.js's pageUrl()). Falls back to 1 (no
+ *  scaling) if absent/invalid — never NaN, never negative, never zero. */
+function getScaleParam() {
+  try {
+    const raw = Number(new URLSearchParams(window.location.search).get("scale"));
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  } catch { return 1; }
+}
+
 function renderPill(root, available) {
   const host = document.createElement("div");
   host.className = "odyssey-hud ohud-overlay is-collapsed";
@@ -140,6 +151,7 @@ function start() {
       root,
       moduleId: moduleParam,
       uiState,
+      scale: getScaleParam(),
       integration: {
         onArrange() { if (available) send(BC_HUD_EDITOR, { open: true }); },
         onCollapse(collapsed) { if (available) send(BC_HUD_UI_STATE, { isHudCollapsed: !!collapsed }); },
