@@ -3993,26 +3993,47 @@ var combatHudLayout_default = `/*
 .ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }
 .ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }
 
-/* ===================== Ability Detail Card (Phase 4.1A.2) =====================
- * Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
- * (quickbarDetailCardController.js / AbilityDetailCard.js) \u2014 this shell only
- * adds floating position + a safe viewport-clamped width. Appended to
- * document.body (a sibling of the transform-scaled .ohud-module canvas,
- * same placement as .ohud-tooltip above), so it is NEVER shrunk by the
- * responsive-scaling transform \u2014 the font-size overrides below are the
- * card's actual rendered sizes, not pre-transform values needing a ratio. */
-.ohud-ability-card {
-  position: fixed; z-index: 60; width: 260px; max-width: calc(100vw - 16px);
-  box-shadow: var(--odyssey-hud-shadow);
+/* ===================== Ability Detail Card (bug fix: own companion popover) =====
+ * Was a \`position:fixed\` div rendered INSIDE the Skills module's own tiny
+ * iframe \u2014 content (fixed-position or not) can never render outside an
+ * iframe's own box, since an iframe is its own browsing context. It is now
+ * its OWN independent OBR companion popover (odyssey-hud-ability-detail),
+ * sized/positioned by combatHudOverlayController.js
+ * (abilityDetailPlacement.js) exactly like the GM Tracker / Quickbar Editor
+ * companions \u2014 so this page fills its OWN (correctly-sized) popover, the
+ * same way those do, rather than floating over shared content. */
+.ohud-ability-detail-page { height: 100%; width: 100%; display: flex; }
+/* Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
+ * (AbilityDetailCard.js) so there is only one detail-card body renderer.
+ * --card fills the popover and pins header + status OUTSIDE the scrollable
+ * region (section B: "header and current status remain visible" even when
+ * a genuinely long description needs the body to scroll \u2014 the estimated
+ * popover height, computed from the SAME real data, means this is normally
+ * unnecessary, but must still degrade safely when it isn't enough). */
+/* Compound selector (.ohud-qbe-desc.ohud-qbe-desc--card), not just the
+ * modifier class alone \u2014 the base .ohud-qbe-desc rule (Quickbar Editor
+ * section, further down this file) sets a fixed min/max-height + overflow-y
+ * that this must reliably override regardless of source order; a compound
+ * selector's higher specificity guarantees that without relying on which
+ * rule happens to come later in the file. */
+.ohud-qbe-desc.ohud-qbe-desc--card {
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow: visible;
+  display: flex; flex-direction: column;
 }
-.ohud-ability-card[hidden] { display: none; }
+.ohud-qbe-desc--card .ohud-qbe-desc-head,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { flex: 0 0 auto; }
+.ohud-qbe-desc-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 /* Section G typography floor: ability name >=14px, primary detail-card text
  * >=12px, rendered \u2014 scoped here so the Quickbar Editor's OWN (unscoped)
- * .ohud-qbe-desc-* rules stay exactly as they were. */
-.ohud-ability-card .ohud-qbe-desc-name { font-size: 14px; }
-.ohud-ability-card .ohud-qbe-desc-text,
-.ohud-ability-card .ohud-qbe-desc-pill,
-.ohud-ability-card .ohud-qbe-desc-status { font-size: 12px; }
+ * .ohud-qbe-desc-* rules stay exactly as they were. This card lives in its
+ * own dedicated popover (no shared transform-scaled canvas to inherit from),
+ * so these are fixed, unconditional sizes \u2014 never a ratio-compensated one. */
+.ohud-qbe-desc--card .ohud-qbe-desc-name { font-size: 14px; }
+.ohud-qbe-desc--card .ohud-qbe-desc-text,
+.ohud-qbe-desc--card .ohud-qbe-desc-pill,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { font-size: 12px; }
+/* Description must wrap normally, never ellipsis/truncate (section E). */
+.ohud-qbe-desc--card .ohud-qbe-desc-text { white-space: normal; overflow-wrap: break-word; }
 
 /* ===================== Compact / mini (two rows) ===================== */
 .ohud-hud[data-mode="compact"] .ohud-main,
@@ -7990,146 +8011,60 @@ function createTooltip(host) {
   };
 }
 
-// hud/abilities/AbilityDetailCard.js
-var SEMANTIC_ACCENT2 = { attack: "attack", psi: "psionic", tech: "implant", utility: "neutral", intervention: "intervention" };
-var SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
-var SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
-function categoryLabel(action) {
-  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
-  const src = SOURCE_LABEL[action.sourceType] ?? null;
-  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
-  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
-}
-function renderAbilityDetailCard(action, opts = {}) {
-  if (!action) {
-    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">${esc(opts.emptyText ?? "No action selected.")}</div></div>`;
-  }
-  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
-  const model = abilityTooltipModel(action);
-  const descLine = model.lines.find((l) => l.label === "Description");
-  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
-  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
-  const pillsHtml = pillLines.map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`).join("");
-  const statusHtml = statusLine ? `<div class="${cls("ohud-qbe-desc-status", statusLine.value === "Active" ? "is-active" : "is-warning")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>` : "";
-  const armedHtml = opts.armed ? `<div class="ohud-qbe-desc-status is-active">Prepared for next attack</div>` : "";
-  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
-    <div class="ohud-qbe-desc-head">
-      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
-      <div class="ohud-qbe-desc-head-text">
-        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
-        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
-      </div>
-    </div>
-    ${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
-    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>
-    ${armedHtml}
-    ${statusHtml}
-  </div>`;
-}
-
 // hud/abilities/quickbarDetailCardController.js
 var OPEN_DELAY_MS = 220;
-var CLOSE_GRACE_MS = 160;
-function createQuickbarDetailCardController(host) {
-  const doc = host.ownerDocument || document;
-  const el = doc.createElement("div");
-  el.className = "ohud-ability-card";
-  el.hidden = true;
-  el.setAttribute("role", "dialog");
-  (doc.body || host).appendChild(el);
+function createQuickbarDetailCardController(sendCommand) {
   let openTimer = null;
-  let closeTimer = null;
-  let currentActionId = null;
+  let openActionId = null;
   function clearOpenTimer() {
     if (openTimer) {
       clearTimeout(openTimer);
       openTimer = null;
     }
   }
-  function clearCloseTimer() {
-    if (closeTimer) {
-      clearTimeout(closeTimer);
-      closeTimer = null;
-    }
-  }
-  function place(anchorRect) {
-    const vw = doc.defaultView?.innerWidth ?? window.innerWidth;
-    const vh = doc.defaultView?.innerHeight ?? window.innerHeight;
-    const cardRect = el.getBoundingClientRect();
-    const margin = 8;
-    let left = anchorRect.left;
-    let top = anchorRect.top - cardRect.height - margin;
-    if (top < margin) top = anchorRect.bottom + margin;
-    left = Math.max(margin, Math.min(left, vw - cardRect.width - margin));
-    top = Math.max(margin, Math.min(top, vh - cardRect.height - margin));
-    el.style.left = `${Math.round(left)}px`;
-    el.style.top = `${Math.round(top)}px`;
-  }
-  function openFor(anchorEl, action, opts = {}) {
+  function showNow(action, opts = {}) {
     clearOpenTimer();
-    clearCloseTimer();
-    currentActionId = action?.characterActionId ?? null;
-    el.innerHTML = renderAbilityDetailCard(action, opts);
-    el.hidden = false;
-    place(anchorEl.getBoundingClientRect());
+    openActionId = action?.characterActionId ?? null;
+    sendCommand({ type: "show", characterActionId: openActionId, armed: !!opts.armed });
   }
-  function scheduleOpen(anchorEl, action, opts = {}) {
+  function scheduleOpen(action, opts = {}) {
     clearOpenTimer();
-    clearCloseTimer();
     openTimer = setTimeout(() => {
       openTimer = null;
-      openFor(anchorEl, action, opts);
+      showNow(action, opts);
     }, OPEN_DELAY_MS);
   }
   function scheduleClose() {
     clearOpenTimer();
-    clearCloseTimer();
-    closeTimer = setTimeout(() => {
-      closeTimer = null;
-      el.hidden = true;
-      currentActionId = null;
-    }, CLOSE_GRACE_MS);
+    sendCommand({ type: "maybe-hide" });
   }
   function cancelClose() {
-    clearCloseTimer();
+    sendCommand({ type: "cancel-hide" });
   }
   function closeNow() {
     clearOpenTimer();
-    clearCloseTimer();
-    el.hidden = true;
-    currentActionId = null;
+    openActionId = null;
+    sendCommand({ type: "hide" });
   }
-  function toggle(anchorEl, action, opts = {}) {
-    if (!el.hidden && currentActionId === (action?.characterActionId ?? null)) {
+  function toggle(action, opts = {}) {
+    if (openActionId === (action?.characterActionId ?? null)) {
       closeNow();
       return;
     }
-    openFor(anchorEl, action, opts);
+    showNow(action, opts);
   }
   return {
-    element: el,
-    openFor,
     scheduleOpen,
     scheduleClose,
     cancelClose,
     closeNow,
     toggle,
-    isOpen() {
-      return !el.hidden;
-    },
     isOpenFor(actionId) {
-      return !el.hidden && currentActionId === actionId;
-    },
-    /** True when `target` is the card itself or lives inside it — callers
-     *  use this to decide whether a pointer/focus move away from the slot
-     *  should still count as "still interacting with the detail card". */
-    contains(target) {
-      return !!target && el.contains(target);
+      return openActionId === actionId;
     },
     destroy() {
       clearOpenTimer();
-      clearCloseTimer();
-      el.remove();
+      closeNow();
     }
   };
 }
@@ -8179,7 +8114,9 @@ function mountCombatHudModule(options) {
   }
   root.appendChild(el);
   const tooltip = createTooltip(el);
-  const detailCard = moduleId === "skills" ? createQuickbarDetailCardController(el) : null;
+  const detailCard = moduleId === "skills" ? createQuickbarDetailCardController((cmd) => {
+    integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "ability-detail", ...cmd });
+  }) : null;
   let toastTimer = null;
   function resolveQuickAction(actionId) {
     if (!actionId) return null;
@@ -8367,7 +8304,7 @@ function mountCombatHudModule(options) {
       case "show-ability-detail": {
         if (t.classList.contains("is-disabled")) break;
         const action = resolveQuickAction(t.getAttribute("data-action-id"));
-        if (action && detailCard) detailCard.toggle(t, action);
+        if (action && detailCard) detailCard.toggle(action);
         else showToast("Ability details \u2014 execution arrives in Phase 4.1");
         break;
       }
@@ -8423,7 +8360,7 @@ function mountCombatHudModule(options) {
     if (!t) return;
     const action = resolveQuickAction(t.getAttribute("data-action-id"));
     if (!action) return;
-    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
   }
   function onSlotDetailOut(e) {
     if (!detailCard) return;
@@ -8431,7 +8368,6 @@ function mountCombatHudModule(options) {
     if (!t) return;
     const to = e.relatedTarget;
     if (to && techniqueSlotFromTarget(to) === t) return;
-    if (to && detailCard.contains(to)) return;
     detailCard.scheduleClose();
   }
   function onSlotDetailFocusIn(e) {
@@ -8440,14 +8376,12 @@ function mountCombatHudModule(options) {
     if (!t) return;
     const action = resolveQuickAction(t.getAttribute("data-action-id"));
     if (!action) return;
-    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
   }
   function onSlotDetailFocusOut(e) {
     if (!detailCard) return;
     const t = techniqueSlotFromTarget(e.target);
     if (!t) return;
-    const to = e.relatedTarget;
-    if (to && detailCard.contains(to)) return;
     detailCard.scheduleClose();
   }
   if (detailCard) {
@@ -8455,12 +8389,6 @@ function mountCombatHudModule(options) {
     el.addEventListener("mouseout", onSlotDetailOut);
     el.addEventListener("focusin", onSlotDetailFocusIn);
     el.addEventListener("focusout", onSlotDetailFocusOut);
-    detailCard.element.addEventListener("mouseenter", () => detailCard.cancelClose());
-    detailCard.element.addEventListener("mouseleave", (e) => {
-      const to = e.relatedTarget;
-      if (to && techniqueSlotFromTarget(to)) return;
-      detailCard.scheduleClose();
-    });
   }
   const unsubscribe = store.subscribe(render);
   render();
@@ -8707,6 +8635,53 @@ function renderGmCombatTracker({ session, candidates, viewerRole, busy = false }
       <button type="button" class="ohud-gmct-btn is-danger" data-action="gm-end-combat"${busy ? " disabled" : ""}>End Combat</button>
     </div>
   </section>`;
+}
+
+// hud/abilities/AbilityDetailCard.js
+var SEMANTIC_ACCENT2 = { attack: "attack", psi: "psionic", tech: "implant", utility: "neutral", intervention: "intervention" };
+var SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
+var SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
+function categoryLabel(action) {
+  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
+  const src = SOURCE_LABEL[action.sourceType] ?? null;
+  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
+  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
+}
+function renderAbilityDetailCard(action, opts = {}) {
+  if (!action) {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">${esc(opts.emptyText ?? "No action selected.")}</div></div>`;
+  }
+  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const model = abilityTooltipModel(action);
+  const descLine = model.lines.find((l) => l.label === "Description");
+  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
+  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
+  const pillsHtml = pillLines.map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`).join("");
+  const statusHtml = statusLine ? `<div class="${cls("ohud-qbe-desc-status", statusLine.value === "Active" ? "is-active" : "is-warning")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>` : "";
+  const armedHtml = opts.armed ? `<div class="ohud-qbe-desc-status is-active">Prepared for next attack</div>` : "";
+  const headHtml = `<div class="ohud-qbe-desc-head">
+      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
+      <div class="ohud-qbe-desc-head-text">
+        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
+        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
+      </div>
+    </div>`;
+  const bodyInnerHtml = `${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
+    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>`;
+  if (opts.scrollableBody) {
+    return `<div class="${cls("ohud-qbe-desc", "ohud-qbe-desc--card", `ohud-accent--${accent}`)}">
+      ${headHtml}
+      <div class="ohud-qbe-desc-body">${bodyInnerHtml}</div>
+      ${armedHtml}
+      ${statusHtml}
+    </div>`;
+  }
+  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
+    ${headHtml}
+    ${bodyInnerHtml}
+    ${armedHtml}
+    ${statusHtml}
+  </div>`;
 }
 
 // hud/abilities/QuickbarEditorPanel.js
@@ -9120,6 +9095,48 @@ function start() {
       }
     }
     renderTracker();
+    return;
+  }
+  if (moduleParam === "ability-detail") {
+    let resolveShownAction = function() {
+      if (!shown?.characterActionId) return null;
+      const list = rawPayload?.hudSnapshot?.quickbar?.quickActions;
+      return Array.isArray(list) ? list.find((a) => a.characterActionId === shown.characterActionId) ?? null : null;
+    }, renderCard = function() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-ability-detail-page";
+      host.innerHTML = renderAbilityDetailCard(resolveShownAction(), { armed: !!shown?.armed, scrollableBody: true });
+      root.appendChild(host);
+    };
+    let rawPayload = null;
+    let shown = null;
+    root.addEventListener("mouseenter", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "cancel-hide" });
+    });
+    root.addEventListener("mouseleave", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "maybe-hide" });
+    });
+    if (available) {
+      try {
+        lib_default.broadcast.onMessage(BC_HUD_SELECTION, (event) => {
+          rawPayload = event?.data ?? null;
+          renderCard();
+        });
+        lib_default.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
+          const data = event?.data ?? {};
+          if (data?.scope !== "combat-hud" || data?.feature !== "ability-detail") return;
+          if (String(data.type ?? "") === "show") {
+            shown = { characterActionId: data.characterActionId ?? null, armed: !!data.armed };
+            renderCard();
+          }
+        });
+        send(BC_HUD_SELECTION_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "request-current" });
+      } catch (_e) {
+      }
+    }
+    renderCard();
     return;
   }
   if (moduleParam === "quickbar-editor") {

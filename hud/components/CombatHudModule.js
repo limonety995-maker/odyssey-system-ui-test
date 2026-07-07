@@ -126,10 +126,18 @@ export function mountCombatHudModule(options) {
   root.appendChild(el);
 
   const tooltip = createTooltip(el);
-  // Phase 4.1A.2: the bigger Ability Detail Card only ever appears in the
-  // Skills module (the only one with quickbar slots) — a null controller
-  // elsewhere means every call site below is a safe no-op.
-  const detailCard = moduleId === "skills" ? createQuickbarDetailCardController(el) : null;
+  // Phase 4.1A.2 (bug-fix rewrite): the bigger Ability Detail Card only ever
+  // appears in the Skills module (the only one with quickbar slots) — a null
+  // controller elsewhere means every call site below is a safe no-op. It no
+  // longer owns a local DOM element (that used to get clipped by this
+  // module's own tiny iframe boundary) — it sends namespaced commands for
+  // the background controller to open/resize/close a SEPARATE companion
+  // popover instead (see quickbarDetailCardController.js's header comment).
+  const detailCard = moduleId === "skills"
+    ? createQuickbarDetailCardController((cmd) => {
+        integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "ability-detail", ...cmd });
+      })
+    : null;
   let toastTimer = null;
 
   /** Resolve the CURRENT (live-selection-first, mock-fallback) mapped quick
@@ -344,7 +352,7 @@ export function mountCombatHudModule(options) {
         // ability data to show a card for.
         if (t.classList.contains("is-disabled")) break;
         const action = resolveQuickAction(t.getAttribute("data-action-id"));
-        if (action && detailCard) detailCard.toggle(t, action);
+        if (action && detailCard) detailCard.toggle(action);
         else showToast("Ability details — execution arrives in Phase 4.1");
         break;
       }
@@ -404,11 +412,22 @@ export function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
 
-  // Phase 4.1A.2: attack_technique slots open the Ability Detail Card on
-  // hover/focus (with a short delay), never on click (click is arm/disarm —
-  // see the "toggle-armed-technique" case above). Delegated the same way
-  // Tooltip.js already delegates its own hover — one listener set per
-  // event type on the module root, not one per slot.
+  // Phase 4.1A.2 (bug-fix rewrite): attack_technique slots open the Ability
+  // Detail Card on hover/focus (with a short delay), never on click (click is
+  // arm/disarm — see the "toggle-armed-technique" case above). Delegated the
+  // same way Tooltip.js already delegates its own hover — one listener set
+  // per event type on the module root, not one per slot.
+  //
+  // The card is now a SEPARATE companion popover/iframe (see
+  // quickbarDetailCardController.js's header comment for why), so this
+  // module can no longer detect "the pointer moved onto the card itself" —
+  // that used to be a local `detailCard.contains(to)` DOM check, which is
+  // meaningless across iframes. Leaving a technique slot always schedules a
+  // close; the card's OWN mounted page (combatHudOverlayPage.js's
+  // "ability-detail" route) independently sends its own cancel-hide/
+  // maybe-hide on its own mouseenter/mouseleave, and the background
+  // controller (the one shared arbiter reachable by both iframes) is what
+  // actually coordinates the shared grace window.
   function techniqueSlotFromTarget(target) {
     const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
     return t && el.contains(t) ? t : null;
@@ -419,16 +438,17 @@ export function mountCombatHudModule(options) {
     if (!t) return;
     const action = resolveQuickAction(t.getAttribute("data-action-id"));
     if (!action) return;
-    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
   }
   function onSlotDetailOut(e) {
     if (!detailCard) return;
     const t = techniqueSlotFromTarget(e.target);
     if (!t) return;
     const to = e.relatedTarget;
-    // Moving within the same slot, or onto the card itself, is not a "leave".
+    // Moving within the same slot is not a "leave" — anything else
+    // (including onto the now-separate card popover, which this module
+    // cannot observe) schedules the shared grace-close.
     if (to && techniqueSlotFromTarget(to) === t) return;
-    if (to && detailCard.contains(to)) return;
     detailCard.scheduleClose();
   }
   function onSlotDetailFocusIn(e) {
@@ -437,14 +457,12 @@ export function mountCombatHudModule(options) {
     if (!t) return;
     const action = resolveQuickAction(t.getAttribute("data-action-id"));
     if (!action) return;
-    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+    detailCard.scheduleOpen(action, { armed: t.classList.contains("is-armed") });
   }
   function onSlotDetailFocusOut(e) {
     if (!detailCard) return;
     const t = techniqueSlotFromTarget(e.target);
     if (!t) return;
-    const to = e.relatedTarget;
-    if (to && detailCard.contains(to)) return;
     detailCard.scheduleClose();
   }
   if (detailCard) {
@@ -452,15 +470,6 @@ export function mountCombatHudModule(options) {
     el.addEventListener("mouseout", onSlotDetailOut);
     el.addEventListener("focusin", onSlotDetailFocusIn);
     el.addEventListener("focusout", onSlotDetailFocusOut);
-    // The card itself: entering it cancels a pending close (pointer crossing
-    // the gap between slot and card); leaving it (to anywhere but the slot
-    // that opened it) schedules the same safe-close grace period.
-    detailCard.element.addEventListener("mouseenter", () => detailCard.cancelClose());
-    detailCard.element.addEventListener("mouseleave", (e) => {
-      const to = e.relatedTarget;
-      if (to && techniqueSlotFromTarget(to)) return;
-      detailCard.scheduleClose();
-    });
   }
 
   const unsubscribe = store.subscribe(render);

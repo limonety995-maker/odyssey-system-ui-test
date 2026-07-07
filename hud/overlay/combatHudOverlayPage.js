@@ -34,6 +34,7 @@ import { renderMagazineSelectorPanel } from "../components/MagazineSelectorPanel
 import { renderFireModeSelectorPanel } from "../components/FireModeSelectorPanel.js";
 import { renderGmCombatTracker } from "../session/GmCombatTrackerPanel.js";
 import { renderQuickbarEditor } from "../abilities/QuickbarEditorPanel.js";
+import { renderAbilityDetailCard } from "../abilities/AbilityDetailCard.js";
 import {
   buildDraft,
   assignActionToSlot,
@@ -319,6 +320,67 @@ function start() {
       } catch (_e) { /* standalone */ }
     }
     renderTracker();
+    return;
+  }
+
+  // --- Ability Detail Card companion popover (clipping bug fix) ---
+  // A `position:fixed` div rendered INSIDE the Skills module's own tiny
+  // iframe could never render outside that iframe's box (an iframe is its
+  // own browsing context) — this is now its own independent popover, sized/
+  // positioned by the background controller (abilityDetailPlacement.js),
+  // exactly like the other companions above. Content arrives via
+  // BC_HUD_COMMAND's "show" (never a URL param, so switching which ability
+  // is shown never needs a full iframe reload) — "request-current" recovers
+  // the state if this iframe missed the original "show" while still loading.
+  if (moduleParam === "ability-detail") {
+    let rawPayload = null;
+    let shown = null; // { characterActionId, armed } | null
+
+    function resolveShownAction() {
+      if (!shown?.characterActionId) return null;
+      const list = rawPayload?.hudSnapshot?.quickbar?.quickActions;
+      return Array.isArray(list) ? (list.find((a) => a.characterActionId === shown.characterActionId) ?? null) : null;
+    }
+
+    function renderCard() {
+      root.innerHTML = "";
+      const host = document.createElement("div");
+      host.className = "odyssey-hud ohud-ability-detail-page";
+      host.innerHTML = renderAbilityDetailCard(resolveShownAction(), { armed: !!shown?.armed, scrollableBody: true });
+      root.appendChild(host);
+    }
+
+    // Hovering the card itself must keep it open, and leaving it (to
+    // anywhere but back onto the slot, which the Skills module's own
+    // listeners already handle) must schedule the same shared close-grace
+    // window the slot uses — see combatHudOverlayController.js's
+    // abilityDetailCloseTimer doc comment for why this lives there.
+    root.addEventListener("mouseenter", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "cancel-hide" });
+    });
+    root.addEventListener("mouseleave", () => {
+      if (available) send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "maybe-hide" });
+    });
+
+    if (available) {
+      try {
+        OBR.broadcast.onMessage(BC_HUD_SELECTION, (event) => {
+          rawPayload = event?.data ?? null;
+          renderCard();
+        });
+        OBR.broadcast.onMessage(BC_HUD_COMMAND, (event) => {
+          const data = event?.data ?? {};
+          if (data?.scope !== "combat-hud" || data?.feature !== "ability-detail") return;
+          if (String(data.type ?? "") === "show") {
+            shown = { characterActionId: data.characterActionId ?? null, armed: !!data.armed };
+            renderCard();
+          }
+        });
+        send(BC_HUD_SELECTION_REQUEST, {});
+        send(BC_HUD_COMMAND, { scope: "combat-hud", feature: "ability-detail", type: "request-current" });
+      } catch (_e) { /* standalone */ }
+    }
+    renderCard();
     return;
   }
 

@@ -42,6 +42,11 @@ export const GUN_FIRE_MODE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-fire-mode-sele
 /** Phase 3E.0: GM-only Combat Tracker companion popover. */
 export const GM_COMBAT_TRACKER_POPOVER_ID = "odyssey-hud-gm-combat-tracker";
 export const QUICKBAR_EDITOR_POPOVER_ID = "odyssey-hud-quickbar-editor";
+/** Ability Detail Card — its own companion popover (bug fix: a `position:
+ *  fixed` div rendered INSIDE the Skills module's own tiny iframe can never
+ *  render outside that iframe's box, since an iframe is its own browsing
+ *  context — see abilityDetailPlacement.js's header comment). */
+export const ABILITY_DETAIL_POPOVER_ID = "odyssey-hud-ability-detail";
 // The temporary Debug Console (hud/debug/*) owns its own popover ids —
 // intentionally NOT declared here, so it stays fully independent/deletable.
 export const HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";

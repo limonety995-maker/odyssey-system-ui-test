@@ -34,7 +34,15 @@ export function categoryLabel(action) {
  * internal ids, or private data — only what abilityTooltipModel already
  * whitelists.
  * @param {object|null} action mapped quick action, or null (empty state)
- * @param {{ armed?: boolean, emptyText?: string }} [opts]
+ * @param {{ armed?: boolean, emptyText?: string, scrollableBody?: boolean }} [opts]
+ *   `scrollableBody` (used only by the standalone Ability Detail companion
+ *   popover, never by the Quickbar Editor's own description panel): wraps
+ *   description+cost/cooldown/target pills in their own scrollable region
+ *   while the header AND the status/armed line stay pinned outside it — so
+ *   even if the card's estimated height (abilityDetailPlacement.js) genuinely
+ *   undershoots a very long description, the player never loses sight of
+ *   WHY an ability can't be used, only has to scroll to read the rest of the
+ *   description.
  * @returns {string} HTML
  */
 export function renderAbilityDetailCard(action, opts = {}) {
@@ -61,16 +69,28 @@ export function renderAbilityDetailCard(action, opts = {}) {
     ? `<div class="ohud-qbe-desc-status is-active">Prepared for next attack</div>`
     : "";
 
-  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
-    <div class="ohud-qbe-desc-head">
+  const headHtml = `<div class="ohud-qbe-desc-head">
       <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
       <div class="ohud-qbe-desc-head-text">
         <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
         <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
       </div>
-    </div>
-    ${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
-    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>
+    </div>`;
+  const bodyInnerHtml = `${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
+    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>`;
+
+  if (opts.scrollableBody) {
+    return `<div class="${cls("ohud-qbe-desc", "ohud-qbe-desc--card", `ohud-accent--${accent}`)}">
+      ${headHtml}
+      <div class="ohud-qbe-desc-body">${bodyInnerHtml}</div>
+      ${armedHtml}
+      ${statusHtml}
+    </div>`;
+  }
+
+  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
+    ${headHtml}
+    ${bodyInnerHtml}
     ${armedHtml}
     ${statusHtml}
   </div>`;

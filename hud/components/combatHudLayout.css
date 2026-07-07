@@ -470,26 +470,47 @@
 .ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }
 .ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }
 
-/* ===================== Ability Detail Card (Phase 4.1A.2) =====================
- * Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
- * (quickbarDetailCardController.js / AbilityDetailCard.js) — this shell only
- * adds floating position + a safe viewport-clamped width. Appended to
- * document.body (a sibling of the transform-scaled .ohud-module canvas,
- * same placement as .ohud-tooltip above), so it is NEVER shrunk by the
- * responsive-scaling transform — the font-size overrides below are the
- * card's actual rendered sizes, not pre-transform values needing a ratio. */
-.ohud-ability-card {
-  position: fixed; z-index: 60; width: 260px; max-width: calc(100vw - 16px);
-  box-shadow: var(--odyssey-hud-shadow);
+/* ===================== Ability Detail Card (bug fix: own companion popover) =====
+ * Was a `position:fixed` div rendered INSIDE the Skills module's own tiny
+ * iframe — content (fixed-position or not) can never render outside an
+ * iframe's own box, since an iframe is its own browsing context. It is now
+ * its OWN independent OBR companion popover (odyssey-hud-ability-detail),
+ * sized/positioned by combatHudOverlayController.js
+ * (abilityDetailPlacement.js) exactly like the GM Tracker / Quickbar Editor
+ * companions — so this page fills its OWN (correctly-sized) popover, the
+ * same way those do, rather than floating over shared content. */
+.ohud-ability-detail-page { height: 100%; width: 100%; display: flex; }
+/* Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
+ * (AbilityDetailCard.js) so there is only one detail-card body renderer.
+ * --card fills the popover and pins header + status OUTSIDE the scrollable
+ * region (section B: "header and current status remain visible" even when
+ * a genuinely long description needs the body to scroll — the estimated
+ * popover height, computed from the SAME real data, means this is normally
+ * unnecessary, but must still degrade safely when it isn't enough). */
+/* Compound selector (.ohud-qbe-desc.ohud-qbe-desc--card), not just the
+ * modifier class alone — the base .ohud-qbe-desc rule (Quickbar Editor
+ * section, further down this file) sets a fixed min/max-height + overflow-y
+ * that this must reliably override regardless of source order; a compound
+ * selector's higher specificity guarantees that without relying on which
+ * rule happens to come later in the file. */
+.ohud-qbe-desc.ohud-qbe-desc--card {
+  flex: 1 1 auto; min-height: 0; max-height: none; overflow: visible;
+  display: flex; flex-direction: column;
 }
-.ohud-ability-card[hidden] { display: none; }
+.ohud-qbe-desc--card .ohud-qbe-desc-head,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { flex: 0 0 auto; }
+.ohud-qbe-desc-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 /* Section G typography floor: ability name >=14px, primary detail-card text
  * >=12px, rendered — scoped here so the Quickbar Editor's OWN (unscoped)
- * .ohud-qbe-desc-* rules stay exactly as they were. */
-.ohud-ability-card .ohud-qbe-desc-name { font-size: 14px; }
-.ohud-ability-card .ohud-qbe-desc-text,
-.ohud-ability-card .ohud-qbe-desc-pill,
-.ohud-ability-card .ohud-qbe-desc-status { font-size: 12px; }
+ * .ohud-qbe-desc-* rules stay exactly as they were. This card lives in its
+ * own dedicated popover (no shared transform-scaled canvas to inherit from),
+ * so these are fixed, unconditional sizes — never a ratio-compensated one. */
+.ohud-qbe-desc--card .ohud-qbe-desc-name { font-size: 14px; }
+.ohud-qbe-desc--card .ohud-qbe-desc-text,
+.ohud-qbe-desc--card .ohud-qbe-desc-pill,
+.ohud-qbe-desc--card .ohud-qbe-desc-status { font-size: 12px; }
+/* Description must wrap normally, never ellipsis/truncate (section E). */
+.ohud-qbe-desc--card .ohud-qbe-desc-text { white-space: normal; overflow-wrap: break-word; }
 
 /* ===================== Compact / mini (two rows) ===================== */
 .ohud-hud[data-mode="compact"] .ohud-main,

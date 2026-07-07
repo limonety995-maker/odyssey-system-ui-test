@@ -9604,6 +9604,7 @@ var GUN_MAGAZINE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-magazine-selector";
 var GUN_FIRE_MODE_SELECTOR_POPOVER_ID = "odyssey-hud-gun-fire-mode-selector";
 var GM_COMBAT_TRACKER_POPOVER_ID = "odyssey-hud-gm-combat-tracker";
 var QUICKBAR_EDITOR_POPOVER_ID = "odyssey-hud-quickbar-editor";
+var ABILITY_DETAIL_POPOVER_ID = "odyssey-hud-ability-detail";
 var HUD_EDITOR_POPOVER_ID = "odyssey-hud-editor";
 var HUD_PILL_POPOVER_ID = "odyssey-hud-pill";
 var BC_HUD_LAYOUT = "com.odyssey.combat-hud/layout";
@@ -9738,6 +9739,129 @@ function computeCompanionSelectorHeight(rowCount) {
   return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, total));
 }
 
+// hud/abilities/AbilityTooltip.js
+var TYPE_LABEL = {
+  attack_technique: "Attack technique",
+  directed: "Directed action",
+  instant: "Instant action",
+  toggle: "Toggle"
+};
+var TARGET_LABEL = {
+  self: "Self",
+  character: "One character",
+  character_body_zone: "One character (body zone)",
+  body_part: "One character (body zone)",
+  multiple_characters: "Multiple characters",
+  point: "Point on map",
+  area: "Area",
+  none: "No target"
+};
+var EXECUTION_REASON_LABEL = {
+  ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet."
+};
+function costText(costs) {
+  const c = costs ?? {};
+  const parts = [];
+  if (Number(c.main) > 0) parts.push(`MAIN\xD7${c.main}`);
+  if (Number(c.move) > 0) parts.push(`MOVE\xD7${c.move}`);
+  if (parts.length === 0) parts.push("No action cost");
+  return parts.join(" \xB7 ");
+}
+function resourceText(costs) {
+  const c = costs ?? {};
+  const parts = [];
+  if (Number(c.psi) > 0) parts.push(`PSI ${c.psi}`);
+  if (Number(c.charges) > 0) parts.push(`Charges ${c.charges}`);
+  return parts.join(" \xB7 ");
+}
+function abilityTooltipModel(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const costs = a.costs ?? {};
+  const cooldown = a.cooldown ?? {};
+  const targeting = a.targeting ?? {};
+  const requirements = a.requirements ?? {};
+  const state = a.state ?? {};
+  const lines = [];
+  const typeLabel = TYPE_LABEL[a.type] ?? "Action";
+  lines.push({ label: "Type", value: typeLabel });
+  if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+  lines.push({ label: "Cost", value: costText(costs) });
+  const res = resourceText(costs);
+  if (res) lines.push({ label: "Resource", value: res });
+  if (Number(cooldown.max) > 0) {
+    const cur = Number(cooldown.current) || 0;
+    lines.push({
+      label: "Cooldown",
+      value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
+    });
+  }
+  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014") });
+  const reqParts = [];
+  if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
+  if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
+  if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
+  if (state.executionReason) {
+    lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
+  } else if (state.available === false && state.disabledReason) {
+    lines.push({ label: "Unavailable", value: String(state.disabledReason) });
+  } else if (state.active === true) {
+    lines.push({ label: "Status", value: "Active" });
+  }
+  return { title: String(a.name ?? "Action"), type: typeLabel, lines };
+}
+
+// hud/abilities/abilityDetailPlacement.js
+var ABILITY_DETAIL_WIDTH = 280;
+var MIN_HEIGHT2 = 140;
+var HEADER_HEIGHT = 44;
+var LINE_HEIGHT = 17;
+var CHARS_PER_LINE = 36;
+var PILL_ROW_HEIGHT = 26;
+var PILLS_PER_ROW = 2;
+var STATUS_HEIGHT = 32;
+var PADDING = 20 + 12;
+var MAX_VIEWPORT_FRACTION = 0.7;
+function estimateAbilityDetailHeight(action, opts = {}) {
+  if (!action) return MIN_HEIGHT2;
+  const model = abilityTooltipModel(action);
+  const descLine = model.lines.find((l) => l.label === "Description");
+  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
+  const pillCount = model.lines.filter((l) => l !== descLine && l !== statusLine).length;
+  const descLines = descLine ? Math.max(1, Math.ceil(String(descLine.value).length / CHARS_PER_LINE)) : 0;
+  const pillRows = pillCount > 0 ? Math.ceil(pillCount / PILLS_PER_ROW) : 0;
+  let height = HEADER_HEIGHT + PADDING;
+  height += descLines * LINE_HEIGHT;
+  height += pillRows * PILL_ROW_HEIGHT;
+  if (statusLine) height += STATUS_HEIGHT;
+  if (opts.armed) height += STATUS_HEIGHT;
+  return Math.max(MIN_HEIGHT2, Math.round(height));
+}
+function computeAbilityDetailRect(skillsRect, estimatedHeight, vw, vh) {
+  const width = ABILITY_DETAIL_WIDTH;
+  const height = Math.max(MIN_HEIGHT2, Math.min(Math.round(estimatedHeight), Math.round(vh * MAX_VIEWPORT_FRACTION)));
+  const gap = 6;
+  const candidates = [
+    { left: skillsRect.left, top: skillsRect.top - height - gap },
+    // preferred: above, left-aligned
+    { left: skillsRect.left - width - gap, top: skillsRect.top + skillsRect.height - height },
+    // above-left (offset left, bottom-aligned)
+    { left: skillsRect.left + skillsRect.width - width, top: skillsRect.top - height - gap },
+    // above-right
+    { left: skillsRect.left + skillsRect.width + gap, top: Math.max(0, skillsRect.top) },
+    // side, right of Skills
+    { left: skillsRect.left - width - gap, top: Math.max(0, skillsRect.top) }
+    // side, left of Skills
+  ];
+  const fits = (c) => c.left >= 0 && c.left + width <= vw && c.top >= 0 && c.top + height <= vh;
+  const chosen = candidates.find(fits) ?? candidates[0];
+  return {
+    left: Math.max(0, Math.min(chosen.left, Math.max(0, vw - width))),
+    top: Math.max(0, Math.min(chosen.top, Math.max(0, vh - height))),
+    width,
+    height
+  };
+}
+
 // hud/overlay/combatHudOverlayController.js
 var VIEWPORT_POLL_MS = 600;
 var PILL_W = 150;
@@ -9762,6 +9886,10 @@ var gunMagazineSelectorOpen = false;
 var gunFireModeSelectorOpen = false;
 var gmTrackerOpen = false;
 var quickbarEditorOpen = false;
+var abilityDetailOpen = false;
+var abilityDetailShown = null;
+var abilityDetailCloseTimer = null;
+var ABILITY_DETAIL_CLOSE_GRACE_MS = 180;
 var lastActiveCharacterId = null;
 var lastSelectionPayload = null;
 var cleanups = [];
@@ -9946,6 +10074,10 @@ async function closeAllCompanionSelectors() {
     await setGunFireModeSelectorOpen(false);
   } catch (_e) {
   }
+  try {
+    await closeAbilityDetail();
+  } catch (_e) {
+  }
 }
 function gmTrackerRect() {
   if (!lastLayout.modules?.combatControl) return null;
@@ -9984,6 +10116,51 @@ async function setGmTrackerOpen(open) {
       await lib_default.popover.close(GM_COMBAT_TRACKER_POPOVER_ID);
     } catch (_e) {
     }
+  }
+}
+function currentQuickAction(characterActionId) {
+  if (!characterActionId) return null;
+  const list = lastSelectionPayload?.hudSnapshot?.quickbar?.quickActions;
+  return Array.isArray(list) ? list.find((a) => a.characterActionId === characterActionId) ?? null : null;
+}
+function clearAbilityDetailCloseTimer() {
+  if (abilityDetailCloseTimer) {
+    clearTimeout(abilityDetailCloseTimer);
+    abilityDetailCloseTimer = null;
+  }
+}
+async function openOrResizeAbilityDetail(characterActionId, armed) {
+  abilityDetailShown = { characterActionId, armed };
+  const skillsRect = lastLayout.modules?.skills ? moduleRect("skills") : null;
+  if (!skillsRect) return;
+  const action = currentQuickAction(characterActionId);
+  const estimatedHeight = estimateAbilityDetailHeight(action, { armed });
+  const rect = computeAbilityDetailRect(skillsRect, estimatedHeight, lastVW, lastVH);
+  if (!abilityDetailOpen) {
+    abilityDetailOpen = true;
+    try {
+      await lib_default.popover.open({ id: ABILITY_DETAIL_POPOVER_ID, url: pageUrl("ability-detail"), ...paramsForRect(rect) });
+    } catch (_e) {
+    }
+  } else {
+    try {
+      await lib_default.popover.setWidth(ABILITY_DETAIL_POPOVER_ID, rect.width);
+    } catch (_e) {
+    }
+    try {
+      await lib_default.popover.setHeight(ABILITY_DETAIL_POPOVER_ID, rect.height);
+    } catch (_e) {
+    }
+  }
+}
+async function closeAbilityDetail() {
+  clearAbilityDetailCloseTimer();
+  abilityDetailShown = null;
+  if (!abilityDetailOpen) return;
+  abilityDetailOpen = false;
+  try {
+    await lib_default.popover.close(ABILITY_DETAIL_POPOVER_ID);
+  } catch (_e) {
   }
 }
 function quickbarEditorRect() {
@@ -10123,6 +10300,7 @@ async function applyMode() {
     });
     await lib_default.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {
     });
+    await closeAbilityDetail();
     await closeEditorPopover();
     await closeAllModules();
     await openPill();
@@ -10142,6 +10320,7 @@ async function applyMode() {
     });
     await lib_default.popover.close(QUICKBAR_EDITOR_POPOVER_ID).catch(() => {
     });
+    await closeAbilityDetail();
     await closePill();
     await closeAllModules();
     await openEditor();
@@ -10248,6 +10427,34 @@ function setupCombatHudOverlay() {
             if (role !== "GM") return;
             logDebugEvent("popover", gmTrackerOpen ? "gm-tracker-closed" : "gm-tracker-opened", {});
             await setGmTrackerOpen(!gmTrackerOpen);
+          }
+          return;
+        }
+        if (data?.scope === "combat-hud" && data?.feature === "ability-detail") {
+          const adType = String(data.type ?? "");
+          if (adType === "show") {
+            clearAbilityDetailCloseTimer();
+            await openOrResizeAbilityDetail(data.characterActionId ?? null, !!data.armed);
+          } else if (adType === "cancel-hide") {
+            clearAbilityDetailCloseTimer();
+          } else if (adType === "maybe-hide") {
+            clearAbilityDetailCloseTimer();
+            abilityDetailCloseTimer = setTimeout(() => {
+              abilityDetailCloseTimer = null;
+              void closeAbilityDetail();
+            }, ABILITY_DETAIL_CLOSE_GRACE_MS);
+          } else if (adType === "hide") {
+            await closeAbilityDetail();
+          } else if (adType === "request-current" && abilityDetailShown) {
+            try {
+              lib_default.broadcast.sendMessage(BC_HUD_COMMAND, {
+                scope: "combat-hud",
+                feature: "ability-detail",
+                type: "show",
+                ...abilityDetailShown
+              }, { destination: "LOCAL" });
+            } catch (_e) {
+            }
           }
           return;
         }
