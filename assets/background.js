@@ -6751,7 +6751,12 @@ function mapState(raw) {
     // If unavailable but the server gave no reason, use a neutral fallback —
     // never invent a specific cause (e.g. do not claim "cooldown" ourselves).
     disabledReason: serverReason ?? (available ? null : "Not available"),
-    selectable: bool(s.selectable, available)
+    selectable: bool(s.selectable, available),
+    executionAvailable: bool(s.executionAvailable, true),
+    executionReason: str(s.executionReason),
+    // Structural signal (migration 101) — lets the UI distinguish "insufficient
+    // resource" from any other unavailable reason without parsing disabledReason.
+    resourceSufficient: bool(s.resourceSufficient, true)
   };
 }
 function mapRequirements(raw) {

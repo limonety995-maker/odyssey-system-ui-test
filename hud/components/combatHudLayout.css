@@ -470,6 +470,27 @@
 .ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }
 .ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }
 
+/* ===================== Ability Detail Card (Phase 4.1A.2) =====================
+ * Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
+ * (quickbarDetailCardController.js / AbilityDetailCard.js) — this shell only
+ * adds floating position + a safe viewport-clamped width. Appended to
+ * document.body (a sibling of the transform-scaled .ohud-module canvas,
+ * same placement as .ohud-tooltip above), so it is NEVER shrunk by the
+ * responsive-scaling transform — the font-size overrides below are the
+ * card's actual rendered sizes, not pre-transform values needing a ratio. */
+.ohud-ability-card {
+  position: fixed; z-index: 60; width: 260px; max-width: calc(100vw - 16px);
+  box-shadow: var(--odyssey-hud-shadow);
+}
+.ohud-ability-card[hidden] { display: none; }
+/* Section G typography floor: ability name >=14px, primary detail-card text
+ * >=12px, rendered — scoped here so the Quickbar Editor's OWN (unscoped)
+ * .ohud-qbe-desc-* rules stay exactly as they were. */
+.ohud-ability-card .ohud-qbe-desc-name { font-size: 14px; }
+.ohud-ability-card .ohud-qbe-desc-text,
+.ohud-ability-card .ohud-qbe-desc-pill,
+.ohud-ability-card .ohud-qbe-desc-status { font-size: 12px; }
+
 /* ===================== Compact / mini (two rows) ===================== */
 .ohud-hud[data-mode="compact"] .ohud-main,
 .ohud-hud[data-mode="mini"] .ohud-main {
@@ -534,12 +555,36 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ohud-qb-type { position: absolute; top: 2px; left: 3px; font-size: 6.5px; font-weight: 800; opacity: 0.85; letter-spacing: 0.3px; }
-/* cd + active share one top-right badge group so a toggle that's BOTH active
- * and on cooldown never renders one marker on top of the other. */
+/* State marker + active/ON share one top-right badge group so at most one
+ * ever renders at a time in that corner (deriveSlotAvailability returns
+ * exactly one category; active/ON is orthogonal and can join it).
+ * Phase 4.1A.2 typography floor: these are "slot state marker" text (section
+ * G, floor 10px) — scaled by --ohud-slot-marker-ratio, a SEPARATE, smaller-
+ * capped instance of the same computeCriticalTextRatio formula the bigger
+ * critical labels use (--ohud-critical-text-ratio, cap 3x) — a 56×50px slot
+ * has far less room to counter-grow into before its corner badge visually
+ * overwhelms the icon/name, so this one is capped at 1.5x (both set in
+ * CombatHudModule.js from the same shared helper — never a second formula). */
 .ohud-qb-badges { position: absolute; top: 2px; right: 3px; display: flex; align-items: center; gap: 3px; }
-.ohud-qb-cd { font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
-.ohud-qb-active { font-size: 7px; font-weight: 800; color: var(--odyssey-hud-state-active); }
+.ohud-qb-cd { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qb-active { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-state-active); }
 .ohud-qb-missing { font-size: 20px; font-weight: 800; }
+
+/* Phase 4.1A.2: canonical slot availability markers (armed/insufficient
+ * resource/unsupported/unavailable — see abilityAvailabilityPolicy.js). */
+.ohud-qb-state {
+  font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; letter-spacing: 0.2px;
+  display: inline-flex; align-items: center; line-height: 1;
+}
+.ohud-qb-state--armed { color: var(--odyssey-cyan); }
+.ohud-qb-state--resource { color: var(--odyssey-purple); }
+/* The lock glyph is an icon, not text — sized fixed (12x12, matching the
+ * other small HUD glyphs), never counter-scaled: a bold, high-contrast shape
+ * stays legible at any of the required viewports without the text-floor
+ * treatment, and scaling an icon via font-size math would just be noise.
+ * Muted, never the "damage" red — see abilityAvailabilityPolicy.js's header
+ * comment: unsupported/unavailable are blocked capabilities, not injuries. */
+.ohud-qb-state--lock { color: var(--odyssey-hud-muted); }
 
 /* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
  * A standalone sci-fi window: dark surface, thin glowing border, header / body

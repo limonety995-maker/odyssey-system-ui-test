@@ -18,24 +18,13 @@ import { esc, cls, tipAttr } from "../components/hudDom.js";
 import { skillIconSvg } from "../components/hudIcons.js";
 import { ICON_GRID } from "../components/hudIcons.js";
 import { rowOfSlot } from "./quickbarLayoutPolicy.js";
-import { abilityTooltipLines, abilityTooltipModel } from "./AbilityTooltip.js";
+import { abilityTooltipLines } from "./AbilityTooltip.js";
+import { renderAbilityDetailCard, categoryLabel } from "./AbilityDetailCard.js";
 
 const SEMANTIC_ACCENT = {
   attack: "attack", psi: "psionic", tech: "implant", utility: "neutral", intervention: "intervention",
 };
 const TYPE_MARK = { attack_technique: "ATK", directed: "DIR", instant: "INS", toggle: "TGL" };
-
-// Human-readable category label for a library card, e.g. "ATTACK / PSI".
-// Built from the same semanticKind/sourceType the tooltip already trusts —
-// never invented, just relabelled for display.
-const SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
-const SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
-function categoryLabel(action) {
-  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
-  const src = SOURCE_LABEL[action.sourceType] ?? null;
-  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
-  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
-}
 
 // Small pill badges summarizing cost/cooldown at a glance (detail lives in
 // the tooltip). Only rendered when the server actually reports a nonzero
@@ -137,10 +126,10 @@ function resolveSelection(selection, runtime, draft) {
 }
 
 // Ability Description Panel — occupies the space above the slot grid in the
-// right column. Reuses abilityTooltipModel (the same server-truth lines the
-// hover tooltip shows) so the panel can never say something the tooltip
-// wouldn't — description text + a status banner (Unavailable/Active) are
-// pulled out for prominence; the rest render as compact metadata pills.
+// right column. Delegates the actual card body to AbilityDetailCard.js (the
+// SAME renderer the new Skills-quickbar detail card uses — Phase 4.1A.2) so
+// the two can never disagree; this function only resolves the editor's own
+// selection placeholders (nothing selected / empty slot / missing action).
 function renderDescriptionPanel(resolved) {
   if (!resolved) {
     return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">Select an ability to view details.</div></div>`;
@@ -151,33 +140,7 @@ function renderDescriptionPanel(resolved) {
   if (resolved.kind === "missing-slot") {
     return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">This action is no longer available. Remove it from the slot.</div></div>`;
   }
-
-  const action = resolved.action;
-  const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
-  const model = abilityTooltipModel(action);
-  const descLine = model.lines.find((l) => l.label === "Description");
-  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
-  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
-
-  const pillsHtml = pillLines
-    .map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`)
-    .join("");
-  const statusHtml = statusLine
-    ? `<div class="${cls("ohud-qbe-desc-status", statusLine.label === "Unavailable" ? "is-warning" : "is-active")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>`
-    : "";
-
-  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
-    <div class="ohud-qbe-desc-head">
-      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
-      <div class="ohud-qbe-desc-head-text">
-        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
-        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
-      </div>
-    </div>
-    ${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
-    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>
-    ${statusHtml}
-  </div>`;
+  return renderAbilityDetailCard(resolved.action);
 }
 
 /**

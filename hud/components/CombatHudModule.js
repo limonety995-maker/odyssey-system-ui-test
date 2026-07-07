@@ -27,6 +27,7 @@ import { renderEmptyState, renderErrorState, renderLoadingState } from "./EmptyH
 import { renderSelectionModule } from "../scene/selectionView.js";
 import { normalizeSelectionPayload } from "../scene/selectionState.js";
 import { createTooltip } from "./Tooltip.js";
+import { createQuickbarDetailCardController } from "../abilities/quickbarDetailCardController.js";
 import { ICON_GRID, ICON_CARET_DOWN } from "./hudIcons.js";
 import { cls, esc } from "./hudDom.js";
 
@@ -114,11 +115,34 @@ export function mountCombatHudModule(options) {
     // riding the transform above unmodified — see computeCriticalTextRatio's
     // own doc comment in hudLayout.js for the full reasoning.
     el.style.setProperty("--ohud-critical-text-ratio", String(computeCriticalTextRatio(scale)));
+    // Phase 4.1A.2: quickbar slot state markers (.ohud-qb-cd/.ohud-qb-active/
+    // .ohud-qb-state) get the SAME formula with a much tighter cap — a
+    // 56×50px slot has far less room to counter-grow into than a full
+    // Combat Control action bar before its tiny corner badge overwhelms the
+    // icon/name (see the comment above .ohud-qb-badges in
+    // combatHudLayout.css).
+    el.style.setProperty("--ohud-slot-marker-ratio", String(computeCriticalTextRatio(scale, 1.5)));
   }
   root.appendChild(el);
 
   const tooltip = createTooltip(el);
+  // Phase 4.1A.2: the bigger Ability Detail Card only ever appears in the
+  // Skills module (the only one with quickbar slots) — a null controller
+  // elsewhere means every call site below is a safe no-op.
+  const detailCard = moduleId === "skills" ? createQuickbarDetailCardController(el) : null;
   let toastTimer = null;
+
+  /** Resolve the CURRENT (live-selection-first, mock-fallback) mapped quick
+   *  action by id — the same runtime SkillBlock.js already renders from,
+   *  never a second copy. */
+  function resolveQuickAction(actionId) {
+    if (!actionId) return null;
+    let list = liveSelection?.hudSnapshot?.quickbar?.quickActions;
+    if (!Array.isArray(list)) {
+      try { list = store.getState()?.snapshot?.quickbar?.quickActions; } catch (_e) { list = null; }
+    }
+    return Array.isArray(list) ? (list.find((a) => a.characterActionId === actionId) ?? null) : null;
+  }
 
   function controlsHtml() {
     // Only the Player module carries the global HUD controls.
@@ -309,18 +333,30 @@ export function mountCombatHudModule(options) {
         // the popover lifecycle, exactly like the GM tracker toggle).
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "quickbar", type: "open-editor" });
         break;
-      case "show-ability-detail":
+      case "show-ability-detail": {
         // Phase 4.0b: a normal-mode click only surfaces detail — it must NEVER
-        // execute, change Target/Action, or spend resources. The rich hover
-        // tooltip already carries the detail; a click just nudges it visible.
-        if (!t.classList.contains("is-disabled")) showToast("Ability details — execution arrives in Phase 4.1");
+        // execute, change Target/Action, or spend resources.
+        // Phase 4.1A.2: for directed/instant/toggle slots (never
+        // attack_technique — that click is arm/disarm, see below), this now
+        // opens the real Ability Detail Card instead of a placeholder toast.
+        // A slot whose action vanished from the library (is-missing, action
+        // resolves to null) still falls back to a short toast — there is no
+        // ability data to show a card for.
+        if (t.classList.contains("is-disabled")) break;
+        const action = resolveQuickAction(t.getAttribute("data-action-id"));
+        if (action && detailCard) detailCard.toggle(t, action);
+        else showToast("Ability details — execution arrives in Phase 4.1");
         break;
+      }
       case "toggle-armed-technique": {
         // Phase 4.1A: arming is blocked while the tile itself is disabled
         // (unavailable/on cooldown/etc), but DISARMING an already-armed
         // technique must always work even if it went invalid after arming —
         // "the user can always remove it manually" (spec). is-armed is the
         // one signal this generic delegated handler has for "already armed".
+        // Phase 4.1A.2: click stays arm/disarm ONLY — the detail card for a
+        // technique opens on hover/focus instead (see onSlotDetailHover/
+        // onSlotDetailFocus below), since click is already spoken for here.
         const isArmed = t.classList.contains("is-armed");
         if (isArmed || !t.classList.contains("is-disabled")) {
           integration.onCommand && integration.onCommand({
@@ -368,6 +404,65 @@ export function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
 
+  // Phase 4.1A.2: attack_technique slots open the Ability Detail Card on
+  // hover/focus (with a short delay), never on click (click is arm/disarm —
+  // see the "toggle-armed-technique" case above). Delegated the same way
+  // Tooltip.js already delegates its own hover — one listener set per
+  // event type on the module root, not one per slot.
+  function techniqueSlotFromTarget(target) {
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
+    return t && el.contains(t) ? t : null;
+  }
+  function onSlotDetailOver(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const to = e.relatedTarget;
+    // Moving within the same slot, or onto the card itself, is not a "leave".
+    if (to && techniqueSlotFromTarget(to) === t) return;
+    if (to && detailCard.contains(to)) return;
+    detailCard.scheduleClose();
+  }
+  function onSlotDetailFocusIn(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailFocusOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const to = e.relatedTarget;
+    if (to && detailCard.contains(to)) return;
+    detailCard.scheduleClose();
+  }
+  if (detailCard) {
+    el.addEventListener("mouseover", onSlotDetailOver);
+    el.addEventListener("mouseout", onSlotDetailOut);
+    el.addEventListener("focusin", onSlotDetailFocusIn);
+    el.addEventListener("focusout", onSlotDetailFocusOut);
+    // The card itself: entering it cancels a pending close (pointer crossing
+    // the gap between slot and card); leaving it (to anywhere but the slot
+    // that opened it) schedules the same safe-close grace period.
+    detailCard.element.addEventListener("mouseenter", () => detailCard.cancelClose());
+    detailCard.element.addEventListener("mouseleave", (e) => {
+      const to = e.relatedTarget;
+      if (to && techniqueSlotFromTarget(to)) return;
+      detailCard.scheduleClose();
+    });
+  }
+
   const unsubscribe = store.subscribe(render);
   render();
 
@@ -379,6 +474,13 @@ export function mountCombatHudModule(options) {
       tooltip.destroy();
       el.removeEventListener("click", onClick);
       el.removeEventListener("keydown", onKeyDown);
+      if (detailCard) {
+        el.removeEventListener("mouseover", onSlotDetailOver);
+        el.removeEventListener("mouseout", onSlotDetailOut);
+        el.removeEventListener("focusin", onSlotDetailFocusIn);
+        el.removeEventListener("focusout", onSlotDetailFocusOut);
+        detailCard.destroy();
+      }
       if (toastTimer) clearTimeout(toastTimer);
       store.dispose();
       el.remove();

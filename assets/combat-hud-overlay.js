@@ -3993,6 +3993,27 @@ var combatHudLayout_default = `/*
 .ohud-tooltip-title { font-size: 11px; font-weight: 700; color: var(--odyssey-hud-text); }
 .ohud-tooltip-line { font-size: 10px; color: var(--odyssey-hud-muted); margin-top: 2px; }
 
+/* ===================== Ability Detail Card (Phase 4.1A.2) =====================
+ * Reuses the Quickbar Editor's .ohud-qbe-desc* content classes verbatim
+ * (quickbarDetailCardController.js / AbilityDetailCard.js) \u2014 this shell only
+ * adds floating position + a safe viewport-clamped width. Appended to
+ * document.body (a sibling of the transform-scaled .ohud-module canvas,
+ * same placement as .ohud-tooltip above), so it is NEVER shrunk by the
+ * responsive-scaling transform \u2014 the font-size overrides below are the
+ * card's actual rendered sizes, not pre-transform values needing a ratio. */
+.ohud-ability-card {
+  position: fixed; z-index: 60; width: 260px; max-width: calc(100vw - 16px);
+  box-shadow: var(--odyssey-hud-shadow);
+}
+.ohud-ability-card[hidden] { display: none; }
+/* Section G typography floor: ability name >=14px, primary detail-card text
+ * >=12px, rendered \u2014 scoped here so the Quickbar Editor's OWN (unscoped)
+ * .ohud-qbe-desc-* rules stay exactly as they were. */
+.ohud-ability-card .ohud-qbe-desc-name { font-size: 14px; }
+.ohud-ability-card .ohud-qbe-desc-text,
+.ohud-ability-card .ohud-qbe-desc-pill,
+.ohud-ability-card .ohud-qbe-desc-status { font-size: 12px; }
+
 /* ===================== Compact / mini (two rows) ===================== */
 .ohud-hud[data-mode="compact"] .ohud-main,
 .ohud-hud[data-mode="mini"] .ohud-main {
@@ -4057,12 +4078,36 @@ var combatHudLayout_default = `/*
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ohud-qb-type { position: absolute; top: 2px; left: 3px; font-size: 6.5px; font-weight: 800; opacity: 0.85; letter-spacing: 0.3px; }
-/* cd + active share one top-right badge group so a toggle that's BOTH active
- * and on cooldown never renders one marker on top of the other. */
+/* State marker + active/ON share one top-right badge group so at most one
+ * ever renders at a time in that corner (deriveSlotAvailability returns
+ * exactly one category; active/ON is orthogonal and can join it).
+ * Phase 4.1A.2 typography floor: these are "slot state marker" text (section
+ * G, floor 10px) \u2014 scaled by --ohud-slot-marker-ratio, a SEPARATE, smaller-
+ * capped instance of the same computeCriticalTextRatio formula the bigger
+ * critical labels use (--ohud-critical-text-ratio, cap 3x) \u2014 a 56\xD750px slot
+ * has far less room to counter-grow into before its corner badge visually
+ * overwhelms the icon/name, so this one is capped at 1.5x (both set in
+ * CombatHudModule.js from the same shared helper \u2014 never a second formula). */
 .ohud-qb-badges { position: absolute; top: 2px; right: 3px; display: flex; align-items: center; gap: 3px; }
-.ohud-qb-cd { font-size: 9px; font-weight: 800; color: var(--odyssey-hud-warning); }
-.ohud-qb-active { font-size: 7px; font-weight: 800; color: var(--odyssey-hud-state-active); }
+.ohud-qb-cd { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-warning); }
+.ohud-qb-active { font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; color: var(--odyssey-hud-state-active); }
 .ohud-qb-missing { font-size: 20px; font-weight: 800; }
+
+/* Phase 4.1A.2: canonical slot availability markers (armed/insufficient
+ * resource/unsupported/unavailable \u2014 see abilityAvailabilityPolicy.js). */
+.ohud-qb-state {
+  font-size: calc(10px * var(--ohud-slot-marker-ratio, 1)); font-weight: 800; letter-spacing: 0.2px;
+  display: inline-flex; align-items: center; line-height: 1;
+}
+.ohud-qb-state--armed { color: var(--odyssey-cyan); }
+.ohud-qb-state--resource { color: var(--odyssey-purple); }
+/* The lock glyph is an icon, not text \u2014 sized fixed (12x12, matching the
+ * other small HUD glyphs), never counter-scaled: a bold, high-contrast shape
+ * stays legible at any of the required viewports without the text-floor
+ * treatment, and scaling an icon via font-size math would just be noise.
+ * Muted, never the "damage" red \u2014 see abilityAvailabilityPolicy.js's header
+ * comment: unsupported/unavailable are blocked capabilities, not injuries. */
+.ohud-qb-state--lock { color: var(--odyssey-hud-muted); }
 
 /* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
  * A standalone sci-fi window: dark surface, thin glowing border, header / body
@@ -6508,6 +6553,7 @@ var ICON_CARET_DOWN = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidd
 var ICON_RELOAD = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 var ICON_GRIP = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></g></svg>`;
 var ICON_GRID = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></g></svg>`;
+var ICON_LOCK = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
 var ICON_MAGAZINE = `<svg viewBox="0 0 40 64" width="100%" height="100%" aria-hidden="true"><rect x="9" y="6" width="22" height="50" rx="5" fill="currentColor"/><rect x="13" y="2" width="14" height="7" rx="2.5" fill="currentColor"/></svg>`;
 function weaponSvg(svgRef) {
   if (svgRef === "pistol") {
@@ -6978,6 +7024,9 @@ var TARGET_LABEL = {
   area: "Area",
   none: "No target"
 };
+var EXECUTION_REASON_LABEL = {
+  ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet."
+};
 function costText(costs) {
   const c = costs ?? {};
   const parts = [];
@@ -7019,7 +7068,9 @@ function abilityTooltipModel(action) {
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
   if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
-  if (state.available === false && state.disabledReason) {
+  if (state.executionReason) {
+    lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
+  } else if (state.available === false && state.disabledReason) {
     lines.push({ label: "Unavailable", value: String(state.disabledReason) });
   } else if (state.active === true) {
     lines.push({ label: "Status", value: "Active" });
@@ -7029,6 +7080,27 @@ function abilityTooltipModel(action) {
 function abilityTooltipLines(action) {
   const model = abilityTooltipModel(action);
   return model.lines.map((l) => `${l.label}: ${l.value}`);
+}
+
+// hud/abilities/abilityAvailabilityPolicy.js
+var SLOT_AVAILABILITY = Object.freeze({
+  ready: "ready",
+  armed: "armed",
+  cooldown: "cooldown",
+  insufficientResource: "insufficient_resource",
+  unsupported: "unsupported",
+  unavailable: "unavailable"
+});
+function deriveSlotAvailability(action, isArmed = false) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (isArmed) return SLOT_AVAILABILITY.armed;
+  if (state.executionAvailable === false) return SLOT_AVAILABILITY.unsupported;
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.available === false && state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  if (state.available === false) return SLOT_AVAILABILITY.unavailable;
+  return SLOT_AVAILABILITY.ready;
 }
 
 // hud/abilities/QuickbarView.js
@@ -7049,6 +7121,24 @@ function actionById(runtime, id) {
   if (!id) return null;
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
 }
+function stateMarkerHtml(availability, action) {
+  switch (availability) {
+    case SLOT_AVAILABILITY.armed:
+      return `<span class="ohud-qb-state ohud-qb-state--armed">ARMED</span>`;
+    case SLOT_AVAILABILITY.cooldown:
+      return `<span class="ohud-qb-cd">${Number(action.cooldown?.current) || 0}</span>`;
+    case SLOT_AVAILABILITY.insufficientResource: {
+      const costs = action.costs ?? {};
+      const label = Number(costs.psi) > 0 ? `PSI ${costs.psi}` : Number(costs.charges) > 0 ? `CHG ${costs.charges}` : "LOW";
+      return `<span class="ohud-qb-state ohud-qb-state--resource">${esc(label)}</span>`;
+    }
+    case SLOT_AVAILABILITY.unsupported:
+    case SLOT_AVAILABILITY.unavailable:
+      return `<span class="ohud-qb-state ohud-qb-state--lock" aria-hidden="true">${ICON_LOCK}</span>`;
+    default:
+      return "";
+  }
+}
 function occupiedTile(slot, action, armedActionId) {
   if (!action) {
     return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
@@ -7058,17 +7148,19 @@ function occupiedTile(slot, action, armedActionId) {
   const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
   const disabled = action.state?.available === false;
   const active = action.state?.active === true;
-  const cd = Number(action.cooldown?.current) || 0;
   const mark = TYPE_MARK[action.type] ?? "";
   const isTechnique = action.type === "attack_technique";
   const armed = isTechnique && armedActionId != null && armedActionId === action.characterActionId;
+  const availability = deriveSlotAvailability(action, armed);
   const dataAction = isTechnique ? "toggle-armed-technique" : "show-ability-detail";
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
     isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
   ]);
-  const badges = cd > 0 || active ? `<span class="ohud-qb-badges">${cd > 0 ? `<span class="ohud-qb-cd">${cd}</span>` : ""}${active ? `<span class="ohud-qb-active">ON</span>` : ""}</span>` : "";
-  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}"${tip}>
+  const stateMarker = stateMarkerHtml(availability, action);
+  const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
+  const badges = stateMarker || activeMarker ? `<span class="ohud-qb-badges">${stateMarker}${activeMarker}</span>` : "";
+  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
     <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qb-name">${esc(action.name)}</span>
     ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
@@ -7898,6 +7990,150 @@ function createTooltip(host) {
   };
 }
 
+// hud/abilities/AbilityDetailCard.js
+var SEMANTIC_ACCENT2 = { attack: "attack", psi: "psionic", tech: "implant", utility: "neutral", intervention: "intervention" };
+var SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
+var SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
+function categoryLabel(action) {
+  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
+  const src = SOURCE_LABEL[action.sourceType] ?? null;
+  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
+  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
+}
+function renderAbilityDetailCard(action, opts = {}) {
+  if (!action) {
+    return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">${esc(opts.emptyText ?? "No action selected.")}</div></div>`;
+  }
+  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const model = abilityTooltipModel(action);
+  const descLine = model.lines.find((l) => l.label === "Description");
+  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
+  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
+  const pillsHtml = pillLines.map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`).join("");
+  const statusHtml = statusLine ? `<div class="${cls("ohud-qbe-desc-status", statusLine.value === "Active" ? "is-active" : "is-warning")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>` : "";
+  const armedHtml = opts.armed ? `<div class="ohud-qbe-desc-status is-active">Prepared for next attack</div>` : "";
+  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
+    <div class="ohud-qbe-desc-head">
+      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
+      <div class="ohud-qbe-desc-head-text">
+        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
+        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
+      </div>
+    </div>
+    ${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
+    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>
+    ${armedHtml}
+    ${statusHtml}
+  </div>`;
+}
+
+// hud/abilities/quickbarDetailCardController.js
+var OPEN_DELAY_MS = 220;
+var CLOSE_GRACE_MS = 160;
+function createQuickbarDetailCardController(host) {
+  const doc = host.ownerDocument || document;
+  const el = doc.createElement("div");
+  el.className = "ohud-ability-card";
+  el.hidden = true;
+  el.setAttribute("role", "dialog");
+  (doc.body || host).appendChild(el);
+  let openTimer = null;
+  let closeTimer = null;
+  let currentActionId = null;
+  function clearOpenTimer() {
+    if (openTimer) {
+      clearTimeout(openTimer);
+      openTimer = null;
+    }
+  }
+  function clearCloseTimer() {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+  }
+  function place(anchorRect) {
+    const vw = doc.defaultView?.innerWidth ?? window.innerWidth;
+    const vh = doc.defaultView?.innerHeight ?? window.innerHeight;
+    const cardRect = el.getBoundingClientRect();
+    const margin = 8;
+    let left = anchorRect.left;
+    let top = anchorRect.top - cardRect.height - margin;
+    if (top < margin) top = anchorRect.bottom + margin;
+    left = Math.max(margin, Math.min(left, vw - cardRect.width - margin));
+    top = Math.max(margin, Math.min(top, vh - cardRect.height - margin));
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
+  }
+  function openFor(anchorEl, action, opts = {}) {
+    clearOpenTimer();
+    clearCloseTimer();
+    currentActionId = action?.characterActionId ?? null;
+    el.innerHTML = renderAbilityDetailCard(action, opts);
+    el.hidden = false;
+    place(anchorEl.getBoundingClientRect());
+  }
+  function scheduleOpen(anchorEl, action, opts = {}) {
+    clearOpenTimer();
+    clearCloseTimer();
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      openFor(anchorEl, action, opts);
+    }, OPEN_DELAY_MS);
+  }
+  function scheduleClose() {
+    clearOpenTimer();
+    clearCloseTimer();
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      el.hidden = true;
+      currentActionId = null;
+    }, CLOSE_GRACE_MS);
+  }
+  function cancelClose() {
+    clearCloseTimer();
+  }
+  function closeNow() {
+    clearOpenTimer();
+    clearCloseTimer();
+    el.hidden = true;
+    currentActionId = null;
+  }
+  function toggle(anchorEl, action, opts = {}) {
+    if (!el.hidden && currentActionId === (action?.characterActionId ?? null)) {
+      closeNow();
+      return;
+    }
+    openFor(anchorEl, action, opts);
+  }
+  return {
+    element: el,
+    openFor,
+    scheduleOpen,
+    scheduleClose,
+    cancelClose,
+    closeNow,
+    toggle,
+    isOpen() {
+      return !el.hidden;
+    },
+    isOpenFor(actionId) {
+      return !el.hidden && currentActionId === actionId;
+    },
+    /** True when `target` is the card itself or lives inside it — callers
+     *  use this to decide whether a pointer/focus move away from the slot
+     *  should still count as "still interacting with the detail card". */
+    contains(target) {
+      return !!target && el.contains(target);
+    },
+    destroy() {
+      clearOpenTimer();
+      clearCloseTimer();
+      el.remove();
+    }
+  };
+}
+
 // hud/components/CombatHudModule.js
 var DEV = (() => {
   try {
@@ -7939,10 +8175,24 @@ function mountCombatHudModule(options) {
       el.style.transformOrigin = "top left";
     }
     el.style.setProperty("--ohud-critical-text-ratio", String(computeCriticalTextRatio(scale)));
+    el.style.setProperty("--ohud-slot-marker-ratio", String(computeCriticalTextRatio(scale, 1.5)));
   }
   root.appendChild(el);
   const tooltip = createTooltip(el);
+  const detailCard = moduleId === "skills" ? createQuickbarDetailCardController(el) : null;
   let toastTimer = null;
+  function resolveQuickAction(actionId) {
+    if (!actionId) return null;
+    let list = liveSelection?.hudSnapshot?.quickbar?.quickActions;
+    if (!Array.isArray(list)) {
+      try {
+        list = store.getState()?.snapshot?.quickbar?.quickActions;
+      } catch (_e) {
+        list = null;
+      }
+    }
+    return Array.isArray(list) ? list.find((a) => a.characterActionId === actionId) ?? null : null;
+  }
   function controlsHtml() {
     if (moduleId !== "player") return "";
     return `<div class="ohud-module-controls">
@@ -8114,9 +8364,13 @@ function mountCombatHudModule(options) {
       case "open-quickbar-editor":
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "quickbar", type: "open-editor" });
         break;
-      case "show-ability-detail":
-        if (!t.classList.contains("is-disabled")) showToast("Ability details \u2014 execution arrives in Phase 4.1");
+      case "show-ability-detail": {
+        if (t.classList.contains("is-disabled")) break;
+        const action = resolveQuickAction(t.getAttribute("data-action-id"));
+        if (action && detailCard) detailCard.toggle(t, action);
+        else showToast("Ability details \u2014 execution arrives in Phase 4.1");
         break;
+      }
       case "toggle-armed-technique": {
         const isArmed = t.classList.contains("is-armed");
         if (isArmed || !t.classList.contains("is-disabled")) {
@@ -8159,6 +8413,55 @@ function mountCombatHudModule(options) {
     }
   }
   el.addEventListener("keydown", onKeyDown);
+  function techniqueSlotFromTarget(target) {
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
+    return t && el.contains(t) ? t : null;
+  }
+  function onSlotDetailOver(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const to = e.relatedTarget;
+    if (to && techniqueSlotFromTarget(to) === t) return;
+    if (to && detailCard.contains(to)) return;
+    detailCard.scheduleClose();
+  }
+  function onSlotDetailFocusIn(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const action = resolveQuickAction(t.getAttribute("data-action-id"));
+    if (!action) return;
+    detailCard.scheduleOpen(t, action, { armed: t.classList.contains("is-armed") });
+  }
+  function onSlotDetailFocusOut(e) {
+    if (!detailCard) return;
+    const t = techniqueSlotFromTarget(e.target);
+    if (!t) return;
+    const to = e.relatedTarget;
+    if (to && detailCard.contains(to)) return;
+    detailCard.scheduleClose();
+  }
+  if (detailCard) {
+    el.addEventListener("mouseover", onSlotDetailOver);
+    el.addEventListener("mouseout", onSlotDetailOut);
+    el.addEventListener("focusin", onSlotDetailFocusIn);
+    el.addEventListener("focusout", onSlotDetailFocusOut);
+    detailCard.element.addEventListener("mouseenter", () => detailCard.cancelClose());
+    detailCard.element.addEventListener("mouseleave", (e) => {
+      const to = e.relatedTarget;
+      if (to && techniqueSlotFromTarget(to)) return;
+      detailCard.scheduleClose();
+    });
+  }
   const unsubscribe = store.subscribe(render);
   render();
   return {
@@ -8169,6 +8472,13 @@ function mountCombatHudModule(options) {
       tooltip.destroy();
       el.removeEventListener("click", onClick);
       el.removeEventListener("keydown", onKeyDown);
+      if (detailCard) {
+        el.removeEventListener("mouseover", onSlotDetailOver);
+        el.removeEventListener("mouseout", onSlotDetailOut);
+        el.removeEventListener("focusin", onSlotDetailFocusIn);
+        el.removeEventListener("focusout", onSlotDetailFocusOut);
+        detailCard.destroy();
+      }
       if (toastTimer) clearTimeout(toastTimer);
       store.dispose();
       el.remove();
@@ -8400,7 +8710,7 @@ function renderGmCombatTracker({ session, candidates, viewerRole, busy = false }
 }
 
 // hud/abilities/QuickbarEditorPanel.js
-var SEMANTIC_ACCENT2 = {
+var SEMANTIC_ACCENT3 = {
   attack: "attack",
   psi: "psionic",
   tech: "implant",
@@ -8408,14 +8718,6 @@ var SEMANTIC_ACCENT2 = {
   intervention: "intervention"
 };
 var TYPE_MARK2 = { attack_technique: "ATK", directed: "DIR", instant: "INS", toggle: "TGL" };
-var SEMANTIC_LABEL = { attack: "Attack", psi: "Psi", tech: "Tech", utility: "Utility", intervention: "Defense" };
-var SOURCE_LABEL = { perk: "Perk", psi: "Psi", implant: "Implant", item: "Item", technique: "Technique" };
-function categoryLabel(action) {
-  const sem = SEMANTIC_LABEL[action.semanticKind] ?? "Action";
-  const src = SOURCE_LABEL[action.sourceType] ?? null;
-  if (!src || src.toLowerCase() === sem.toLowerCase()) return sem.toUpperCase();
-  return `${sem.toUpperCase()} / ${src.toUpperCase()}`;
-}
 function costBadges(action) {
   const badges = [];
   const c = action.costs ?? {};
@@ -8434,7 +8736,7 @@ function actionById2(runtime, id) {
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
 }
 function libraryCard(action, selected) {
-  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const accent = SEMANTIC_ACCENT3[action.semanticKind] ?? "neutral";
   const disabled = action.state?.available === false;
   const tip = tipAttr(action.name, abilityTooltipLines(action));
   const badges = costBadges(action).map(badgeHtml).join("");
@@ -8462,7 +8764,7 @@ function editorSlot(slot, action, selected) {
       <button type="button" class="ohud-qbe-remove" data-qbe-remove="${idx}" aria-label="Remove">\xD7</button>
     </div>`;
   }
-  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
+  const accent = SEMANTIC_ACCENT3[action.semanticKind] ?? "neutral";
   const mark = TYPE_MARK2[action.type] ?? "";
   const tip = tipAttr(action.name, abilityTooltipLines(action));
   return `<div class="${cls("ohud-qbe-slot", "is-filled", `ohud-accent--${accent}`, selected ? "is-selected" : "")}" draggable="true" data-qbe-slot="${idx}" data-qbe-action="${esc(action.characterActionId)}"${tip}>
@@ -8504,26 +8806,7 @@ function renderDescriptionPanel(resolved) {
   if (resolved.kind === "missing-slot") {
     return `<div class="ohud-qbe-desc"><div class="ohud-qbe-desc-placeholder">This action is no longer available. Remove it from the slot.</div></div>`;
   }
-  const action = resolved.action;
-  const accent = SEMANTIC_ACCENT2[action.semanticKind] ?? "neutral";
-  const model = abilityTooltipModel(action);
-  const descLine = model.lines.find((l) => l.label === "Description");
-  const statusLine = model.lines.find((l) => l.label === "Unavailable" || l.label === "Status");
-  const pillLines = model.lines.filter((l) => l !== descLine && l !== statusLine);
-  const pillsHtml = pillLines.map((l) => `<span class="ohud-qbe-desc-pill"><span class="ohud-qbe-desc-pill-label">${esc(l.label)}</span>${esc(l.value)}</span>`).join("");
-  const statusHtml = statusLine ? `<div class="${cls("ohud-qbe-desc-status", statusLine.label === "Unavailable" ? "is-warning" : "is-active")}">${esc(statusLine.label)}: ${esc(statusLine.value)}</div>` : "";
-  return `<div class="${cls("ohud-qbe-desc", `ohud-accent--${accent}`)}">
-    <div class="ohud-qbe-desc-head">
-      <span class="ohud-qbe-desc-icon">${skillIconSvg(action.iconKey)}</span>
-      <div class="ohud-qbe-desc-head-text">
-        <span class="ohud-qbe-desc-name">${esc(action.name)}</span>
-        <span class="ohud-qbe-desc-type">${esc(categoryLabel(action))}</span>
-      </div>
-    </div>
-    ${descLine ? `<div class="ohud-qbe-desc-text">${esc(descLine.value)}</div>` : ""}
-    <div class="ohud-qbe-desc-pills">${pillsHtml}</div>
-    ${statusHtml}
-  </div>`;
+  return renderAbilityDetailCard(resolved.action);
 }
 function renderQuickbarEditor(args = {}) {
   const runtime = args.runtime && typeof args.runtime === "object" ? args.runtime : null;

@@ -28,6 +28,11 @@ export const ICON_GRIP = `<svg viewBox="0 0 24 24" width="14" height="14" aria-h
 /** Grid / layout — opens the Arrange-HUD editor. */
 export const ICON_GRID = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></g></svg>`;
 
+/** Padlock — compact unsupported/unavailable quickbar-slot state marker
+ *  (Phase 4.1A.2). Same muted, non-alarming style as the other glyphs here —
+ *  never a red/damage-style icon. */
+export const ICON_LOCK = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
+
 /** Shield outline (target/defence indicator). */
 export const ICON_SHIELD = `<svg viewBox="0 0 24 28" width="100%" height="100%" aria-hidden="true"><path d="M12 2l9 3v8c0 6-4 9-9 11-5-2-9-5-9-11V5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 
