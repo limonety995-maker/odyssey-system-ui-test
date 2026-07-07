@@ -3509,122 +3509,6 @@ var GenericItemBuilder = class {
   }
 };
 
-// node_modules/@owlbear-rodeo/sdk/lib/builders/ImageBuilder.js
-var ImageBuilder = class extends GenericItemBuilder {
-  constructor(player, image, grid) {
-    super(player);
-    this._image = image;
-    this._grid = grid;
-    this._item.name = "Image";
-    this._text = {
-      richText: [
-        {
-          type: "paragraph",
-          children: [{ text: "" }]
-        }
-      ],
-      plainText: "",
-      style: {
-        padding: 8,
-        fontFamily: "Roboto",
-        fontSize: 24,
-        fontWeight: 400,
-        textAlign: "CENTER",
-        textAlignVertical: "BOTTOM",
-        fillColor: "white",
-        fillOpacity: 1,
-        strokeColor: "white",
-        strokeOpacity: 1,
-        strokeWidth: 0,
-        lineHeight: 1.5
-      },
-      type: "PLAIN",
-      width: "AUTO",
-      height: "AUTO"
-    };
-    this._textItemType = "LABEL";
-  }
-  text(text) {
-    this._text = text;
-    return this.self();
-  }
-  textItemType(textItemType) {
-    this._textItemType = textItemType;
-    return this.self();
-  }
-  textWidth(width) {
-    this._text.width = width;
-    return this.self();
-  }
-  textHeight(height) {
-    this._text.height = height;
-    return this.self();
-  }
-  richText(richText) {
-    this._text.richText = richText;
-    return this.self();
-  }
-  plainText(plainText) {
-    this._text.plainText = plainText;
-    return this.self();
-  }
-  textType(textType) {
-    this._text.type = textType;
-    return this.self();
-  }
-  textPadding(padding) {
-    this._text.style.padding = padding;
-    return this.self();
-  }
-  fontFamily(fontFamily) {
-    this._text.style.fontFamily = fontFamily;
-    return this.self();
-  }
-  fontSize(fontSize) {
-    this._text.style.fontSize = fontSize;
-    return this.self();
-  }
-  fontWeight(fontWeight) {
-    this._text.style.fontWeight = fontWeight;
-    return this.self();
-  }
-  textAlign(textAlign) {
-    this._text.style.textAlign = textAlign;
-    return this.self();
-  }
-  textAlignVertical(textAlignVertical) {
-    this._text.style.textAlignVertical = textAlignVertical;
-    return this.self();
-  }
-  textFillColor(fillColor) {
-    this._text.style.fillColor = fillColor;
-    return this.self();
-  }
-  textFillOpacity(fillOpacity) {
-    this._text.style.fillOpacity = fillOpacity;
-    return this.self();
-  }
-  textStrokeColor(strokeColor) {
-    this._text.style.strokeColor = strokeColor;
-    return this.self();
-  }
-  textStrokeOpacity(strokeOpacity) {
-    this._text.style.strokeOpacity = strokeOpacity;
-    return this.self();
-  }
-  textStrokeWidth(strokeWidth) {
-    this._text.style.strokeWidth = strokeWidth;
-    return this.self();
-  }
-  textLineHeight(lineHeight) {
-    this._text.style.lineHeight = lineHeight;
-    return this.self();
-  }
-  build() {
-    return Object.assign(Object.assign({}, this._item), { type: "IMAGE", image: this._image, grid: this._grid, text: this._text, textItemType: this._textItemType });
-  }
-};
-
 // node_modules/@owlbear-rodeo/sdk/lib/builders/LineBuilder.js
 var LineBuilder = class extends GenericItemBuilder {
   constructor(player) {
@@ -3974,9 +3858,6 @@ var OBR = {
   /** True if the current site is embedded in an instance of Owlbear Rodeo */
   isAvailable: Boolean(details.origin)
 };
-function buildImage(image, grid) {
-  return new ImageBuilder(playerApi, image, grid);
-}
 function buildLine() {
   return new LineBuilder(playerApi);
 }
@@ -6127,9 +6008,10 @@ function axialRound(q, r) {
   return { q: cube.x, r: cube.z };
 }
 function getSquareCellCenterAnchor(settings) {
+  const gridDpi = Number(settings?.gridDpi ?? 0) || 0;
   return {
-    x: Number(settings.anchor?.x ?? 0) || 0,
-    y: Number(settings.anchor?.y ?? 0) || 0
+    x: (Number(settings.anchor?.x ?? 0) || 0) + gridDpi / 2,
+    y: (Number(settings.anchor?.y ?? 0) || 0) + gridDpi / 2
   };
 }
 function getSquareCellScenePosition(grid, cell) {
@@ -11342,43 +11224,7 @@ function createOdysseyRuntime() {
 // movement/combatMovementPreview.js
 var PREVIEW_LINE_ID = "com.odyssey-system/combat-movement-preview-line";
 var PREVIEW_LABEL_ID = "com.odyssey-system/combat-movement-preview-label";
-var PREVIEW_GHOST_ID = "com.odyssey-system/combat-movement-preview-ghost";
-function ensureObject(value) {
-  return value && typeof value === "object" ? value : {};
-}
-function ensureVector2(value, fallback = { x: 1, y: 1 }) {
-  return {
-    x: Number(value?.x ?? fallback.x ?? 1) || 1,
-    y: Number(value?.y ?? fallback.y ?? 1) || 1
-  };
-}
-function isImageToken(item) {
-  return String(item?.type ?? "").trim().toUpperCase() === "IMAGE" && item?.image && typeof item.image === "object" && typeof item.image.url === "string" && item.image.url.trim() !== "";
-}
-function buildGhostDebugInfo(sourceToken) {
-  return {
-    type: String(sourceToken?.type ?? "").trim().toUpperCase(),
-    hasImage: !!(sourceToken?.image && typeof sourceToken.image === "object"),
-    hasImageUrl: typeof sourceToken?.image?.url === "string" && sourceToken.image.url.trim() !== "",
-    hasGrid: !!(sourceToken?.grid && typeof sourceToken.grid === "object"),
-    hasPosition: !!(sourceToken?.position && typeof sourceToken.position === "object")
-  };
-}
-function buildGhostToken(sourceToken, position) {
-  if (!isImageToken(sourceToken) || !position) return null;
-  const token = ensureObject(sourceToken);
-  if (!token.grid || typeof token.grid !== "object") {
-    return null;
-  }
-  const ghost = buildImage(token.image, token.grid).id(PREVIEW_GHOST_ID).name("Combat Movement Ghost").layer("CHARACTER").locked(true).disableHit(true).disableAutoZIndex(true).position({
-    x: Number(position.x) || 0,
-    y: Number(position.y) || 0
-  }).rotation(Number(token.rotation ?? 0) || 0).scale(ensureVector2(token.scale)).visible(true).metadata({});
-  if (Array.isArray(token.disableAttachmentBehavior) && token.disableAttachmentBehavior.length) {
-    ghost.disableAttachmentBehavior(token.disableAttachmentBehavior);
-  }
-  return ghost.build();
-}
+var PREVIEW_GHOST_ID = "com.odyssey-system/combat-movement-preview-marker";
 function getPreviewLabelPosition(originScene, targetScene) {
   const dx = Number(targetScene?.x ?? 0) - Number(originScene?.x ?? 0);
   const dy = Number(targetScene?.y ?? 0) - Number(originScene?.y ?? 0);
@@ -11397,26 +11243,24 @@ function buildPreviewLabel(preview) {
   }
   return `${preview.moveCostM} m / ${preview.moveLimitM} m`;
 }
-function buildPreviewItems({ preview, originScene, selectedToken }) {
+function buildPreviewLineItem(preview, originScene) {
   const lineColor = preview?.blocked ? "#ffb347" : preview?.inRange ? "#71f79f" : "#ff7c6d";
+  return buildLine().id(PREVIEW_LINE_ID).name("Combat Movement Preview").layer("POINTER").locked(true).disableHit(true).startPosition(originScene).endPosition(preview.scene).strokeColor(lineColor).strokeOpacity(0.98).strokeWidth(6).strokeDash([12, 8]).disableAutoZIndex(true).build();
+}
+function buildPreviewLabelItem(preview, originScene) {
   const textColor = "#ffffff";
   const labelPosition = getPreviewLabelPosition(originScene, preview.scene);
-  const line = buildLine().id(PREVIEW_LINE_ID).name("Combat Movement Preview").layer("POINTER").locked(true).disableHit(true).startPosition(originScene).endPosition(preview.scene).strokeColor(lineColor).strokeOpacity(0.98).strokeWidth(6).strokeDash([12, 8]).disableAutoZIndex(true).build();
-  const label = buildText().id(PREVIEW_LABEL_ID).name("Combat Movement Label").layer("TEXT").locked(true).disableHit(true).disableAutoZIndex(true).position(labelPosition).textType("PLAIN").plainText(buildPreviewLabel(preview)).fontSize(26).fontWeight(700).padding(10).textAlign("CENTER").textAlignVertical("MIDDLE").fillColor(textColor).fillOpacity(1).strokeColor(preview?.blocked ? "#5a3200" : "#08111f").strokeOpacity(1).strokeWidth(6).build();
-  let ghost = null;
-  let ghostError = null;
-  try {
-    ghost = buildGhostToken(selectedToken, preview.scene);
-  } catch (error) {
-    ghostError = error;
-  }
-  return {
-    line,
-    label,
-    ghost,
-    ghostError,
-    ghostDebugInfo: buildGhostDebugInfo(selectedToken)
-  };
+  return buildText().id(PREVIEW_LABEL_ID).name("Combat Movement Label").layer("TEXT").locked(true).disableHit(true).disableAutoZIndex(true).position(labelPosition).textType("PLAIN").plainText(buildPreviewLabel(preview)).fontSize(26).fontWeight(700).padding(10).textAlign("CENTER").textAlignVertical("MIDDLE").fillColor(textColor).fillOpacity(1).strokeColor(preview?.blocked ? "#5a3200" : "#08111f").strokeOpacity(1).strokeWidth(6).build();
+}
+function buildPreviewMarkerItem(preview, grid) {
+  const gridDpi = Math.max(Number(grid?.gridDpi ?? 0) || 0, 1);
+  const size = Math.max(gridDpi - 8, 12);
+  const fillColor = preview?.blocked ? "#ff9a2f" : preview?.inRange ? "#4fd47d" : "#ff5f57";
+  const strokeColor = preview?.blocked ? "#ffd08a" : preview?.inRange ? "#d9ffe5" : "#ffd0cc";
+  return buildShape().id(PREVIEW_GHOST_ID).name("Combat Movement Marker").layer("POINTER").locked(true).disableHit(true).disableAutoZIndex(true).position({
+    x: (Number(preview?.scene?.x ?? 0) || 0) - size / 2,
+    y: (Number(preview?.scene?.y ?? 0) || 0) - size / 2
+  }).width(size).height(size).shapeType("RECTANGLE").fillColor(fillColor).fillOpacity(0.24).strokeColor(strokeColor).strokeOpacity(0.98).strokeWidth(4).strokeDash([]).build();
 }
 
 // movement/combatMovementPermissions.js
@@ -11522,7 +11366,7 @@ async function subscribeMoveToolMessages(listener) {
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.46";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.60";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
@@ -11542,11 +11386,6 @@ function nowIso() {
 }
 function createRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-function nextAnimationFrame() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
 }
 function withTimeout(promise, timeoutMs, message) {
   return Promise.race([
@@ -11574,6 +11413,17 @@ function sameScenePosition(a, b, epsilon = PREVIEW_POSITION_EPSILON) {
 function getCellKey(cell) {
   return `${Number(cell?.q ?? cell?.cell_q ?? 0) || 0}:${Number(cell?.r ?? cell?.cell_r ?? 0) || 0}`;
 }
+function getPreviewMarkerSignature(preview, grid) {
+  const gridDpi = Math.max(Number(grid?.gridDpi ?? 0) || 0, 0);
+  return JSON.stringify({
+    q: Number(preview?.cell?.q ?? 0) || 0,
+    r: Number(preview?.cell?.r ?? 0) || 0,
+    inRange: preview?.inRange === true,
+    blocked: preview?.blocked === true,
+    blockReason: String(preview?.blockReason ?? "").trim(),
+    gridDpi
+  });
+}
 function createInitialState() {
   return {
     player: null,
@@ -11586,16 +11436,23 @@ function createInitialState() {
     viewerControlledCharacterIds: /* @__PURE__ */ new Set(),
     authoritativeByTokenId: /* @__PURE__ */ new Map(),
     selectedToken: null,
+    selectedCombatTokenIds: /* @__PURE__ */ new Set(),
     selectedParticipant: null,
     permission: null,
     preview: null,
     previewCreated: false,
+    previewLineCreated: false,
     previewGhostCreated: false,
     previewRequestVersion: 0,
     previewRenderQueue: [],
     previewRenderActive: false,
     previewPointerQueue: [],
     previewPointerActive: false,
+    previewCoreQueued: null,
+    previewCoreActive: false,
+    previewMarkerQueued: null,
+    previewMarkerActive: false,
+    previewMarkerSignature: "",
     pending: false,
     dragActive: false,
     toolRegistered: false,
@@ -11609,7 +11466,88 @@ function createInitialState() {
     autoSyncedMarkerByTokenId: /* @__PURE__ */ new Map(),
     autoSyncInFlightByKey: /* @__PURE__ */ new Map(),
     gridRecoveryPromise: null,
-    gridRecoveryKey: ""
+    gridRecoveryKey: "",
+    obstructionDebugDone: false,
+    lastVanillaMoveBlockAt: 0,
+    pendingUnauthorizedRevertTimers: /* @__PURE__ */ new Map()
+  };
+}
+function normalizeMetadataKeys(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  return Object.keys(metadata).map((key) => String(key ?? "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+function sanitizeObstructionMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    const normalizedKey = String(key ?? "").trim();
+    if (!normalizedKey) continue;
+    if (normalizedKey.length > 80) continue;
+    if (value == null) {
+      result[normalizedKey] = null;
+      continue;
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      result[normalizedKey] = value;
+      continue;
+    }
+    try {
+      result[normalizedKey] = JSON.parse(JSON.stringify(value));
+    } catch {
+      result[normalizedKey] = String(value);
+    }
+  }
+  return result;
+}
+function isPotentialObstructionItem(item) {
+  const type = String(item?.type ?? "").trim().toUpperCase();
+  const name = String(item?.name ?? "").trim().toLowerCase();
+  const metadataKeys = normalizeMetadataKeys(item?.metadata).map((key) => key.toLowerCase());
+  const joinedKeys = metadataKeys.join(" ");
+  if (name.includes("obstruction") || name.includes("smoke") || name.includes("spectre")) {
+    return true;
+  }
+  if (joinedKeys.includes("obstruction") || joinedKeys.includes("smoke") || joinedKeys.includes("spectre") || joinedKeys.includes("passable") || joinedKeys.includes("unpassable")) {
+    return true;
+  }
+  return ["LINE", "SHAPE", "PATH"].includes(type);
+}
+function buildObstructionDebugSnapshot(item) {
+  const metadata = sanitizeObstructionMetadata(item?.metadata);
+  return {
+    id: String(item?.id ?? "").trim(),
+    type: String(item?.type ?? "").trim(),
+    name: String(item?.name ?? "").trim(),
+    layer: String(item?.layer ?? "").trim(),
+    visible: item?.visible !== false,
+    locked: item?.locked === true,
+    position: item?.position ? {
+      x: Number(item.position.x ?? 0) || 0,
+      y: Number(item.position.y ?? 0) || 0
+    } : null,
+    size: Number.isFinite(Number(item?.width)) || Number.isFinite(Number(item?.height)) ? {
+      width: Number(item?.width ?? 0) || 0,
+      height: Number(item?.height ?? 0) || 0
+    } : null,
+    startPosition: item?.startPosition ? {
+      x: Number(item.startPosition.x ?? 0) || 0,
+      y: Number(item.startPosition.y ?? 0) || 0
+    } : null,
+    endPosition: item?.endPosition ? {
+      x: Number(item.endPosition.x ?? 0) || 0,
+      y: Number(item.endPosition.y ?? 0) || 0
+    } : null,
+    rotation: Number(item?.rotation ?? 0) || 0,
+    scale: item?.scale ? {
+      x: Number(item.scale.x ?? 0) || 0,
+      y: Number(item.scale.y ?? 0) || 0
+    } : null,
+    metadataKeys: normalizeMetadataKeys(item?.metadata),
+    metadata
   };
 }
 function buildStatus(state, extras = {}) {
@@ -11674,12 +11612,16 @@ function extractMovementMarker(item) {
   const requestId = String(raw.requestId ?? "").trim();
   const updatedAt = String(raw.updatedAt ?? "").trim();
   const movementVersion = Number(raw.movementVersion ?? 0) || 0;
+  const sceneX = Number(raw.sceneX ?? raw.scene_x ?? 0);
+  const sceneY = Number(raw.sceneY ?? raw.scene_y ?? 0);
   if (!source || !updatedAt) return null;
   return {
     source,
     requestId,
     updatedAt,
-    movementVersion
+    movementVersion,
+    sceneX: Number.isFinite(sceneX) ? sceneX : null,
+    sceneY: Number.isFinite(sceneY) ? sceneY : null
   };
 }
 function isFreshMarker(marker) {
@@ -11688,13 +11630,25 @@ function isFreshMarker(marker) {
   if (!Number.isFinite(updatedAtMs)) return false;
   return Date.now() - updatedAtMs <= MARKER_TTL_MS;
 }
-function buildMovementMarker({ requestId, movementVersion, source }) {
+function buildMovementMarker({ requestId, movementVersion, source, scenePosition }) {
   return {
     source,
     requestId,
     movementVersion,
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
+    sceneX: Number(scenePosition?.x ?? scenePosition?.scene_x ?? 0) || 0,
+    sceneY: Number(scenePosition?.y ?? scenePosition?.scene_y ?? 0) || 0
   };
+}
+function markerMatchesScenePosition(marker, scenePosition) {
+  if (!marker || !scenePosition) return false;
+  if (!Number.isFinite(Number(marker.sceneX)) || !Number.isFinite(Number(marker.sceneY))) {
+    return false;
+  }
+  return positionsMatch(
+    { x: Number(marker.sceneX) || 0, y: Number(marker.sceneY) || 0 },
+    scenePosition
+  );
 }
 function participantHasAuthoritativePosition(participant) {
   const position = participant?.position ?? null;
@@ -11741,6 +11695,35 @@ function setupTacticalMoveTool({ runtime }) {
     try {
       await publishMoveToolEvent(MOVE_TOOL_EVENTS.Status, buildStatus(state, extras));
     } catch {
+    }
+  }
+  function shouldThrottleVanillaMoveBlockNotice() {
+    const now = Date.now();
+    if (now - state.lastVanillaMoveBlockAt < 1500) {
+      return true;
+    }
+    state.lastVanillaMoveBlockAt = now;
+    return false;
+  }
+  async function inspectSceneObstructionCandidates(reason = "manual") {
+    if (state.obstructionDebugDone) return;
+    state.obstructionDebugDone = true;
+    try {
+      const sceneItems = await getSceneItems();
+      const candidates = ensureArray3(sceneItems).filter((item) => isPotentialObstructionItem(item)).slice(0, 40).map((item) => buildObstructionDebugSnapshot(item));
+      addDiagnosticEntry(
+        "info",
+        "Smoke obstruction candidates",
+        JSON.stringify({
+          reason,
+          sceneItemCount: sceneItems.length,
+          candidateCount: candidates.length,
+          candidates
+        })
+      );
+    } catch (error) {
+      const normalized = normalizeError(error, "Unable to inspect scene obstruction candidates.");
+      addDiagnosticEntry("warn", "Smoke obstruction inspect failed", normalized.message);
     }
   }
   function clearRuntimeCache() {
@@ -11865,15 +11848,21 @@ function setupTacticalMoveTool({ runtime }) {
     }
     state.preview = null;
     state.previewCreated = false;
+    state.previewLineCreated = false;
     state.previewGhostCreated = false;
     state.previewRenderActive = false;
     state.previewPointerActive = false;
+    state.previewCoreQueued = null;
+    state.previewCoreActive = false;
+    state.previewMarkerQueued = null;
+    state.previewMarkerActive = false;
+    state.previewMarkerSignature = "";
     state.dragActive = false;
     if (!silent) {
       await publishStatus({ reason });
     }
   }
-  async function updatePreview(preview) {
+  async function updatePreviewCore(preview) {
     if (!state.selectedToken || !state.selectedParticipant) return;
     const current2 = state.preview;
     const previewPositionUnchanged = sameScenePosition(
@@ -11888,41 +11877,25 @@ function setupTacticalMoveTool({ runtime }) {
       x: Number(state.selectedParticipant.position?.scene_x ?? 0) || 0,
       y: Number(state.selectedParticipant.position?.scene_y ?? 0) || 0
     };
-    const items = buildPreviewItems({
-      preview,
-      originScene,
-      selectedToken: state.selectedToken
-    });
+    const label = buildPreviewLabelItem(preview, originScene);
     addDiagnosticEntry(
       "info",
       "Preview label prepared",
       formatPreviewDiagnostics({
-        id: items.label?.id,
-        type: items.label?.type,
-        textType: items.label?.text?.type,
-        text: items.label?.text?.plainText,
-        position: items.label?.position
+        id: label?.id,
+        type: label?.type,
+        textType: label?.text?.type,
+        text: label?.text?.plainText,
+        position: label?.position
       })
     );
-    if (items.ghostError) {
-      const normalized = normalizeError(items.ghostError, "Unable to build movement preview ghost.");
-      addDiagnosticEntry(
-        "warn",
-        "Combat preview ghost build failed",
-        formatPreviewDiagnostics({
-          ...items.ghostDebugInfo,
-          tokenId: String(state.selectedToken?.id ?? "").trim(),
-          message: normalized.message
-        })
-      );
-    }
     try {
       if (!state.previewCreated) {
-        await lib_default.scene.local.addItems([items.line, items.label]);
+        await lib_default.scene.local.addItems([label]);
         state.previewCreated = true;
         addDiagnosticEntry(
           "info",
-          "Combat preview core created",
+          "Combat preview label created",
           buildPreviewDiagnosticDetails({
             tokenId: state.selectedToken?.id,
             cell: preview.cell,
@@ -11932,17 +11905,12 @@ function setupTacticalMoveTool({ runtime }) {
           })
         );
       } else {
-        await lib_default.scene.local.updateItems([PREVIEW_LINE_ID, PREVIEW_LABEL_ID], (sceneItems) => {
+        await lib_default.scene.local.updateItems([PREVIEW_LABEL_ID], (sceneItems) => {
           for (const item of sceneItems) {
-            if (item.id === PREVIEW_LINE_ID && item.type === "LINE") {
-              item.startPosition = items.line.startPosition;
-              item.endPosition = items.line.endPosition;
-              item.style = items.line.style;
-            }
             if (item.id === PREVIEW_LABEL_ID && item.type === "TEXT") {
-              item.position = items.label.position;
-              item.text = items.label.text;
-              item.style = items.label.style;
+              item.position = label.position;
+              item.text = label.text;
+              item.style = label.style;
             }
           }
         });
@@ -11954,20 +11922,23 @@ function setupTacticalMoveTool({ runtime }) {
       await publishStatus();
       return;
     }
-    if (!items.ghost) {
-      if (state.previewGhostCreated) {
-        try {
-          await lib_default.scene.local.deleteItems([PREVIEW_GHOST_ID]);
-        } catch {
-        }
-      }
-      state.previewGhostCreated = false;
-      await publishStatus();
+    await publishStatus();
+  }
+  async function updatePreviewMarker(preview) {
+    if (!state.selectedToken || !state.selectedParticipant || !preview || !state.grid) return;
+    const markerSignature = getPreviewMarkerSignature(preview, state.grid);
+    if (state.previewGhostCreated && state.previewMarkerSignature === markerSignature) {
       return;
     }
+    const originScene = {
+      x: Number(state.selectedParticipant.position?.scene_x ?? 0) || 0,
+      y: Number(state.selectedParticipant.position?.scene_y ?? 0) || 0
+    };
+    const line = buildPreviewLineItem(preview, originScene);
+    const marker = buildPreviewMarkerItem(preview, state.grid);
     addDiagnosticEntry(
       "info",
-      "Combat preview render",
+      "Combat preview marker render",
       formatPreviewDiagnostics({
         tokenId: String(state.selectedToken?.id ?? "").trim(),
         cellQ: Number(preview.cell?.q ?? 0) || 0,
@@ -11977,12 +11948,20 @@ function setupTacticalMoveTool({ runtime }) {
       })
     );
     try {
-      if (!state.previewGhostCreated) {
-        await lib_default.scene.local.addItems([items.ghost]);
+      if (!state.previewLineCreated || !state.previewGhostCreated) {
+        const toAdd = [];
+        if (!state.previewLineCreated) {
+          toAdd.push(line);
+        }
+        if (!state.previewGhostCreated) {
+          toAdd.push(marker);
+        }
+        await lib_default.scene.local.addItems(toAdd);
+        state.previewLineCreated = true;
         state.previewGhostCreated = true;
         addDiagnosticEntry(
           "info",
-          "Combat preview ghost added",
+          "Combat preview live geometry added",
           buildPreviewDiagnosticDetails({
             tokenId: state.selectedToken?.id,
             cell: preview.cell,
@@ -11992,30 +11971,36 @@ function setupTacticalMoveTool({ runtime }) {
           })
         );
       } else {
-        await lib_default.scene.local.updateItems([PREVIEW_GHOST_ID], (sceneItems) => {
+        await lib_default.scene.local.updateItems([PREVIEW_LINE_ID, PREVIEW_GHOST_ID], (sceneItems) => {
           for (const item of sceneItems) {
-            if (item.id === PREVIEW_GHOST_ID && item.type === "IMAGE") {
-              item.position = items.ghost.position;
-              item.rotation = items.ghost.rotation;
-              item.scale = items.ghost.scale;
+            if (item.id === PREVIEW_LINE_ID && item.type === "LINE") {
+              item.startPosition = line.startPosition;
+              item.endPosition = line.endPosition;
+              item.style = line.style;
+            }
+            if (item.id === PREVIEW_GHOST_ID && item.type === "SHAPE") {
+              item.position = marker.position;
+              item.width = marker.width;
+              item.height = marker.height;
+              item.shapeType = marker.shapeType;
+              item.style = marker.style;
             }
           }
         });
       }
+      state.previewMarkerSignature = markerSignature;
     } catch (error) {
+      state.previewLineCreated = false;
       state.previewGhostCreated = false;
-      const normalized = normalizeError(error, "Unable to add movement preview ghost.");
-      addDiagnosticEntry(
-        "warn",
-        "Combat preview ghost add failed",
-        formatPreviewDiagnostics({
-          ...items.ghostDebugInfo,
-          tokenId: String(state.selectedToken?.id ?? "").trim(),
-          message: normalized.message
-        })
-      );
+      state.previewMarkerSignature = "";
+      const normalized = normalizeError(error, "Unable to update movement preview marker.");
+      addDiagnosticEntry("warn", "Combat preview marker add failed", normalized.message);
     }
-    await publishStatus();
+  }
+  async function updatePreview(preview) {
+    if (!preview) return;
+    await updatePreviewCore(preview);
+    await updatePreviewMarker(preview);
   }
   function getSelectedParticipantOrigin() {
     const position = state.selectedParticipant?.position ?? null;
@@ -12227,38 +12212,44 @@ function setupTacticalMoveTool({ runtime }) {
     );
     return buildPreviewFromScenePosition(pointerPosition, tokenId);
   }
-  function queuePreviewRender(preview) {
-    if (!preview) return;
-    const previous = state.previewRenderQueue.at(-1);
-    if (previous && sameScenePosition(previous.scene, preview.scene, 0.01)) {
-      return;
-    }
-    state.previewRenderQueue.push(preview);
-    if (!state.previewRenderActive) {
-      void flushPreviewRenderQueue();
-    }
-  }
-  async function flushPreviewRenderQueue() {
-    if (state.previewRenderActive) return;
-    state.previewRenderActive = true;
-    try {
-      while (state.dragActive && state.previewRenderQueue.length > 0) {
-        const preview = state.previewRenderQueue.shift();
-        if (!preview) continue;
-        await updatePreview(preview);
-        await nextAnimationFrame();
-      }
-    } finally {
-      state.previewRenderActive = false;
-    }
-  }
   function queuePreviewPointer(pointerPosition) {
     if (!pointerPosition) return;
     const preview = buildPreviewFromPointerFast(pointerPosition);
     if (!preview) return;
     state.previewPointerQueue = [];
     state.previewRenderQueue = [];
-    queuePreviewRender(preview);
+    state.previewCoreQueued = preview;
+    state.previewMarkerQueued = preview;
+    void flushPreviewCoreQueue();
+    void flushPreviewMarkerQueue();
+  }
+  async function flushPreviewCoreQueue() {
+    if (state.previewCoreActive) return;
+    state.previewCoreActive = true;
+    try {
+      while (state.dragActive && state.previewCoreQueued) {
+        const preview = state.previewCoreQueued;
+        state.previewCoreQueued = null;
+        if (!preview) continue;
+        await updatePreviewCore(preview);
+      }
+    } finally {
+      state.previewCoreActive = false;
+    }
+  }
+  async function flushPreviewMarkerQueue() {
+    if (state.previewMarkerActive) return;
+    state.previewMarkerActive = true;
+    try {
+      while (state.dragActive && state.previewMarkerQueued) {
+        const preview = state.previewMarkerQueued;
+        state.previewMarkerQueued = null;
+        if (!preview) continue;
+        await updatePreviewMarker(preview);
+      }
+    } finally {
+      state.previewMarkerActive = false;
+    }
   }
   async function flushPreviewPointerQueue() {
     if (state.previewPointerActive) return;
@@ -12270,9 +12261,11 @@ function setupTacticalMoveTool({ runtime }) {
         const preview = await buildPreviewFromPointer(pointerPosition);
         if (!state.dragActive) break;
         if (!preview) continue;
-        queuePreviewRender(preview);
+        state.previewCoreQueued = preview;
+        state.previewMarkerQueued = preview;
+        await flushPreviewCoreQueue();
+        await flushPreviewMarkerQueue();
       }
-      await flushPreviewRenderQueue();
     } finally {
       state.previewPointerActive = false;
     }
@@ -12322,8 +12315,29 @@ function setupTacticalMoveTool({ runtime }) {
   async function syncSelectionState(reason = "selection-sync", options = {}) {
     state.player = await getPlayerInfo().catch(() => state.player);
     const selectedTokens = await getSelectedOwlbearTokens().catch(() => []);
+    const selectedCombatTokens = selectedTokens.filter(
+      (token) => state.participantsByTokenId.has(String(token?.id ?? "").trim())
+    );
+    state.selectedCombatTokenIds = new Set(
+      selectedCombatTokens.map((token) => String(token?.id ?? "").trim()).filter(Boolean)
+    );
     const selectedToken = selectedTokens.length === 1 ? selectedTokens[0] : null;
     const runtimeResponse = options.runtimeResponse ?? state.runtime;
+    if (selectedCombatTokens.length > 1) {
+      state.selectedToken = null;
+      state.selectedParticipant = null;
+      state.permission = null;
+      await clearPreview({ reason: `${reason}-multi-combat-selection`, silent: true });
+      await restorePreviousTool(`${reason}-multi-combat-selection`);
+      if (!shouldThrottleVanillaMoveBlockNotice()) {
+        await notify3("Multiple combat tokens cannot be dragged together. Select only one token and use Tactical Move.", "WARNING");
+      }
+      await publishStatus({
+        reason: `${reason}-multi-combat-selection`,
+        error: "Multiple combat tokens cannot be moved together."
+      });
+      return;
+    }
     if (!selectedToken) {
       state.selectedToken = null;
       state.selectedParticipant = null;
@@ -12383,7 +12397,8 @@ function setupTacticalMoveTool({ runtime }) {
     const marker = buildMovementMarker({
       requestId,
       movementVersion,
-      source
+      source,
+      scenePosition
     });
     state.localMarkersByTokenId.set(tokenId, marker);
     await lib_default.scene.items.updateItems([tokenId], (items) => {
@@ -12407,11 +12422,61 @@ function setupTacticalMoveTool({ runtime }) {
         authoritative.movementVersion,
         "combat-movement-revert"
       );
-      await notify3(message, "WARNING");
+      const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
+      if (selectedTokenId && selectedTokenId === String(tokenId ?? "").trim()) {
+        void ensureToolActivated("vanilla-move-blocked").catch(() => {
+        });
+      }
+      if (!shouldThrottleVanillaMoveBlockNotice()) {
+        await notify3(message, "WARNING");
+      }
     } catch (error) {
       const normalized = normalizeError(error, "Unable to restore authoritative combat position.");
       addDiagnosticEntry("warn", "Combat movement revert failed", normalized.message);
     }
+  }
+  function clearUnauthorizedRevertTimers(tokenId) {
+    const key = String(tokenId ?? "").trim();
+    if (!key) return;
+    const timers = state.pendingUnauthorizedRevertTimers.get(key) ?? [];
+    for (const timerId of timers) {
+      clearTimeout(timerId);
+    }
+    state.pendingUnauthorizedRevertTimers.delete(key);
+  }
+  function scheduleUnauthorizedRevertChecks(tokenId, authoritative, message) {
+    const key = String(tokenId ?? "").trim();
+    if (!key) return;
+    clearUnauthorizedRevertTimers(key);
+    const delays = [120, 360, 900];
+    const timers = delays.map((delayMs) => setTimeout(() => {
+      void (async () => {
+        try {
+          const sceneItems = await getSceneItems();
+          const currentItem = sceneItems.find((item) => String(item?.id ?? "").trim() === key);
+          if (!currentItem?.position) return;
+          const authoritativeScene = {
+            x: Number(authoritative?.scene_x ?? 0) || 0,
+            y: Number(authoritative?.scene_y ?? 0) || 0
+          };
+          if (positionsMatch(currentItem.position, authoritativeScene)) {
+            state.localMarkersByTokenId.delete(key);
+            clearUnauthorizedRevertTimers(key);
+            return;
+          }
+          const marker = extractMovementMarker(currentItem);
+          if (marker && isFreshMarker(marker) && INTERNAL_MOVEMENT_SOURCES.has(marker.source) && markerMatchesScenePosition(marker, currentItem.position)) {
+            return;
+          }
+          state.localMarkersByTokenId.delete(key);
+          await revertUnauthorizedTokenMove(key, authoritative, message);
+        } catch (error) {
+          const normalized = normalizeError(error, "Unable to verify unauthorized movement revert.");
+          addDiagnosticEntry("warn", "Combat movement revert retry failed", normalized.message);
+        }
+      })();
+    }, delayMs));
+    state.pendingUnauthorizedRevertTimers.set(key, timers);
   }
   async function applyMoveResultToScene(result, source) {
     const nextPosition = result?.position ?? null;
@@ -12739,6 +12804,7 @@ function setupTacticalMoveTool({ runtime }) {
   }
   async function handleToolDragStart(_context, event) {
     if (!state.selectedToken || !state.selectedParticipant) return;
+    void inspectSceneObstructionCandidates("drag-start");
     const targetId = String(event?.target?.id ?? "").trim();
     const selectedTokenId = String(state.selectedToken.id ?? "").trim();
     if (!targetId || targetId !== selectedTokenId) return;
@@ -12846,6 +12912,8 @@ function setupTacticalMoveTool({ runtime }) {
         y: Number(authoritative.scene_y ?? 0) || 0
       };
       if (positionsMatch(item.position, authoritativeScene)) {
+        state.localMarkersByTokenId.delete(tokenId);
+        clearUnauthorizedRevertTimers(tokenId);
         continue;
       }
       const marker = extractMovementMarker(item);
@@ -12873,9 +12941,13 @@ function setupTacticalMoveTool({ runtime }) {
       }
       const localMarker = state.localMarkersByTokenId.get(tokenId);
       if (localMarker && isFreshMarker(localMarker)) {
-        continue;
+        if (markerMatchesScenePosition(localMarker, item.position)) {
+          continue;
+        }
+        state.localMarkersByTokenId.delete(tokenId);
       }
       await revertUnauthorizedTokenMove(tokenId, authoritative);
+      scheduleUnauthorizedRevertChecks(tokenId, authoritative, "Use combat movement during your turn.");
     }
   }
   async function handleBroadcastMessage(message) {
@@ -12952,6 +13024,7 @@ function setupTacticalMoveTool({ runtime }) {
   async function start() {
     try {
       await registerTool();
+      void inspectSceneObstructionCandidates("startup");
       unsubscribeBroadcast = await subscribeMoveToolMessages(handleBroadcastMessage);
       unsubscribeSceneItems = await subscribeSceneItems(handleSceneItemsChanged);
       unsubscribePlayer = await subscribePlayerChanges((player) => {
@@ -12963,8 +13036,13 @@ function setupTacticalMoveTool({ runtime }) {
         if (disposed) return;
         const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
         const hasSelectedCombatToken = !!selectedTokenId && state.participantsByTokenId.has(selectedTokenId);
-        if (!hasSelectedCombatToken) return;
+        const hasMultipleCombatSelection = state.selectedCombatTokenIds.size > 1;
+        if (!hasSelectedCombatToken && !hasMultipleCombatSelection) return;
         if (toolId === TACTICAL_MOVE_TOOL_ID) return;
+        if (!shouldThrottleVanillaMoveBlockNotice()) {
+          const message = hasMultipleCombatSelection ? "Multiple combat tokens cannot be dragged together during combat." : "Vanilla token dragging is disabled during combat. Use Tactical Move.";
+          void notify3(message, "WARNING");
+        }
         void ensureToolActivated("tool-reclaim").catch(() => {
         });
       });
@@ -13017,6 +13095,12 @@ function setupTacticalMoveTool({ runtime }) {
       if (state.runtimeRefreshTimer) {
         clearTimeout(state.runtimeRefreshTimer);
       }
+      for (const timers of state.pendingUnauthorizedRevertTimers.values()) {
+        for (const timerId of timers) {
+          clearTimeout(timerId);
+        }
+      }
+      state.pendingUnauthorizedRevertTimers.clear();
       await clearPreview({ reason: "dispose", silent: true });
       try {
         await lib_default.tool.removeMode(TACTICAL_MOVE_MODE_ID);

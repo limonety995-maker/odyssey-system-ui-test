@@ -4,11 +4,11 @@
   "manifest_version": 1,
   "description": "Minimal character-sheet bridge shell for future Odyssey UI slices.",
   "author": "Codex",
-  "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.60",
+  "icon": "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.60",
   "action": {
     "title": "Odyssey Character Sheet",
-    "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.60",
-    "popover": "https://limonety995-maker.github.io/odyssey-system-ui-test/character-sheet-extension/index.html?v=1.8.60",
+    "icon": "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.60",
+    "popover": "https://odyssey-services.github.io/Odyssey_System/character-sheet-extension/index.html?v=1.8.60",
     "height": 920,
     "width": 640
   }

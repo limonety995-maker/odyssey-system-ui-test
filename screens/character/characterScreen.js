@@ -235,25 +235,10 @@ export function mountCharacterScreen({ root, runtime }) {
   function buildAutoTacticalSyncKey(mode) {
     const snapshot = state.tacticalSnapshot;
     if (!snapshot?.encounterId) return "";
-    const participant = snapshot.participant ?? null;
-    const selectedToken = getSelectedTokenForLoadedCharacter();
     if (mode === "grid") {
       return `grid:${snapshot.encounterId}:${snapshot.stateVersion}`;
     }
-    if (!participant?.character_id || !selectedToken?.id) return "";
-    const participantPosition = participant.position ?? {};
-    const tokenPosition = selectedToken.position ?? {};
-    return [
-      "token",
-      snapshot.encounterId,
-      String(participant.character_id ?? "").trim(),
-      String(selectedToken.id ?? "").trim(),
-      Number(tokenPosition.x ?? 0) || 0,
-      Number(tokenPosition.y ?? 0) || 0,
-      Number(participantPosition.scene_x ?? 0) || 0,
-      Number(participantPosition.scene_y ?? 0) || 0,
-      Number(snapshot.stateVersion ?? 0) || 0,
-    ].join(":");
+    return "";
   }
 
   function maybeAutoSyncTacticalState() {
@@ -262,17 +247,15 @@ export function mountCharacterScreen({ root, runtime }) {
     if (!snapshot?.encounterId) return;
 
     const gridMissing = !snapshot.grid;
-    const mismatch = !gridMissing && getTokenPositionMismatch();
-    if (!gridMissing && !mismatch) return;
+    if (!gridMissing) return;
 
-    const mode = gridMissing ? "grid" : "token";
+    const mode = "grid";
     const syncKey = buildAutoTacticalSyncKey(mode);
     if (!syncKey || state.autoTacticalSyncInFlight === syncKey || state.lastAutoTacticalSyncKey === syncKey) {
       return;
     }
 
     state.autoTacticalSyncInFlight = syncKey;
-    const onlyCharacterId = mode === "token" ? String(state.characterId ?? "").trim() : "";
 
     void (async () => {
       try {
@@ -285,7 +268,7 @@ export function mountCharacterScreen({ root, runtime }) {
           combatApi: api.combat,
           settings: settings(),
           runtimeResponse: snapshot.runtime ?? state.sceneCombatSnapshot?.runtime ?? null,
-          onlyCharacterId,
+          onlyCharacterId: "",
         });
         if (result?.runtime?.encounter?.id) {
           state.sceneCombatSnapshot = {
@@ -1633,7 +1616,6 @@ export function mountCharacterScreen({ root, runtime }) {
     const toolStatus = state.moveToolStatus && state.moveToolStatus.characterId === state.characterId
       ? state.moveToolStatus
       : null;
-    const mismatch = getTokenPositionMismatch();
     const isCurrentTurn = !!participant.is_current_turn;
     const moveCurrent = Number(participant.move_current ?? 0) || 0;
     const moveMax = Number(participant.move_max ?? 0) || 0;
@@ -1676,7 +1658,7 @@ export function mountCharacterScreen({ root, runtime }) {
         <div class="cp-muted" style="margin-top:6px">${esc(moveHint)}</div>
         ${preview ? `<div class="cp-muted" style="margin-top:6px">Preview: ${preview.moveCostM} m, remaining ${preview.remainingMoveM} m${preview.blocked ? " - path blocked" : preview.inRange ? "" : " - too far"}</div>` : ""}
         ${toolStatus?.error ? `<div class="cp-muted" style="margin-top:6px;color:#ff9b9b">${esc(toolStatus.error)}</div>` : ""}
-        ${isGM() && autoSyncInFlight ? `<div class="cp-muted" style="margin-top:6px">Syncing token position...</div>` : ""}
+        ${isGM() && autoSyncInFlight ? `<div class="cp-muted" style="margin-top:6px">Syncing tactical grid...</div>` : ""}
       </div>
     `;
   }

@@ -83,9 +83,10 @@ function axialRound(q, r) {
 }
 
 function getSquareCellCenterAnchor(settings) {
+  const gridDpi = Number(settings?.gridDpi ?? 0) || 0;
   return {
-    x: Number(settings.anchor?.x ?? 0) || 0,
-    y: Number(settings.anchor?.y ?? 0) || 0,
+    x: (Number(settings.anchor?.x ?? 0) || 0) + gridDpi / 2,
+    y: (Number(settings.anchor?.y ?? 0) || 0) + gridDpi / 2,
   };
 }
 

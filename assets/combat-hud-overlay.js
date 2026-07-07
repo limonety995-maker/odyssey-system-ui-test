@@ -3515,10 +3515,10 @@ var OBR = {
 var lib_default = OBR;
 
 // hud/styles/combatHudTokens.css
-var combatHudTokens_default = "/*\r\n * Combat HUD \u2014 design tokens (Phase 0, palette refreshed for Phase 2).\r\n *\r\n * Semantic custom properties ONLY. No layout, no component rules \u2014 those live\r\n * in hud/components/combatHudLayout.css and hud/overlay/combatHudOverlay.css.\r\n * JavaScript must never hard-code colours; it stores semantic state names\r\n * (see hud/models/combatHudContracts.js) and the UI maps state \u2192 token here.\r\n *\r\n * Scope: variables are declared on a `.odyssey-hud` root class so the HUD's\r\n * theme cannot leak into the existing popup screens (Resolve Attack, etc.).\r\n *\r\n * The palette follows the approved Phase 2 references: a dark sci-fi MMORPG\r\n * panel \u2014 deep navy surfaces, thin blue-grey borders, bright colours reserved\r\n * for game-state accents only.\r\n */\r\n\r\n.odyssey-hud {\r\n  /* ---- Raw palette (approved Phase 2 reference) ---- */\r\n  --odyssey-bg-deep: #0e1320;\r\n  --odyssey-panel-base: #16203a;\r\n  --odyssey-panel-raised: #1a2236;\r\n  --odyssey-panel-hover: #232e47;\r\n  --odyssey-line: #3a4a66;\r\n  --odyssey-line-soft: #283448;\r\n\r\n  --odyssey-ink: #eaf0ff;\r\n  --odyssey-ink-muted: #9fb0d0;\r\n  --odyssey-ink-dim: #6b7a9c;\r\n\r\n  --odyssey-purple: #a78bfa;\r\n  --odyssey-purple-strong: #8b5cf6;\r\n  --odyssey-purple-panel: #26215c;\r\n  --odyssey-cyan: #34e1d6;\r\n  --odyssey-yellow: #ffc24b;\r\n  --odyssey-orange: #f59042;\r\n  --odyssey-red: #ff5c6c;\r\n  --odyssey-green: #4ade80;\r\n  --odyssey-steel: #aecbf0;     /* light cool blue \u2014 weapon / vehicle silhouettes */\r\n\r\n  /* ---- Semantic surfaces (names kept stable since Phase 0/1A) ---- */\r\n  --odyssey-hud-bg: rgba(14, 19, 32, 0.94);\r\n  --odyssey-hud-panel: rgba(22, 32, 58, 0.96);\r\n  --odyssey-hud-panel-raised: rgba(26, 34, 54, 0.98);\r\n  --odyssey-hud-panel-hover: #232e47;\r\n  --odyssey-hud-border: rgba(120, 142, 184, 0.30);\r\n  --odyssey-hud-border-strong: rgba(150, 172, 214, 0.55);\r\n\r\n  /* ---- Text ---- */\r\n  --odyssey-hud-text: var(--odyssey-ink);\r\n  --odyssey-hud-muted: var(--odyssey-ink-muted);\r\n  --odyssey-hud-dim: var(--odyssey-ink-dim);\r\n\r\n  /* ---- Generic valence ---- */\r\n  --odyssey-hud-positive: var(--odyssey-green);\r\n  --odyssey-hud-negative: var(--odyssey-red);\r\n  --odyssey-hud-warning: var(--odyssey-yellow);\r\n\r\n  /* ---- Action / ability semantics (spec colour language) ---- */\r\n  --odyssey-hud-attack: var(--odyssey-red);          /* red \u2014 attacking / hostile     */\r\n  --odyssey-hud-neutral: #8593b0;                    /* cool grey \u2014 defensive / util  */\r\n  --odyssey-hud-psionic: var(--odyssey-purple);      /* purple \u2014 psionics             */\r\n  --odyssey-hud-implant: var(--odyssey-cyan);        /* cyan \u2014 implants / tech        */\r\n  --odyssey-hud-intervention: var(--odyssey-yellow); /* gold \u2014 intervention           */\r\n\r\n  /* ---- State / availability ---- */\r\n  --odyssey-hud-state-active: var(--odyssey-green);\r\n  --odyssey-hud-state-unavailable: var(--odyssey-red);\r\n  --odyssey-hud-disabled: rgba(159, 176, 208, 0.22);\r\n\r\n  /* ---- Body zone condition scale (healthy \u2192 disabled) ---- */\r\n  /* healthy is a MUTED COOL tone (not green) per the spec. */\r\n  --odyssey-hud-zone-healthy: #6e7da0;\r\n  --odyssey-hud-zone-wounded: var(--odyssey-yellow);\r\n  --odyssey-hud-zone-serious: var(--odyssey-orange);\r\n  --odyssey-hud-zone-critical: var(--odyssey-red);\r\n  --odyssey-hud-zone-disabled: #39414f;\r\n  /* Combat data missing/denied (e.g. a target refresh blocked by RLS) \u2014 a\r\n   * distinct dim hatch-like grey, never the same as healthy. */\r\n  --odyssey-hud-zone-unknown: #2a3040;\r\n\r\n  /* ---- Resources ---- */\r\n  --odyssey-hud-shield: #5b9be0;\r\n  --odyssey-hud-psi: var(--odyssey-purple);\r\n  --odyssey-hud-weapon: var(--odyssey-steel);\r\n\r\n  /* ---- Elevation & geometry ---- */\r\n  --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\r\n  --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);\r\n  --odyssey-hud-radius: 14px;       /* outer panels */\r\n  --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */\r\n  --odyssey-hud-radius-chip: 9px;\r\n}\r\n";
+var combatHudTokens_default = "/*\n * Combat HUD \u2014 design tokens (Phase 0, palette refreshed for Phase 2).\n *\n * Semantic custom properties ONLY. No layout, no component rules \u2014 those live\n * in hud/components/combatHudLayout.css and hud/overlay/combatHudOverlay.css.\n * JavaScript must never hard-code colours; it stores semantic state names\n * (see hud/models/combatHudContracts.js) and the UI maps state \u2192 token here.\n *\n * Scope: variables are declared on a `.odyssey-hud` root class so the HUD's\n * theme cannot leak into the existing popup screens (Resolve Attack, etc.).\n *\n * The palette follows the approved Phase 2 references: a dark sci-fi MMORPG\n * panel \u2014 deep navy surfaces, thin blue-grey borders, bright colours reserved\n * for game-state accents only.\n */\n\n.odyssey-hud {\n  /* ---- Raw palette (approved Phase 2 reference) ---- */\n  --odyssey-bg-deep: #0e1320;\n  --odyssey-panel-base: #16203a;\n  --odyssey-panel-raised: #1a2236;\n  --odyssey-panel-hover: #232e47;\n  --odyssey-line: #3a4a66;\n  --odyssey-line-soft: #283448;\n\n  --odyssey-ink: #eaf0ff;\n  --odyssey-ink-muted: #9fb0d0;\n  --odyssey-ink-dim: #6b7a9c;\n\n  --odyssey-purple: #a78bfa;\n  --odyssey-purple-strong: #8b5cf6;\n  --odyssey-purple-panel: #26215c;\n  --odyssey-cyan: #34e1d6;\n  --odyssey-yellow: #ffc24b;\n  --odyssey-orange: #f59042;\n  --odyssey-red: #ff5c6c;\n  --odyssey-green: #4ade80;\n  --odyssey-steel: #aecbf0;     /* light cool blue \u2014 weapon / vehicle silhouettes */\n\n  /* ---- Semantic surfaces (names kept stable since Phase 0/1A) ---- */\n  --odyssey-hud-bg: rgba(14, 19, 32, 0.94);\n  --odyssey-hud-panel: rgba(22, 32, 58, 0.96);\n  --odyssey-hud-panel-raised: rgba(26, 34, 54, 0.98);\n  --odyssey-hud-panel-hover: #232e47;\n  --odyssey-hud-border: rgba(120, 142, 184, 0.30);\n  --odyssey-hud-border-strong: rgba(150, 172, 214, 0.55);\n\n  /* ---- Text ---- */\n  --odyssey-hud-text: var(--odyssey-ink);\n  --odyssey-hud-muted: var(--odyssey-ink-muted);\n  --odyssey-hud-dim: var(--odyssey-ink-dim);\n\n  /* ---- Generic valence ---- */\n  --odyssey-hud-positive: var(--odyssey-green);\n  --odyssey-hud-negative: var(--odyssey-red);\n  --odyssey-hud-warning: var(--odyssey-yellow);\n\n  /* ---- Action / ability semantics (spec colour language) ---- */\n  --odyssey-hud-attack: var(--odyssey-red);          /* red \u2014 attacking / hostile     */\n  --odyssey-hud-neutral: #8593b0;                    /* cool grey \u2014 defensive / util  */\n  --odyssey-hud-psionic: var(--odyssey-purple);      /* purple \u2014 psionics             */\n  --odyssey-hud-implant: var(--odyssey-cyan);        /* cyan \u2014 implants / tech        */\n  --odyssey-hud-intervention: var(--odyssey-yellow); /* gold \u2014 intervention           */\n\n  /* ---- State / availability ---- */\n  --odyssey-hud-state-active: var(--odyssey-green);\n  --odyssey-hud-state-unavailable: var(--odyssey-red);\n  --odyssey-hud-disabled: rgba(159, 176, 208, 0.22);\n\n  /* ---- Body zone condition scale (healthy \u2192 disabled) ---- */\n  /* healthy is a MUTED COOL tone (not green) per the spec. */\n  --odyssey-hud-zone-healthy: #6e7da0;\n  --odyssey-hud-zone-wounded: var(--odyssey-yellow);\n  --odyssey-hud-zone-serious: var(--odyssey-orange);\n  --odyssey-hud-zone-critical: var(--odyssey-red);\n  --odyssey-hud-zone-disabled: #39414f;\n  /* Combat data missing/denied (e.g. a target refresh blocked by RLS) \u2014 a\n   * distinct dim hatch-like grey, never the same as healthy. */\n  --odyssey-hud-zone-unknown: #2a3040;\n\n  /* ---- Resources ---- */\n  --odyssey-hud-shield: #5b9be0;\n  --odyssey-hud-psi: var(--odyssey-purple);\n  --odyssey-hud-weapon: var(--odyssey-steel);\n\n  /* ---- Elevation & geometry ---- */\n  --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\n  --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);\n  --odyssey-hud-radius: 14px;       /* outer panels */\n  --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */\n  --odyssey-hud-radius-chip: 9px;\n}\n";
 
 // hud/overlay/combatHudOverlay.css
-var combatHudOverlay_default = '/*\r\n * Combat HUD overlay \u2014 frame + collapsed pill (Phase 2.1).\r\n *\r\n * The popover iframe is sized tightly to the HUD by the background controller,\r\n * so the HUD fills it. NOTHING here may scroll vertically \u2014 overflow:hidden on\r\n * every level kills the native scrollbar seen in earlier builds. The only\r\n * permitted scroll is inside the expanded Battle Log list (see layout CSS).\r\n */\r\n\r\n*,\r\n*::before,\r\n*::after { box-sizing: border-box; }\r\n\r\nhtml, body {\r\n  height: 100%;\r\n  margin: 0;\r\n  overflow: hidden;            /* no native scrollbar */\r\n}\r\nbody {\r\n  background: transparent;\r\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r\n  color: var(--odyssey-hud-text, #eaf0ff);\r\n}\r\n\r\n#root { height: 100%; overflow: hidden; }\r\n\r\n/* The popover rect IS the HUD footprint; the HUD fills it. */\r\n.ohud-overlay {\r\n  height: 100%;\r\n  width: 100%;\r\n  overflow: hidden;\r\n  background: transparent;\r\n}\r\n\r\n/* ===================== Collapsed pill ===================== */\r\n.ohud-overlay.is-collapsed {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n}\r\n.ohud-pill {\r\n  display: inline-flex; align-items: center; gap: 8px;\r\n  padding: 8px 14px; cursor: pointer;\r\n  font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 1px;\r\n  color: var(--odyssey-hud-text);\r\n  background: var(--odyssey-hud-bg); border: 1px solid var(--odyssey-hud-border-strong);\r\n  border-radius: 20px; box-shadow: var(--odyssey-hud-shadow);\r\n  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);\r\n}\r\n.ohud-pill:hover { border-color: var(--odyssey-purple); }\r\n.ohud-pill .ohud-mark { color: var(--odyssey-purple); display: inline-flex; }\r\n.ohud-pill-label { line-height: 1; }\r\n';
+var combatHudOverlay_default = '/*\n * Combat HUD overlay \u2014 frame + collapsed pill (Phase 2.1).\n *\n * The popover iframe is sized tightly to the HUD by the background controller,\n * so the HUD fills it. NOTHING here may scroll vertically \u2014 overflow:hidden on\n * every level kills the native scrollbar seen in earlier builds. The only\n * permitted scroll is inside the expanded Battle Log list (see layout CSS).\n */\n\n*,\n*::before,\n*::after { box-sizing: border-box; }\n\nhtml, body {\n  height: 100%;\n  margin: 0;\n  overflow: hidden;            /* no native scrollbar */\n}\nbody {\n  background: transparent;\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\n  color: var(--odyssey-hud-text, #eaf0ff);\n}\n\n#root { height: 100%; overflow: hidden; }\n\n/* The popover rect IS the HUD footprint; the HUD fills it. */\n.ohud-overlay {\n  height: 100%;\n  width: 100%;\n  overflow: hidden;\n  background: transparent;\n}\n\n/* ===================== Collapsed pill ===================== */\n.ohud-overlay.is-collapsed {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n}\n.ohud-pill {\n  display: inline-flex; align-items: center; gap: 8px;\n  padding: 8px 14px; cursor: pointer;\n  font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 1px;\n  color: var(--odyssey-hud-text);\n  background: var(--odyssey-hud-bg); border: 1px solid var(--odyssey-hud-border-strong);\n  border-radius: 20px; box-shadow: var(--odyssey-hud-shadow);\n  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);\n}\n.ohud-pill:hover { border-color: var(--odyssey-purple); }\n.ohud-pill .ohud-mark { color: var(--odyssey-purple); display: inline-flex; }\n.ohud-pill-label { line-height: 1; }\n';
 
 // hud/components/combatHudLayout.css
 var combatHudLayout_default = `/*
@@ -4356,432 +4356,432 @@ var combatHudLayout_default = `/*
 `;
 
 // hud/components/combatHudModule.css
-var combatHudModule_default = `/*\r
- * Combat HUD \u2014 Phase 2.2 module + editor styles.\r
- *\r
- * Module mode: each block fills its own (tight) popover iframe so the map stays\r
- * clickable in the gaps between modules. Editor mode: a fullscreen arrange\r
- * surface with draggable preview cards, snap grid + alignment guides.\r
- * Scoped under .ohud-module / .ohud-editor-root. No native scrollbar (except\r
- * inside the Log list).\r
- */\r
-\r
-/* ===================== Single module (normal mode) ===================== */\r
-.ohud-module {\r
-  position: relative;\r
-  width: 100%;\r
-  height: 100%;\r
-  padding: 0;\r
-  overflow: hidden;\r
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r
-  color: var(--odyssey-hud-text);\r
-}\r
-/* The single block fills the whole module iframe. */\r
-.ohud-module > .ohud-panel,\r
-.ohud-module > .ohud-state-wrap {\r
-  width: 100%;\r
-  height: 100%;\r
-  flex: none;\r
-  margin: 0;\r
-}\r
-.ohud-module .ohud-panel--bare {\r
-  background: transparent;\r
-  border: none;\r
-  box-shadow: none;\r
-  padding: 0;\r
-}\r
-.ohud-module .ohud-panel--bare .ohud-action { height: 100%; }\r
-.ohud-module .ohud-panel--bare .ohud-action-btn { height: 100%; }\r
-.ohud-module .ohud-panel--muted { display: grid; place-items: center; opacity: 0.5; }\r
-\r
-/* Global controls live only in the Player module (top-right). */\r
-.ohud-module-controls {\r
-  position: absolute; top: 4px; right: 4px; z-index: 5;\r
-  display: flex; gap: 4px;\r
-}\r
-\r
-/* Compact per-module error fallback (production-safe). */\r
-.ohud-moderr {\r
-  width: 100%; height: 100%;\r
-  display: flex; flex-direction: column; gap: 4px; justify-content: center; align-items: center;\r
-  text-align: center; padding: 8px;\r
-  border-color: var(--odyssey-hud-negative);\r
-}\r
-.ohud-moderr-title { font-size: 11px; font-weight: 800; color: var(--odyssey-hud-negative); }\r
-.ohud-moderr-detail {\r
-  font-size: 9px; line-height: 1.3; color: var(--odyssey-hud-muted);\r
-  max-height: 60%; overflow: auto; white-space: pre-wrap; word-break: break-word;\r
-}\r
-\r
-/* Dev-only diagnostic badge (?debug=1). Tiny, corner, never in production. */\r
-.ohud-module-debug {\r
-  position: absolute; left: 2px; bottom: 2px; z-index: 6; pointer-events: none;\r
-  font-size: 8px; font-weight: 700; letter-spacing: 0.3px;\r
-  color: var(--odyssey-cyan); background: rgba(8, 12, 22, 0.7);\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 4px; padding: 0 4px;\r
-}\r
-\r
-/* Log scroll allowed only inside its own list. */\r
-.ohud-module[data-module="log"] .ohud-log-panel { width: 100%; height: 100%; max-height: none; }\r
-\r
-/* --- Per-module visual scale-ups (modules are larger than the 2.1 rail) --- */\r
-/* Player (250\xD7250): prominent silhouette + readable stats. */\r
-.ohud-module[data-module="player"] .ohud-player-grid { grid-template-columns: 96px 1fr; gap: 12px; }\r
-.ohud-module[data-module="player"] .ohud-figure { width: 96px; }\r
-/* Priority UI Fix \u2014 Universal Responsive HUD Scaling (typography floor):\r
- * character name, PSI/Shield value, and MAIN/MOVE are critical tokens that\r
- * must stay readable no matter how small the module gets \u2014 see the\r
- * --ohud-critical-text-ratio comment above .ohud-cc-abtn for the mechanism.\r
- * .ohud-res-label ("SHIELD"/"PSI" captions) and .ohud-res-track height are\r
- * deliberately left alone \u2014 decorative/secondary, shrinks with everything\r
- * else via the outer module transform (per spec: reduce secondary first). */\r
-.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(16px * var(--ohud-critical-text-ratio, 1)); }\r
-.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); }\r
-.ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }\r
-.ohud-module[data-module="player"] .ohud-res-track { height: 8px; }\r
-.ohud-module[data-module="player"] .ohud-pip { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }\r
-.ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }\r
-\r
-/* Skills (600\xD7165): centred content, larger tiles, wrap past one row. This\r
- * centering is for the LEGACY category-grouped view (.ohud-skill-groups,\r
- * mock/Phase-2 fallback when no quickbar runtime is present). */\r
-.ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }\r
-.ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }\r
-.ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }\r
-/* Phase 4.0e/4.0i: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE\r
- * horizontal behaviour \u2014 full width (so 10 slots can divide it evenly) \u2014 while\r
- * still agreeing with the legacy view on vertical centering. Scoped narrowly\r
- * so it never touches the legacy category view above. */\r
-.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: center; align-items: stretch; }\r
-.ohud-module .ohud-gun { position: relative; }\r
-\r
-/* ---------- Combat Control composite (330\xD7165, reworked Phase 4.0f) ---------- */\r
-/* Outer panel carries the frame; the grid fills it edge-to-edge.\r
- *   \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\r
- *   \u2502 Target       \u2502 AUTO / ARMED \u2502   \u2190 .ohud-cc-top (two columns)\r
- *   \u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\r
- *   \u2502  ATTACK      \u2502   END TURN   \u2502   \u2190 .ohud-cc-actionbar (full width, always)\r
- *   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\r
- * Dead zone-chip-grid CSS from an earlier Target design (no JS renders\r
- * .ohud-zone-chip anymore \u2014 TargetBlock.js uses the clickable humanoid SVG)\r
- * was removed here; it was silently shadowing the real .ohud-target-clear/\r
- * .ohud-target-pick rules now owned by combatHudLayout.css. */\r
-.ohud-panel--cc { padding: 0; gap: 0; overflow: hidden; }\r
-.ohud-cc { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }\r
-.ohud-cc-top { display: grid; grid-template-columns: 1fr 1fr; flex: 1 1 auto; min-height: 0; }\r
-.ohud-cc-target { min-width: 0; min-height: 0; border-right: 1px solid var(--odyssey-hud-border); padding: 6px 7px; }\r
-.ohud-cc-mod { min-width: 0; min-height: 0; padding: 6px 7px; display: flex; flex-direction: column; gap: 5px; overflow: hidden; }\r
-/* Inner Target panel is seamless \u2014 the outer .ohud-panel--cc owns the frame. */\r
-.ohud-cc-target .ohud-panel { background: transparent; border: none; box-shadow: none; border-radius: 0; width: 100%; height: 100%; padding: 0; }\r
-\r
-/* Target column: a slightly shorter silhouette than the old column layout\r
- * needs, since it now shares its row with the text column instead of sitting\r
- * above it. Selected-target silhouette is 1.25x this base size (57.5x97.5 \u2014\r
- * see the rule below); the crosshair placeholder in the EMPTY Target Area\r
- * uses a completely different class (.ohud-target-crosshair) and is\r
- * unaffected by either of these. */\r
-.ohud-cc-target .ohud-figure { width: 46px; height: 78px; }\r
-\r
-/* Selected-target silhouette only (.ohud-figure--targetable never renders in\r
- * the empty/picking states \u2014 see TargetBlock.js). Sized via width/height, NOT\r
- * transform:scale(): scale() wouldn't reflow the flex row layout (the figure\r
- * would keep its OLD box for sibling positioning while visually overflowing\r
- * into the name/zone/Clear text column) and would also scale stroke widths\r
- * unevenly. width/height instead make the figure ACTUALLY occupy more layout\r
- * space, so the meta column reflows to make room \u2014 the required "no overlap"\r
- * behavior falls out of normal flex layout instead of needing extra rules. */\r
-.ohud-cc-target .ohud-figure--targetable { width: 57.5px; height: 97.5px; }\r
-\r
-/* Full-width action bar: two equal buttons, thin divider between them. */\r
-.ohud-cc-actionbar {\r
-  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; height: 34px;\r
-  border-top: 1px solid var(--odyssey-hud-border);\r
-}\r
-\r
-.ohud-gun-caret,\r
-.ohud-ammo-reload,\r
-.ohud-weapon-option,\r
-.ohud-reserve-mag,\r
-.ohud-slot {\r
-  font: inherit;\r
-  cursor: pointer;\r
-}\r
-.ohud-gun-caret,\r
-.ohud-ammo-reload {\r
-  border: 0; background: transparent; color: inherit; padding: 0;\r
-}\r
-.ohud-gun-caret { transition: transform 120ms ease; }\r
-.ohud-ammo-reload:disabled { cursor: not-allowed; opacity: 0.45; }\r
-.ohud-weapon-list {\r
-  display: grid; gap: 3px; align-content: start;\r
-  overflow-y: auto; overflow-x: hidden;\r
-}\r
-.ohud-weapon-option {\r
-  display: grid; grid-template-columns: 1fr auto auto; gap: 4px; align-items: center;\r
-  min-width: 0; height: 18px; padding: 1px 5px;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;\r
-  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);\r
-  font-size: 8px; text-align: left;\r
-}\r
-.ohud-weapon-option.is-selected { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }\r
-.ohud-weapon-option-name,\r
-.ohud-weapon-option-type {\r
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r
-}\r
-.ohud-weapon-option-type,\r
-.ohud-weapon-option-ammo { color: var(--odyssey-hud-muted); font-size: 7.5px; }\r
-/* Spare-magazine companion popover: a flowing, full-width row list SIZED TO\r
- * CONTENT by the controller (see hudPopoverLifecycle.computeCompanionSelectorHeight)\r
- * \u2014 this list must NEVER be absolutely positioned to a corner (that was the bug:\r
- * rows collapsed into an illegible 76px pill stack inside a large empty popover). */\r
-/* The fire-mode companion popover (Fire Mode v1) shares this exact row\r
- * language \u2014 same content-sized-popover contract, same full-width row shape. */\r
-.ohud-reserve-list,\r
-.ohud-firemode-list {\r
-  display: flex; flex-direction: column; gap: 4px;\r
-  max-height: 220px;\r
-  overflow-y: auto; overflow-x: hidden;\r
-}\r
-.ohud-reserve-list.is-loading,\r
-.ohud-reserve-list.is-empty,\r
-.ohud-firemode-list.is-loading,\r
-.ohud-firemode-list.is-empty {\r
-  display: flex; align-items: center; justify-content: center;\r
-  min-height: 18px; color: var(--odyssey-hud-muted); font-size: 9px; text-align: center;\r
-}\r
-.ohud-reserve-mag,\r
-.ohud-firemode-option {\r
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;\r
-  width: 100%; height: 22px; flex: 0 0 auto; padding: 0 8px;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;\r
-  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);\r
-  font-size: 9px; white-space: nowrap;\r
-}\r
-.ohud-reserve-mag-label,\r
-.ohud-firemode-option-name {\r
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;\r
-}\r
-.ohud-reserve-mag-rounds,\r
-.ohud-firemode-option-code {\r
-  flex: 0 0 auto; font-variant-numeric: tabular-nums; font-family: "SFMono-Regular", Consolas, monospace;\r
-  color: var(--odyssey-hud-muted);\r
-}\r
-.ohud-reserve-mag.is-selected,\r
-.ohud-firemode-option.is-selected {\r
-  border-color: var(--odyssey-cyan);\r
-  background: rgba(80, 220, 255, 0.1);\r
-}\r
-.ohud-reserve-mag.is-selected .ohud-reserve-mag-rounds,\r
-.ohud-firemode-option.is-selected .ohud-firemode-option-code { color: var(--odyssey-cyan); }\r
-.ohud-reserve-mag:hover,\r
-.ohud-reserve-mag:focus-visible,\r
-.ohud-firemode-option:hover,\r
-.ohud-firemode-option:focus-visible,\r
-.ohud-weapon-option:hover { border-color: var(--odyssey-purple); }\r
-.ohud-reserve-mag:focus-visible,\r
-.ohud-firemode-option:focus-visible { outline: none; }\r
-\r
-.ohud-mag-selector-btn {\r
-  position: absolute; right: 6px; top: 6px;\r
-  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;\r
-  background: rgba(255,255,255,0.03); color: var(--odyssey-hud-text);\r
-  cursor: pointer;\r
-}\r
-.ohud-mag-selector-btn:hover { border-color: var(--odyssey-cyan); }\r
-\r
-/* Debug Log companion popover (Phase 3D.1, ?debug=1 only). */\r
-.ohud-debuglog-clear {\r
-  font-size: 8px; font-weight: 700; padding: 1px 6px;\r
-  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;\r
-  background: transparent; color: var(--odyssey-hud-muted); cursor: pointer;\r
-}\r
-.ohud-debuglog-clear:hover { border-color: var(--odyssey-red, #e74c3c); color: var(--odyssey-hud-text); }\r
-.ohud-debuglog-list {\r
-  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;\r
-  overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;\r
-}\r
-.ohud-debuglog-row {\r
-  display: flex; gap: 5px; align-items: baseline; font-size: 8.5px; line-height: 1.3;\r
-  padding: 1px 3px; border-radius: 4px; background: rgba(10, 16, 31, 0.5);\r
-}\r
-.ohud-debuglog-row.is-fail { background: rgba(231, 76, 60, 0.12); }\r
-.ohud-debuglog-time { color: var(--odyssey-hud-dim); flex: 0 0 auto; font-variant-numeric: tabular-nums; }\r
-.ohud-debuglog-cat { color: var(--odyssey-cyan); font-weight: 700; flex: 0 0 auto; }\r
-.ohud-debuglog-action { color: var(--odyssey-hud-text); flex: 0 0 auto; }\r
-.ohud-debuglog-details {\r
-  color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;\r
-}\r
-.ohud-debuglog-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }\r
-\r
-/* Modifiers \u2014 two mini-sections (AUTO, ARMED) instead of one flat chip wall.\r
- * AUTO = passive + narrative (armor/weapon/implant/passive ability/status/GM\r
- * effect) \u2014 server-applied, never toggleable here. ARMED = active (attack\r
- * modifiers already prepared for the next attack) \u2014 display-only in Phase\r
- * 4.0f; no selector, no validation, no spend logic lives here yet. */\r
-.ohud-cc-mod .ohud-panel-head { min-height: 10px; flex: 0 0 auto; }\r
-.ohud-cc-modsec { display: flex; flex-direction: column; gap: 2px; min-height: 0; }\r
-.ohud-cc-modsec-head { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }\r
-.ohud-cc-modsec[data-modifier-state="empty"] .ohud-cc-modsec-head { opacity: 0.65; }\r
-.ohud-cc-modsec-empty { font-size: 8.5px; color: var(--odyssey-hud-dim); }\r
-.ohud-cc-modsec-chips { display: flex; gap: 3px; flex-wrap: nowrap; overflow: hidden; }\r
-.ohud-cc-modsec-chips .ohud-mod { flex: 1 1 0; min-width: 0; height: auto; min-height: 16px; font-size: 8.5px; padding: 1px 5px; }\r
-.ohud-cc-modsec-chips .ohud-mod--more { flex: 0 0 auto; justify-content: center; }\r
-\r
-/* Full-width action bar \u2014 ATTACK (primary, cyan) | END TURN (secondary, amber).\r
- * Equal width via the 1fr/1fr grid on .ohud-cc-actionbar; a 1px divider (the\r
- * attack button's own right border) separates them. Disabled state dims via\r
- * opacity only \u2014 it must keep its hue, never turn generic/grayscale, since\r
- * End Turn is a normal tactical action, not an error state. */\r
-/* Priority UI Fix \u2014 Universal Responsive HUD Scaling: typography floor.\r
- *\r
- * CombatHudModule.js's outer transform:scale(layoutScale) (see hudLayout.js's\r
- * computeLayoutScale) shrinks EVERYTHING uniformly, text included \u2014 below a\r
- * certain viewport this makes critical labels (ATTACK/END TURN, character/\r
- * weapon/target name, PSI/ammo values, armed technique name, combat log,\r
- * status toast) render as unreadable microtext. Those specific selectors\r
- * (listed in the module-level comment blocks near each one) use\r
- * \`font-size: calc(<canonicalPx> * var(--ohud-critical-text-ratio, 1))\`.\r
- *\r
- * mountCombatHudModule (CombatHudModule.js) sets --ohud-critical-text-ratio\r
- * on the module root to \`Math.min(3, Math.max(1, 1/layoutScale))\`:\r
- *   - layoutScale >= 1 (viewport at/above the 1920x1080 reference): ratio=1,\r
- *     i.e. these tokens behave exactly as before \u2014 they grow with the rest\r
- *     of the HUD at large scale, same as any other element.\r
- *   - layoutScale < 1 (smaller viewport): ratio = 1/layoutScale, which\r
- *     exactly cancels the ancestor transform for THESE elements only \u2014\r
- *     their pre-transform font-size grows just enough that the ON-SCREEN\r
- *     result never drops below today's already-shipped canonical px size.\r
- *     Capped at 3x pre-transform growth as a safety valve for pathologically\r
- *     tiny windows (see hud/overlay/hudLayout.js's HUD_SAFE_VIEWPORT_PADDING\r
- *     comment for the same "no real SDK-given need for more" reasoning).\r
- *\r
- * Everything else (icons, artwork, secondary/decorative text, gaps,\r
- * padding) is untouched and keeps shrinking with layoutScale \u2014 this is what\r
- * "reduce secondary text first" means in practice: critical tokens freeze,\r
- * everything around them keeps scaling down.\r
- *\r
- * This is a FONT-SIZE change, not a nested transform \u2014 increasing font-size\r
- * is a real layout property, so flex/inline-box ancestors naturally reflow\r
- * (grow) to fit it, instead of a transform's non-reflowing visual overlap.\r
- * Any element whose parent had a FIXED px height tall enough to clip a\r
- * modestly larger critical font (e.g. the ARMED chip) has that fixed height\r
- * relaxed to auto/min-height alongside its own critical-text rule \u2014 see the\r
- * comment next to .ohud-mod--armed in combatHudLayout.css. .ohud-cc-abtn's\r
- * own parent (.ohud-cc-actionbar) is already 34px tall \u2014 comfortably enough\r
- * room for the ratio's realistic range at any of the 8 required viewports.\r
- */\r
-.ohud-cc-abtn {\r
-  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;\r
-  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;\r
-  border: none; cursor: pointer;\r
-}\r
-.ohud-cc-abtn--attack {\r
-  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac); color: #052421;\r
-  border-right: 1px solid var(--odyssey-hud-border);\r
-}\r
-.ohud-cc-abtn--attack:hover:not(.is-disabled) { filter: brightness(1.08); }\r
-.ohud-cc-abtn--attack.is-disabled { opacity: 0.42; cursor: not-allowed; }\r
-.ohud-cc-abtn--endturn { background: rgba(255, 194, 75, 0.18); color: var(--odyssey-hud-warning); }\r
-.ohud-cc-abtn--endturn:hover:not(.is-disabled) { background: rgba(255, 194, 75, 0.3); }\r
-.ohud-cc-abtn--endturn.is-disabled { opacity: 0.42; cursor: not-allowed; }\r
-\r
-/* ===================== Phase 3A - scene-selection binding ===================== */\r
-/* Ready identity card (Player module) - shows REAL bound character only. */\r
-.ohud-bind {\r
-  width: 100%; height: 100%;\r
-  display: flex; flex-direction: column; gap: 5px;\r
-  padding: 10px 12px; justify-content: center;\r
-}\r
-.ohud-bind-badge {\r
-  align-self: flex-start;\r
-  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;\r
-  padding: 2px 7px; border-radius: 6px;\r
-  border: 1px solid var(--odyssey-hud-border-strong); color: var(--odyssey-hud-muted);\r
-}\r
-.ohud-bind-badge--gm { color: #fff; background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); }\r
-.ohud-bind-badge--owned { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }\r
-.ohud-bind-name {\r
-  font-size: 16px; font-weight: 800; color: var(--odyssey-hud-text);\r
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\r
-}\r
-.ohud-bind-status { font-size: 10px; color: var(--odyssey-hud-muted); }\r
-.ohud-bind-owner { font-size: 9px; color: var(--odyssey-hud-muted); opacity: 0.8; }\r
-\r
-/* Neutral, clearly-labeled fallback for ready-only modules until their runtime\r
- * mapping lands (never fabricated gameplay data). */\r
-.ohud-bind-fallback {\r
-  width: 100%; height: 100%;\r
-  display: flex; flex-direction: column; gap: 3px;\r
-  align-items: center; justify-content: center; text-align: center; padding: 8px;\r
-}\r
-.ohud-bind-fallback-label { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); }\r
-.ohud-bind-fallback-hint { font-size: 8.5px; color: var(--odyssey-hud-muted); opacity: 0.7; }\r
-\r
-/* Dev-only (?debug=1) error detail under a Player prompt. */\r
-.ohud-bind-dev { font-size: 8px; color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }\r
-\r
-/* ===================== Arrange-HUD editor ===================== */\r
-.ohud-editor-root {\r
-  position: fixed; inset: 0; z-index: 100;\r
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r
-}\r
-.ohud-editor {\r
-  position: absolute; inset: 0;\r
-  background: rgba(8, 12, 22, 0.86);\r
-  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);\r
-}\r
-/* Toolbar floats OVER the canvas so the canvas spans the full viewport and the\r
- * preview cards sit exactly where the real module popovers will. */\r
-.ohud-editor-toolbar {\r
-  position: absolute; top: 0; left: 0; right: 0; z-index: 400;\r
-  display: flex; align-items: center; gap: 12px;\r
-  padding: 8px 14px; background: var(--odyssey-hud-panel);\r
-  border-bottom: 1px solid var(--odyssey-hud-border-strong);\r
-}\r
-.ohud-editor-title { font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--odyssey-hud-text); }\r
-.ohud-editor-hint { font-size: 11px; color: var(--odyssey-hud-muted); }\r
-.ohud-editor-actions { margin-left: auto; display: flex; gap: 8px; }\r
-.ohud-editor-btn {\r
-  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;\r
-  padding: 5px 12px; border-radius: 8px;\r
-  border: 1px solid var(--odyssey-hud-border-strong);\r
-  background: var(--odyssey-panel-base); color: var(--odyssey-hud-text);\r
-}\r
-.ohud-editor-btn:hover { border-color: var(--odyssey-purple); }\r
-.ohud-editor-btn.is-primary { background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); color: #fff; }\r
-\r
-.ohud-editor-canvas {\r
-  position: absolute; inset: 0; overflow: hidden;\r
-  background-image:\r
-    repeating-linear-gradient(0deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px),\r
-    repeating-linear-gradient(90deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px);\r
-}\r
-.ohud-guide { position: absolute; background: var(--odyssey-cyan); opacity: 0.7; pointer-events: none; z-index: 200; }\r
-.ohud-guide--v { top: 0; bottom: 0; width: 1px; }\r
-.ohud-guide--h { left: 0; right: 0; height: 1px; }\r
-\r
-.ohud-card {\r
-  position: absolute; overflow: hidden;\r
-  border: 1px solid var(--odyssey-hud-border-strong);\r
-  border-radius: var(--odyssey-hud-radius);\r
-  box-shadow: var(--odyssey-hud-shadow);\r
-  display: flex; flex-direction: column;\r
-}\r
-.ohud-card.is-dragging { z-index: 300 !important; box-shadow: 0 0 0 2px var(--odyssey-cyan), var(--odyssey-hud-shadow); }\r
-.ohud-card-bar {\r
-  flex: 0 0 18px; display: flex; align-items: center; gap: 5px;\r
-  padding: 0 6px; cursor: grab; touch-action: none;\r
-  background: var(--odyssey-panel-base); border-bottom: 1px solid var(--odyssey-hud-border);\r
-}\r
-.ohud-card.is-dragging .ohud-card-bar { cursor: grabbing; }\r
-.ohud-card-grip { display: inline-flex; color: var(--odyssey-hud-muted); }\r
-.ohud-card-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); }\r
-.ohud-card-body { position: relative; flex: 1 1 auto; min-height: 0; pointer-events: none; }\r
-.ohud-card-body > .ohud-panel { width: 100%; height: 100%; flex: none; }\r
-.ohud-card-body .ohud-panel--bare { background: transparent; border: none; box-shadow: none; }\r
-.ohud-card-body .ohud-panel--bare .ohud-action,\r
-.ohud-card-body .ohud-panel--bare .ohud-action-btn { height: 100%; }\r
+var combatHudModule_default = `/*
+ * Combat HUD \u2014 Phase 2.2 module + editor styles.
+ *
+ * Module mode: each block fills its own (tight) popover iframe so the map stays
+ * clickable in the gaps between modules. Editor mode: a fullscreen arrange
+ * surface with draggable preview cards, snap grid + alignment guides.
+ * Scoped under .ohud-module / .ohud-editor-root. No native scrollbar (except
+ * inside the Log list).
+ */
+
+/* ===================== Single module (normal mode) ===================== */
+.ohud-module {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--odyssey-hud-text);
+}
+/* The single block fills the whole module iframe. */
+.ohud-module > .ohud-panel,
+.ohud-module > .ohud-state-wrap {
+  width: 100%;
+  height: 100%;
+  flex: none;
+  margin: 0;
+}
+.ohud-module .ohud-panel--bare {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+.ohud-module .ohud-panel--bare .ohud-action { height: 100%; }
+.ohud-module .ohud-panel--bare .ohud-action-btn { height: 100%; }
+.ohud-module .ohud-panel--muted { display: grid; place-items: center; opacity: 0.5; }
+
+/* Global controls live only in the Player module (top-right). */
+.ohud-module-controls {
+  position: absolute; top: 4px; right: 4px; z-index: 5;
+  display: flex; gap: 4px;
+}
+
+/* Compact per-module error fallback (production-safe). */
+.ohud-moderr {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 4px; justify-content: center; align-items: center;
+  text-align: center; padding: 8px;
+  border-color: var(--odyssey-hud-negative);
+}
+.ohud-moderr-title { font-size: 11px; font-weight: 800; color: var(--odyssey-hud-negative); }
+.ohud-moderr-detail {
+  font-size: 9px; line-height: 1.3; color: var(--odyssey-hud-muted);
+  max-height: 60%; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+
+/* Dev-only diagnostic badge (?debug=1). Tiny, corner, never in production. */
+.ohud-module-debug {
+  position: absolute; left: 2px; bottom: 2px; z-index: 6; pointer-events: none;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.3px;
+  color: var(--odyssey-cyan); background: rgba(8, 12, 22, 0.7);
+  border: 1px solid var(--odyssey-hud-border); border-radius: 4px; padding: 0 4px;
+}
+
+/* Log scroll allowed only inside its own list. */
+.ohud-module[data-module="log"] .ohud-log-panel { width: 100%; height: 100%; max-height: none; }
+
+/* --- Per-module visual scale-ups (modules are larger than the 2.1 rail) --- */
+/* Player (250\xD7250): prominent silhouette + readable stats. */
+.ohud-module[data-module="player"] .ohud-player-grid { grid-template-columns: 96px 1fr; gap: 12px; }
+.ohud-module[data-module="player"] .ohud-figure { width: 96px; }
+/* Priority UI Fix \u2014 Universal Responsive HUD Scaling (typography floor):
+ * character name, PSI/Shield value, and MAIN/MOVE are critical tokens that
+ * must stay readable no matter how small the module gets \u2014 see the
+ * --ohud-critical-text-ratio comment above .ohud-cc-abtn for the mechanism.
+ * .ohud-res-label ("SHIELD"/"PSI" captions) and .ohud-res-track height are
+ * deliberately left alone \u2014 decorative/secondary, shrinks with everything
+ * else via the outer module transform (per spec: reduce secondary first). */
+.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(16px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }
+.ohud-module[data-module="player"] .ohud-res-track { height: 8px; }
+.ohud-module[data-module="player"] .ohud-pip { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }
+.ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }
+
+/* Skills (600\xD7165): centred content, larger tiles, wrap past one row. This
+ * centering is for the LEGACY category-grouped view (.ohud-skill-groups,
+ * mock/Phase-2 fallback when no quickbar runtime is present). */
+.ohud-module[data-module="skills"] .ohud-panel-body { justify-content: center; align-items: center; }
+.ohud-module[data-module="skills"] .ohud-skill-groups { align-items: center; justify-content: center; height: auto; gap: 18px; flex-wrap: wrap; }
+.ohud-module[data-module="skills"] .ohud-slot { width: 56px; height: 56px; }
+/* Phase 4.0e/4.0i: the real quickbar strip (.ohud-qb-wrap) needs the OPPOSITE
+ * horizontal behaviour \u2014 full width (so 10 slots can divide it evenly) \u2014 while
+ * still agreeing with the legacy view on vertical centering. Scoped narrowly
+ * so it never touches the legacy category view above. */
+.ohud-module[data-module="skills"] .ohud-panel-body:has(.ohud-qb-wrap) { justify-content: center; align-items: stretch; }
+.ohud-module .ohud-gun { position: relative; }
+
+/* ---------- Combat Control composite (330\xD7165, reworked Phase 4.0f) ---------- */
+/* Outer panel carries the frame; the grid fills it edge-to-edge.
+ *   \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+ *   \u2502 Target       \u2502 AUTO / ARMED \u2502   \u2190 .ohud-cc-top (two columns)
+ *   \u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
+ *   \u2502  ATTACK      \u2502   END TURN   \u2502   \u2190 .ohud-cc-actionbar (full width, always)
+ *   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+ * Dead zone-chip-grid CSS from an earlier Target design (no JS renders
+ * .ohud-zone-chip anymore \u2014 TargetBlock.js uses the clickable humanoid SVG)
+ * was removed here; it was silently shadowing the real .ohud-target-clear/
+ * .ohud-target-pick rules now owned by combatHudLayout.css. */
+.ohud-panel--cc { padding: 0; gap: 0; overflow: hidden; }
+.ohud-cc { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
+.ohud-cc-top { display: grid; grid-template-columns: 1fr 1fr; flex: 1 1 auto; min-height: 0; }
+.ohud-cc-target { min-width: 0; min-height: 0; border-right: 1px solid var(--odyssey-hud-border); padding: 6px 7px; }
+.ohud-cc-mod { min-width: 0; min-height: 0; padding: 6px 7px; display: flex; flex-direction: column; gap: 5px; overflow: hidden; }
+/* Inner Target panel is seamless \u2014 the outer .ohud-panel--cc owns the frame. */
+.ohud-cc-target .ohud-panel { background: transparent; border: none; box-shadow: none; border-radius: 0; width: 100%; height: 100%; padding: 0; }
+
+/* Target column: a slightly shorter silhouette than the old column layout
+ * needs, since it now shares its row with the text column instead of sitting
+ * above it. Selected-target silhouette is 1.25x this base size (57.5x97.5 \u2014
+ * see the rule below); the crosshair placeholder in the EMPTY Target Area
+ * uses a completely different class (.ohud-target-crosshair) and is
+ * unaffected by either of these. */
+.ohud-cc-target .ohud-figure { width: 46px; height: 78px; }
+
+/* Selected-target silhouette only (.ohud-figure--targetable never renders in
+ * the empty/picking states \u2014 see TargetBlock.js). Sized via width/height, NOT
+ * transform:scale(): scale() wouldn't reflow the flex row layout (the figure
+ * would keep its OLD box for sibling positioning while visually overflowing
+ * into the name/zone/Clear text column) and would also scale stroke widths
+ * unevenly. width/height instead make the figure ACTUALLY occupy more layout
+ * space, so the meta column reflows to make room \u2014 the required "no overlap"
+ * behavior falls out of normal flex layout instead of needing extra rules. */
+.ohud-cc-target .ohud-figure--targetable { width: 57.5px; height: 97.5px; }
+
+/* Full-width action bar: two equal buttons, thin divider between them. */
+.ohud-cc-actionbar {
+  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; height: 34px;
+  border-top: 1px solid var(--odyssey-hud-border);
+}
+
+.ohud-gun-caret,
+.ohud-ammo-reload,
+.ohud-weapon-option,
+.ohud-reserve-mag,
+.ohud-slot {
+  font: inherit;
+  cursor: pointer;
+}
+.ohud-gun-caret,
+.ohud-ammo-reload {
+  border: 0; background: transparent; color: inherit; padding: 0;
+}
+.ohud-gun-caret { transition: transform 120ms ease; }
+.ohud-ammo-reload:disabled { cursor: not-allowed; opacity: 0.45; }
+.ohud-weapon-list {
+  display: grid; gap: 3px; align-content: start;
+  overflow-y: auto; overflow-x: hidden;
+}
+.ohud-weapon-option {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 4px; align-items: center;
+  min-width: 0; height: 18px; padding: 1px 5px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
+  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
+  font-size: 8px; text-align: left;
+}
+.ohud-weapon-option.is-selected { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }
+.ohud-weapon-option-name,
+.ohud-weapon-option-type {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-weapon-option-type,
+.ohud-weapon-option-ammo { color: var(--odyssey-hud-muted); font-size: 7.5px; }
+/* Spare-magazine companion popover: a flowing, full-width row list SIZED TO
+ * CONTENT by the controller (see hudPopoverLifecycle.computeCompanionSelectorHeight)
+ * \u2014 this list must NEVER be absolutely positioned to a corner (that was the bug:
+ * rows collapsed into an illegible 76px pill stack inside a large empty popover). */
+/* The fire-mode companion popover (Fire Mode v1) shares this exact row
+ * language \u2014 same content-sized-popover contract, same full-width row shape. */
+.ohud-reserve-list,
+.ohud-firemode-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 220px;
+  overflow-y: auto; overflow-x: hidden;
+}
+.ohud-reserve-list.is-loading,
+.ohud-reserve-list.is-empty,
+.ohud-firemode-list.is-loading,
+.ohud-firemode-list.is-empty {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 18px; color: var(--odyssey-hud-muted); font-size: 9px; text-align: center;
+}
+.ohud-reserve-mag,
+.ohud-firemode-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; height: 22px; flex: 0 0 auto; padding: 0 8px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
+  background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
+  font-size: 9px; white-space: nowrap;
+}
+.ohud-reserve-mag-label,
+.ohud-firemode-option-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ohud-reserve-mag-rounds,
+.ohud-firemode-option-code {
+  flex: 0 0 auto; font-variant-numeric: tabular-nums; font-family: "SFMono-Regular", Consolas, monospace;
+  color: var(--odyssey-hud-muted);
+}
+.ohud-reserve-mag.is-selected,
+.ohud-firemode-option.is-selected {
+  border-color: var(--odyssey-cyan);
+  background: rgba(80, 220, 255, 0.1);
+}
+.ohud-reserve-mag.is-selected .ohud-reserve-mag-rounds,
+.ohud-firemode-option.is-selected .ohud-firemode-option-code { color: var(--odyssey-cyan); }
+.ohud-reserve-mag:hover,
+.ohud-reserve-mag:focus-visible,
+.ohud-firemode-option:hover,
+.ohud-firemode-option:focus-visible,
+.ohud-weapon-option:hover { border-color: var(--odyssey-purple); }
+.ohud-reserve-mag:focus-visible,
+.ohud-firemode-option:focus-visible { outline: none; }
+
+.ohud-mag-selector-btn {
+  position: absolute; right: 6px; top: 6px;
+  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: rgba(255,255,255,0.03); color: var(--odyssey-hud-text);
+  cursor: pointer;
+}
+.ohud-mag-selector-btn:hover { border-color: var(--odyssey-cyan); }
+
+/* Debug Log companion popover (Phase 3D.1, ?debug=1 only). */
+.ohud-debuglog-clear {
+  font-size: 8px; font-weight: 700; padding: 1px 6px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: transparent; color: var(--odyssey-hud-muted); cursor: pointer;
+}
+.ohud-debuglog-clear:hover { border-color: var(--odyssey-red, #e74c3c); color: var(--odyssey-hud-text); }
+.ohud-debuglog-list {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;
+}
+.ohud-debuglog-row {
+  display: flex; gap: 5px; align-items: baseline; font-size: 8.5px; line-height: 1.3;
+  padding: 1px 3px; border-radius: 4px; background: rgba(10, 16, 31, 0.5);
+}
+.ohud-debuglog-row.is-fail { background: rgba(231, 76, 60, 0.12); }
+.ohud-debuglog-time { color: var(--odyssey-hud-dim); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.ohud-debuglog-cat { color: var(--odyssey-cyan); font-weight: 700; flex: 0 0 auto; }
+.ohud-debuglog-action { color: var(--odyssey-hud-text); flex: 0 0 auto; }
+.ohud-debuglog-details {
+  color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ohud-debuglog-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }
+
+/* Modifiers \u2014 two mini-sections (AUTO, ARMED) instead of one flat chip wall.
+ * AUTO = passive + narrative (armor/weapon/implant/passive ability/status/GM
+ * effect) \u2014 server-applied, never toggleable here. ARMED = active (attack
+ * modifiers already prepared for the next attack) \u2014 display-only in Phase
+ * 4.0f; no selector, no validation, no spend logic lives here yet. */
+.ohud-cc-mod .ohud-panel-head { min-height: 10px; flex: 0 0 auto; }
+.ohud-cc-modsec { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.ohud-cc-modsec-head { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }
+.ohud-cc-modsec[data-modifier-state="empty"] .ohud-cc-modsec-head { opacity: 0.65; }
+.ohud-cc-modsec-empty { font-size: 8.5px; color: var(--odyssey-hud-dim); }
+.ohud-cc-modsec-chips { display: flex; gap: 3px; flex-wrap: nowrap; overflow: hidden; }
+.ohud-cc-modsec-chips .ohud-mod { flex: 1 1 0; min-width: 0; height: auto; min-height: 16px; font-size: 8.5px; padding: 1px 5px; }
+.ohud-cc-modsec-chips .ohud-mod--more { flex: 0 0 auto; justify-content: center; }
+
+/* Full-width action bar \u2014 ATTACK (primary, cyan) | END TURN (secondary, amber).
+ * Equal width via the 1fr/1fr grid on .ohud-cc-actionbar; a 1px divider (the
+ * attack button's own right border) separates them. Disabled state dims via
+ * opacity only \u2014 it must keep its hue, never turn generic/grayscale, since
+ * End Turn is a normal tactical action, not an error state. */
+/* Priority UI Fix \u2014 Universal Responsive HUD Scaling: typography floor.
+ *
+ * CombatHudModule.js's outer transform:scale(layoutScale) (see hudLayout.js's
+ * computeLayoutScale) shrinks EVERYTHING uniformly, text included \u2014 below a
+ * certain viewport this makes critical labels (ATTACK/END TURN, character/
+ * weapon/target name, PSI/ammo values, armed technique name, combat log,
+ * status toast) render as unreadable microtext. Those specific selectors
+ * (listed in the module-level comment blocks near each one) use
+ * \`font-size: calc(<canonicalPx> * var(--ohud-critical-text-ratio, 1))\`.
+ *
+ * mountCombatHudModule (CombatHudModule.js) sets --ohud-critical-text-ratio
+ * on the module root to \`Math.min(3, Math.max(1, 1/layoutScale))\`:
+ *   - layoutScale >= 1 (viewport at/above the 1920x1080 reference): ratio=1,
+ *     i.e. these tokens behave exactly as before \u2014 they grow with the rest
+ *     of the HUD at large scale, same as any other element.
+ *   - layoutScale < 1 (smaller viewport): ratio = 1/layoutScale, which
+ *     exactly cancels the ancestor transform for THESE elements only \u2014
+ *     their pre-transform font-size grows just enough that the ON-SCREEN
+ *     result never drops below today's already-shipped canonical px size.
+ *     Capped at 3x pre-transform growth as a safety valve for pathologically
+ *     tiny windows (see hud/overlay/hudLayout.js's HUD_SAFE_VIEWPORT_PADDING
+ *     comment for the same "no real SDK-given need for more" reasoning).
+ *
+ * Everything else (icons, artwork, secondary/decorative text, gaps,
+ * padding) is untouched and keeps shrinking with layoutScale \u2014 this is what
+ * "reduce secondary text first" means in practice: critical tokens freeze,
+ * everything around them keeps scaling down.
+ *
+ * This is a FONT-SIZE change, not a nested transform \u2014 increasing font-size
+ * is a real layout property, so flex/inline-box ancestors naturally reflow
+ * (grow) to fit it, instead of a transform's non-reflowing visual overlap.
+ * Any element whose parent had a FIXED px height tall enough to clip a
+ * modestly larger critical font (e.g. the ARMED chip) has that fixed height
+ * relaxed to auto/min-height alongside its own critical-text rule \u2014 see the
+ * comment next to .ohud-mod--armed in combatHudLayout.css. .ohud-cc-abtn's
+ * own parent (.ohud-cc-actionbar) is already 34px tall \u2014 comfortably enough
+ * room for the ratio's realistic range at any of the 8 required viewports.
+ */
+.ohud-cc-abtn {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;
+  border: none; cursor: pointer;
+}
+.ohud-cc-abtn--attack {
+  background: linear-gradient(180deg, var(--odyssey-cyan), #1fb8ac); color: #052421;
+  border-right: 1px solid var(--odyssey-hud-border);
+}
+.ohud-cc-abtn--attack:hover:not(.is-disabled) { filter: brightness(1.08); }
+.ohud-cc-abtn--attack.is-disabled { opacity: 0.42; cursor: not-allowed; }
+.ohud-cc-abtn--endturn { background: rgba(255, 194, 75, 0.18); color: var(--odyssey-hud-warning); }
+.ohud-cc-abtn--endturn:hover:not(.is-disabled) { background: rgba(255, 194, 75, 0.3); }
+.ohud-cc-abtn--endturn.is-disabled { opacity: 0.42; cursor: not-allowed; }
+
+/* ===================== Phase 3A - scene-selection binding ===================== */
+/* Ready identity card (Player module) - shows REAL bound character only. */
+.ohud-bind {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 10px 12px; justify-content: center;
+}
+.ohud-bind-badge {
+  align-self: flex-start;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  padding: 2px 7px; border-radius: 6px;
+  border: 1px solid var(--odyssey-hud-border-strong); color: var(--odyssey-hud-muted);
+}
+.ohud-bind-badge--gm { color: #fff; background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); }
+.ohud-bind-badge--owned { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }
+.ohud-bind-name {
+  font-size: 16px; font-weight: 800; color: var(--odyssey-hud-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ohud-bind-status { font-size: 10px; color: var(--odyssey-hud-muted); }
+.ohud-bind-owner { font-size: 9px; color: var(--odyssey-hud-muted); opacity: 0.8; }
+
+/* Neutral, clearly-labeled fallback for ready-only modules until their runtime
+ * mapping lands (never fabricated gameplay data). */
+.ohud-bind-fallback {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 3px;
+  align-items: center; justify-content: center; text-align: center; padding: 8px;
+}
+.ohud-bind-fallback-label { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); }
+.ohud-bind-fallback-hint { font-size: 8.5px; color: var(--odyssey-hud-muted); opacity: 0.7; }
+
+/* Dev-only (?debug=1) error detail under a Player prompt. */
+.ohud-bind-dev { font-size: 8px; color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }
+
+/* ===================== Arrange-HUD editor ===================== */
+.ohud-editor-root {
+  position: fixed; inset: 0; z-index: 100;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.ohud-editor {
+  position: absolute; inset: 0;
+  background: rgba(8, 12, 22, 0.86);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+/* Toolbar floats OVER the canvas so the canvas spans the full viewport and the
+ * preview cards sit exactly where the real module popovers will. */
+.ohud-editor-toolbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 400;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; background: var(--odyssey-hud-panel);
+  border-bottom: 1px solid var(--odyssey-hud-border-strong);
+}
+.ohud-editor-title { font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--odyssey-hud-text); }
+.ohud-editor-hint { font-size: 11px; color: var(--odyssey-hud-muted); }
+.ohud-editor-actions { margin-left: auto; display: flex; gap: 8px; }
+.ohud-editor-btn {
+  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--odyssey-hud-border-strong);
+  background: var(--odyssey-panel-base); color: var(--odyssey-hud-text);
+}
+.ohud-editor-btn:hover { border-color: var(--odyssey-purple); }
+.ohud-editor-btn.is-primary { background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); color: #fff; }
+
+.ohud-editor-canvas {
+  position: absolute; inset: 0; overflow: hidden;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px),
+    repeating-linear-gradient(90deg, transparent, transparent 7px, rgba(120,142,184,0.06) 7px, rgba(120,142,184,0.06) 8px);
+}
+.ohud-guide { position: absolute; background: var(--odyssey-cyan); opacity: 0.7; pointer-events: none; z-index: 200; }
+.ohud-guide--v { top: 0; bottom: 0; width: 1px; }
+.ohud-guide--h { left: 0; right: 0; height: 1px; }
+
+.ohud-card {
+  position: absolute; overflow: hidden;
+  border: 1px solid var(--odyssey-hud-border-strong);
+  border-radius: var(--odyssey-hud-radius);
+  box-shadow: var(--odyssey-hud-shadow);
+  display: flex; flex-direction: column;
+}
+.ohud-card.is-dragging { z-index: 300 !important; box-shadow: 0 0 0 2px var(--odyssey-cyan), var(--odyssey-hud-shadow); }
+.ohud-card-bar {
+  flex: 0 0 18px; display: flex; align-items: center; gap: 5px;
+  padding: 0 6px; cursor: grab; touch-action: none;
+  background: var(--odyssey-panel-base); border-bottom: 1px solid var(--odyssey-hud-border);
+}
+.ohud-card.is-dragging .ohud-card-bar { cursor: grabbing; }
+.ohud-card-grip { display: inline-flex; color: var(--odyssey-hud-muted); }
+.ohud-card-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-card-body { position: relative; flex: 1 1 auto; min-height: 0; pointer-events: none; }
+.ohud-card-body > .ohud-panel { width: 100%; height: 100%; flex: none; }
+.ohud-card-body .ohud-panel--bare { background: transparent; border: none; box-shadow: none; }
+.ohud-card-body .ohud-panel--bare .ohud-action,
+.ohud-card-body .ohud-panel--bare .ohud-action-btn { height: 100%; }
 `;
 
 // hud/adapters/combatHudAdapter.js

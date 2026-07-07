@@ -7,6 +7,7 @@ import {
   getActiveTool,
   getActiveToolMode,
   getPlayerInfo,
+  getSceneItems,
   getRoomSceneContext,
   getSelectedOwlbearTokens,
   subscribePlayerChanges,
@@ -24,7 +25,9 @@ import {
   sceneToCell,
 } from "./gridMath.js";
 import {
-  buildPreviewItems,
+  buildPreviewLabelItem,
+  buildPreviewLineItem,
+  buildPreviewMarkerItem,
   PREVIEW_GHOST_ID,
   PREVIEW_LABEL_ID,
   PREVIEW_LINE_ID,
@@ -41,7 +44,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.46";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.60";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -108,6 +111,18 @@ function getCellKey(cell) {
   return `${Number(cell?.q ?? cell?.cell_q ?? 0) || 0}:${Number(cell?.r ?? cell?.cell_r ?? 0) || 0}`;
 }
 
+function getPreviewMarkerSignature(preview, grid) {
+  const gridDpi = Math.max(Number(grid?.gridDpi ?? 0) || 0, 0);
+  return JSON.stringify({
+    q: Number(preview?.cell?.q ?? 0) || 0,
+    r: Number(preview?.cell?.r ?? 0) || 0,
+    inRange: preview?.inRange === true,
+    blocked: preview?.blocked === true,
+    blockReason: String(preview?.blockReason ?? "").trim(),
+    gridDpi,
+  });
+}
+
 function createInitialState() {
   return {
     player: null,
@@ -120,16 +135,23 @@ function createInitialState() {
     viewerControlledCharacterIds: new Set(),
     authoritativeByTokenId: new Map(),
     selectedToken: null,
+    selectedCombatTokenIds: new Set(),
     selectedParticipant: null,
     permission: null,
     preview: null,
     previewCreated: false,
+    previewLineCreated: false,
     previewGhostCreated: false,
     previewRequestVersion: 0,
     previewRenderQueue: [],
     previewRenderActive: false,
     previewPointerQueue: [],
     previewPointerActive: false,
+    previewCoreQueued: null,
+    previewCoreActive: false,
+    previewMarkerQueued: null,
+    previewMarkerActive: false,
+    previewMarkerSignature: "",
     pending: false,
     dragActive: false,
     toolRegistered: false,
@@ -144,8 +166,121 @@ function createInitialState() {
     autoSyncInFlightByKey: new Map(),
     gridRecoveryPromise: null,
     gridRecoveryKey: "",
+    obstructionDebugDone: false,
+    lastVanillaMoveBlockAt: 0,
+    pendingUnauthorizedRevertTimers: new Map(),
   };
 }
+
+function normalizeMetadataKeys(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  return Object.keys(metadata)
+    .map((key) => String(key ?? "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function sanitizeObstructionMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+
+  const result = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    const normalizedKey = String(key ?? "").trim();
+    if (!normalizedKey) continue;
+    if (normalizedKey.length > 80) continue;
+
+    if (value == null) {
+      result[normalizedKey] = null;
+      continue;
+    }
+
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      result[normalizedKey] = value;
+      continue;
+    }
+
+    try {
+      result[normalizedKey] = JSON.parse(JSON.stringify(value));
+    } catch {
+      result[normalizedKey] = String(value);
+    }
+  }
+  return result;
+}
+
+function isPotentialObstructionItem(item) {
+  const type = String(item?.type ?? "").trim().toUpperCase();
+  const name = String(item?.name ?? "").trim().toLowerCase();
+  const metadataKeys = normalizeMetadataKeys(item?.metadata).map((key) => key.toLowerCase());
+  const joinedKeys = metadataKeys.join(" ");
+
+  if (name.includes("obstruction") || name.includes("smoke") || name.includes("spectre")) {
+    return true;
+  }
+
+  if (
+    joinedKeys.includes("obstruction")
+    || joinedKeys.includes("smoke")
+    || joinedKeys.includes("spectre")
+    || joinedKeys.includes("passable")
+    || joinedKeys.includes("unpassable")
+  ) {
+    return true;
+  }
+
+  return ["LINE", "SHAPE", "PATH"].includes(type);
+}
+
+function buildObstructionDebugSnapshot(item) {
+  const metadata = sanitizeObstructionMetadata(item?.metadata);
+  return {
+    id: String(item?.id ?? "").trim(),
+    type: String(item?.type ?? "").trim(),
+    name: String(item?.name ?? "").trim(),
+    layer: String(item?.layer ?? "").trim(),
+    visible: item?.visible !== false,
+    locked: item?.locked === true,
+    position: item?.position
+      ? {
+          x: Number(item.position.x ?? 0) || 0,
+          y: Number(item.position.y ?? 0) || 0,
+        }
+      : null,
+    size:
+      Number.isFinite(Number(item?.width)) || Number.isFinite(Number(item?.height))
+        ? {
+            width: Number(item?.width ?? 0) || 0,
+            height: Number(item?.height ?? 0) || 0,
+          }
+        : null,
+    startPosition: item?.startPosition
+      ? {
+          x: Number(item.startPosition.x ?? 0) || 0,
+          y: Number(item.startPosition.y ?? 0) || 0,
+        }
+      : null,
+    endPosition: item?.endPosition
+      ? {
+          x: Number(item.endPosition.x ?? 0) || 0,
+          y: Number(item.endPosition.y ?? 0) || 0,
+        }
+      : null,
+    rotation: Number(item?.rotation ?? 0) || 0,
+    scale: item?.scale
+      ? {
+          x: Number(item.scale.x ?? 0) || 0,
+          y: Number(item.scale.y ?? 0) || 0,
+        }
+      : null,
+    metadataKeys: normalizeMetadataKeys(item?.metadata),
+    metadata,
+  };
+}
+
 
 function buildStatus(state, extras = {}) {
   const participant = state.selectedParticipant ?? null;
@@ -219,12 +354,16 @@ function extractMovementMarker(item) {
   const requestId = String(raw.requestId ?? "").trim();
   const updatedAt = String(raw.updatedAt ?? "").trim();
   const movementVersion = Number(raw.movementVersion ?? 0) || 0;
+  const sceneX = Number(raw.sceneX ?? raw.scene_x ?? 0);
+  const sceneY = Number(raw.sceneY ?? raw.scene_y ?? 0);
   if (!source || !updatedAt) return null;
   return {
     source,
     requestId,
     updatedAt,
     movementVersion,
+    sceneX: Number.isFinite(sceneX) ? sceneX : null,
+    sceneY: Number.isFinite(sceneY) ? sceneY : null,
   };
 }
 
@@ -235,13 +374,26 @@ function isFreshMarker(marker) {
   return Date.now() - updatedAtMs <= MARKER_TTL_MS;
 }
 
-function buildMovementMarker({ requestId, movementVersion, source }) {
+function buildMovementMarker({ requestId, movementVersion, source, scenePosition }) {
   return {
     source,
     requestId,
     movementVersion,
     updatedAt: nowIso(),
+    sceneX: Number(scenePosition?.x ?? scenePosition?.scene_x ?? 0) || 0,
+    sceneY: Number(scenePosition?.y ?? scenePosition?.scene_y ?? 0) || 0,
   };
+}
+
+function markerMatchesScenePosition(marker, scenePosition) {
+  if (!marker || !scenePosition) return false;
+  if (!Number.isFinite(Number(marker.sceneX)) || !Number.isFinite(Number(marker.sceneY))) {
+    return false;
+  }
+  return positionsMatch(
+    { x: Number(marker.sceneX) || 0, y: Number(marker.sceneY) || 0 },
+    scenePosition,
+  );
 }
 
 function participantHasAuthoritativePosition(participant) {
@@ -299,6 +451,42 @@ export function setupTacticalMoveTool({ runtime }) {
       await publishMoveToolEvent(MOVE_TOOL_EVENTS.Status, buildStatus(state, extras));
     } catch {
       // ignore local broadcast failures
+    }
+  }
+
+  function shouldThrottleVanillaMoveBlockNotice() {
+    const now = Date.now();
+    if (now - state.lastVanillaMoveBlockAt < 1500) {
+      return true;
+    }
+    state.lastVanillaMoveBlockAt = now;
+    return false;
+  }
+
+  async function inspectSceneObstructionCandidates(reason = "manual") {
+    if (state.obstructionDebugDone) return;
+    state.obstructionDebugDone = true;
+
+    try {
+      const sceneItems = await getSceneItems();
+      const candidates = ensureArray(sceneItems)
+        .filter((item) => isPotentialObstructionItem(item))
+        .slice(0, 40)
+        .map((item) => buildObstructionDebugSnapshot(item));
+
+      addDiagnosticEntry(
+        "info",
+        "Smoke obstruction candidates",
+        JSON.stringify({
+          reason,
+          sceneItemCount: sceneItems.length,
+          candidateCount: candidates.length,
+          candidates,
+        }),
+      );
+    } catch (error) {
+      const normalized = normalizeError(error, "Unable to inspect scene obstruction candidates.");
+      addDiagnosticEntry("warn", "Smoke obstruction inspect failed", normalized.message);
     }
   }
 
@@ -442,16 +630,22 @@ export function setupTacticalMoveTool({ runtime }) {
     }
     state.preview = null;
     state.previewCreated = false;
+    state.previewLineCreated = false;
     state.previewGhostCreated = false;
     state.previewRenderActive = false;
     state.previewPointerActive = false;
+    state.previewCoreQueued = null;
+    state.previewCoreActive = false;
+    state.previewMarkerQueued = null;
+    state.previewMarkerActive = false;
+    state.previewMarkerSignature = "";
     state.dragActive = false;
     if (!silent) {
       await publishStatus({ reason });
     }
   }
 
-  async function updatePreview(preview) {
+  async function updatePreviewCore(preview) {
     if (!state.selectedToken || !state.selectedParticipant) return;
 
     const current = state.preview;
@@ -476,44 +670,27 @@ export function setupTacticalMoveTool({ runtime }) {
       x: Number(state.selectedParticipant.position?.scene_x ?? 0) || 0,
       y: Number(state.selectedParticipant.position?.scene_y ?? 0) || 0,
     };
-    const items = buildPreviewItems({
-      preview,
-      originScene,
-      selectedToken: state.selectedToken,
-    });
+    const label = buildPreviewLabelItem(preview, originScene);
 
     addDiagnosticEntry(
       "info",
       "Preview label prepared",
       formatPreviewDiagnostics({
-        id: items.label?.id,
-        type: items.label?.type,
-        textType: items.label?.text?.type,
-        text: items.label?.text?.plainText,
-        position: items.label?.position,
+        id: label?.id,
+        type: label?.type,
+        textType: label?.text?.type,
+        text: label?.text?.plainText,
+        position: label?.position,
       }),
     );
 
-    if (items.ghostError) {
-      const normalized = normalizeError(items.ghostError, "Unable to build movement preview ghost.");
-      addDiagnosticEntry(
-        "warn",
-        "Combat preview ghost build failed",
-        formatPreviewDiagnostics({
-          ...items.ghostDebugInfo,
-          tokenId: String(state.selectedToken?.id ?? "").trim(),
-          message: normalized.message,
-        }),
-      );
-    }
-
     try {
       if (!state.previewCreated) {
-        await OBR.scene.local.addItems([items.line, items.label]);
+        await OBR.scene.local.addItems([label]);
         state.previewCreated = true;
         addDiagnosticEntry(
           "info",
-          "Combat preview core created",
+          "Combat preview label created",
           buildPreviewDiagnosticDetails({
             tokenId: state.selectedToken?.id,
             cell: preview.cell,
@@ -523,17 +700,12 @@ export function setupTacticalMoveTool({ runtime }) {
           }),
         );
       } else {
-        await OBR.scene.local.updateItems([PREVIEW_LINE_ID, PREVIEW_LABEL_ID], (sceneItems) => {
+        await OBR.scene.local.updateItems([PREVIEW_LABEL_ID], (sceneItems) => {
           for (const item of sceneItems) {
-            if (item.id === PREVIEW_LINE_ID && item.type === "LINE") {
-              item.startPosition = items.line.startPosition;
-              item.endPosition = items.line.endPosition;
-              item.style = items.line.style;
-            }
             if (item.id === PREVIEW_LABEL_ID && item.type === "TEXT") {
-              item.position = items.label.position;
-              item.text = items.label.text;
-              item.style = items.label.style;
+              item.position = label.position;
+              item.text = label.text;
+              item.style = label.style;
             }
           }
         });
@@ -546,22 +718,27 @@ export function setupTacticalMoveTool({ runtime }) {
       return;
     }
 
-    if (!items.ghost) {
-      if (state.previewGhostCreated) {
-        try {
-          await OBR.scene.local.deleteItems([PREVIEW_GHOST_ID]);
-        } catch {
-          // ignore ghost cleanup failures
-        }
-      }
-      state.previewGhostCreated = false;
-      await publishStatus();
+    await publishStatus();
+  }
+
+  async function updatePreviewMarker(preview) {
+    if (!state.selectedToken || !state.selectedParticipant || !preview || !state.grid) return;
+
+    const markerSignature = getPreviewMarkerSignature(preview, state.grid);
+    if (state.previewGhostCreated && state.previewMarkerSignature === markerSignature) {
       return;
     }
 
+    const originScene = {
+      x: Number(state.selectedParticipant.position?.scene_x ?? 0) || 0,
+      y: Number(state.selectedParticipant.position?.scene_y ?? 0) || 0,
+    };
+    const line = buildPreviewLineItem(preview, originScene);
+    const marker = buildPreviewMarkerItem(preview, state.grid);
+
     addDiagnosticEntry(
       "info",
-      "Combat preview render",
+      "Combat preview marker render",
       formatPreviewDiagnostics({
         tokenId: String(state.selectedToken?.id ?? "").trim(),
         cellQ: Number(preview.cell?.q ?? 0) || 0,
@@ -572,12 +749,20 @@ export function setupTacticalMoveTool({ runtime }) {
     );
 
     try {
-      if (!state.previewGhostCreated) {
-        await OBR.scene.local.addItems([items.ghost]);
+      if (!state.previewLineCreated || !state.previewGhostCreated) {
+        const toAdd = [];
+        if (!state.previewLineCreated) {
+          toAdd.push(line);
+        }
+        if (!state.previewGhostCreated) {
+          toAdd.push(marker);
+        }
+        await OBR.scene.local.addItems(toAdd);
+        state.previewLineCreated = true;
         state.previewGhostCreated = true;
         addDiagnosticEntry(
           "info",
-          "Combat preview ghost added",
+          "Combat preview live geometry added",
           buildPreviewDiagnosticDetails({
             tokenId: state.selectedToken?.id,
             cell: preview.cell,
@@ -587,31 +772,37 @@ export function setupTacticalMoveTool({ runtime }) {
           }),
         );
       } else {
-        await OBR.scene.local.updateItems([PREVIEW_GHOST_ID], (sceneItems) => {
+        await OBR.scene.local.updateItems([PREVIEW_LINE_ID, PREVIEW_GHOST_ID], (sceneItems) => {
           for (const item of sceneItems) {
-            if (item.id === PREVIEW_GHOST_ID && item.type === "IMAGE") {
-              item.position = items.ghost.position;
-              item.rotation = items.ghost.rotation;
-              item.scale = items.ghost.scale;
+            if (item.id === PREVIEW_LINE_ID && item.type === "LINE") {
+              item.startPosition = line.startPosition;
+              item.endPosition = line.endPosition;
+              item.style = line.style;
+            }
+            if (item.id === PREVIEW_GHOST_ID && item.type === "SHAPE") {
+              item.position = marker.position;
+              item.width = marker.width;
+              item.height = marker.height;
+              item.shapeType = marker.shapeType;
+              item.style = marker.style;
             }
           }
         });
       }
+      state.previewMarkerSignature = markerSignature;
     } catch (error) {
+      state.previewLineCreated = false;
       state.previewGhostCreated = false;
-      const normalized = normalizeError(error, "Unable to add movement preview ghost.");
-      addDiagnosticEntry(
-        "warn",
-        "Combat preview ghost add failed",
-        formatPreviewDiagnostics({
-          ...items.ghostDebugInfo,
-          tokenId: String(state.selectedToken?.id ?? "").trim(),
-          message: normalized.message,
-        }),
-      );
+      state.previewMarkerSignature = "";
+      const normalized = normalizeError(error, "Unable to update movement preview marker.");
+      addDiagnosticEntry("warn", "Combat preview marker add failed", normalized.message);
     }
+  }
 
-    await publishStatus();
+  async function updatePreview(preview) {
+    if (!preview) return;
+    await updatePreviewCore(preview);
+    await updatePreviewMarker(preview);
   }
 
   function getSelectedParticipantOrigin() {
@@ -846,40 +1037,46 @@ export function setupTacticalMoveTool({ runtime }) {
     return buildPreviewFromScenePosition(pointerPosition, tokenId);
   }
 
-  function queuePreviewRender(preview) {
-    if (!preview) return;
-    const previous = state.previewRenderQueue.at(-1);
-    if (previous && sameScenePosition(previous.scene, preview.scene, 0.01)) {
-      return;
-    }
-    state.previewRenderQueue.push(preview);
-    if (!state.previewRenderActive) {
-      void flushPreviewRenderQueue();
-    }
-  }
-
-  async function flushPreviewRenderQueue() {
-    if (state.previewRenderActive) return;
-    state.previewRenderActive = true;
-    try {
-      while (state.dragActive && state.previewRenderQueue.length > 0) {
-        const preview = state.previewRenderQueue.shift();
-        if (!preview) continue;
-        await updatePreview(preview);
-        await nextAnimationFrame();
-      }
-    } finally {
-      state.previewRenderActive = false;
-    }
-  }
-
   function queuePreviewPointer(pointerPosition) {
     if (!pointerPosition) return;
     const preview = buildPreviewFromPointerFast(pointerPosition);
     if (!preview) return;
     state.previewPointerQueue = [];
     state.previewRenderQueue = [];
-    queuePreviewRender(preview);
+    state.previewCoreQueued = preview;
+    state.previewMarkerQueued = preview;
+    void flushPreviewCoreQueue();
+    void flushPreviewMarkerQueue();
+  }
+
+  async function flushPreviewCoreQueue() {
+    if (state.previewCoreActive) return;
+    state.previewCoreActive = true;
+    try {
+      while (state.dragActive && state.previewCoreQueued) {
+        const preview = state.previewCoreQueued;
+        state.previewCoreQueued = null;
+        if (!preview) continue;
+        await updatePreviewCore(preview);
+      }
+    } finally {
+      state.previewCoreActive = false;
+    }
+  }
+
+  async function flushPreviewMarkerQueue() {
+    if (state.previewMarkerActive) return;
+    state.previewMarkerActive = true;
+    try {
+      while (state.dragActive && state.previewMarkerQueued) {
+        const preview = state.previewMarkerQueued;
+        state.previewMarkerQueued = null;
+        if (!preview) continue;
+        await updatePreviewMarker(preview);
+      }
+    } finally {
+      state.previewMarkerActive = false;
+    }
   }
 
   async function flushPreviewPointerQueue() {
@@ -892,9 +1089,11 @@ export function setupTacticalMoveTool({ runtime }) {
         const preview = await buildPreviewFromPointer(pointerPosition);
         if (!state.dragActive) break;
         if (!preview) continue;
-        queuePreviewRender(preview);
+        state.previewCoreQueued = preview;
+        state.previewMarkerQueued = preview;
+        await flushPreviewCoreQueue();
+        await flushPreviewMarkerQueue();
       }
-      await flushPreviewRenderQueue();
     } finally {
       state.previewPointerActive = false;
     }
@@ -948,8 +1147,32 @@ export function setupTacticalMoveTool({ runtime }) {
   async function syncSelectionState(reason = "selection-sync", options = {}) {
     state.player = await getPlayerInfo().catch(() => state.player);
     const selectedTokens = await getSelectedOwlbearTokens().catch(() => []);
+    const selectedCombatTokens = selectedTokens.filter((token) =>
+      state.participantsByTokenId.has(String(token?.id ?? "").trim()),
+    );
+    state.selectedCombatTokenIds = new Set(
+      selectedCombatTokens
+        .map((token) => String(token?.id ?? "").trim())
+        .filter(Boolean),
+    );
     const selectedToken = selectedTokens.length === 1 ? selectedTokens[0] : null;
     const runtimeResponse = options.runtimeResponse ?? state.runtime;
+
+    if (selectedCombatTokens.length > 1) {
+      state.selectedToken = null;
+      state.selectedParticipant = null;
+      state.permission = null;
+      await clearPreview({ reason: `${reason}-multi-combat-selection`, silent: true });
+      await restorePreviousTool(`${reason}-multi-combat-selection`);
+      if (!shouldThrottleVanillaMoveBlockNotice()) {
+        await notify("Multiple combat tokens cannot be dragged together. Select only one token and use Tactical Move.", "WARNING");
+      }
+      await publishStatus({
+        reason: `${reason}-multi-combat-selection`,
+        error: "Multiple combat tokens cannot be moved together.",
+      });
+      return;
+    }
 
     if (!selectedToken) {
       state.selectedToken = null;
@@ -1020,6 +1243,7 @@ export function setupTacticalMoveTool({ runtime }) {
       requestId,
       movementVersion,
       source,
+      scenePosition,
     });
     state.localMarkersByTokenId.set(tokenId, marker);
 
@@ -1045,11 +1269,74 @@ export function setupTacticalMoveTool({ runtime }) {
         authoritative.movementVersion,
         "combat-movement-revert",
       );
-      await notify(message, "WARNING");
+      const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
+      if (selectedTokenId && selectedTokenId === String(tokenId ?? "").trim()) {
+        void ensureToolActivated("vanilla-move-blocked").catch(() => {});
+      }
+      if (!shouldThrottleVanillaMoveBlockNotice()) {
+        await notify(message, "WARNING");
+      }
     } catch (error) {
       const normalized = normalizeError(error, "Unable to restore authoritative combat position.");
       addDiagnosticEntry("warn", "Combat movement revert failed", normalized.message);
     }
+  }
+
+  function clearUnauthorizedRevertTimers(tokenId) {
+    const key = String(tokenId ?? "").trim();
+    if (!key) return;
+    const timers = state.pendingUnauthorizedRevertTimers.get(key) ?? [];
+    for (const timerId of timers) {
+      clearTimeout(timerId);
+    }
+    state.pendingUnauthorizedRevertTimers.delete(key);
+  }
+
+  function scheduleUnauthorizedRevertChecks(tokenId, authoritative, message) {
+    const key = String(tokenId ?? "").trim();
+    if (!key) return;
+
+    clearUnauthorizedRevertTimers(key);
+
+    const delays = [120, 360, 900];
+    const timers = delays.map((delayMs) => setTimeout(() => {
+      void (async () => {
+        try {
+          const sceneItems = await getSceneItems();
+          const currentItem = sceneItems.find((item) => String(item?.id ?? "").trim() === key);
+          if (!currentItem?.position) return;
+
+          const authoritativeScene = {
+            x: Number(authoritative?.scene_x ?? 0) || 0,
+            y: Number(authoritative?.scene_y ?? 0) || 0,
+          };
+
+          if (positionsMatch(currentItem.position, authoritativeScene)) {
+            state.localMarkersByTokenId.delete(key);
+            clearUnauthorizedRevertTimers(key);
+            return;
+          }
+
+          const marker = extractMovementMarker(currentItem);
+          if (
+            marker
+            && isFreshMarker(marker)
+            && INTERNAL_MOVEMENT_SOURCES.has(marker.source)
+            && markerMatchesScenePosition(marker, currentItem.position)
+          ) {
+            return;
+          }
+
+          state.localMarkersByTokenId.delete(key);
+          await revertUnauthorizedTokenMove(key, authoritative, message);
+        } catch (error) {
+          const normalized = normalizeError(error, "Unable to verify unauthorized movement revert.");
+          addDiagnosticEntry("warn", "Combat movement revert retry failed", normalized.message);
+        }
+      })();
+    }, delayMs));
+
+    state.pendingUnauthorizedRevertTimers.set(key, timers);
   }
 
   async function applyMoveResultToScene(result, source) {
@@ -1434,6 +1721,7 @@ export function setupTacticalMoveTool({ runtime }) {
 
   async function handleToolDragStart(_context, event) {
     if (!state.selectedToken || !state.selectedParticipant) return;
+    void inspectSceneObstructionCandidates("drag-start");
     const targetId = String(event?.target?.id ?? "").trim();
     const selectedTokenId = String(state.selectedToken.id ?? "").trim();
     if (!targetId || targetId !== selectedTokenId) return;
@@ -1564,6 +1852,8 @@ export function setupTacticalMoveTool({ runtime }) {
         y: Number(authoritative.scene_y ?? 0) || 0,
       };
       if (positionsMatch(item.position, authoritativeScene)) {
+        state.localMarkersByTokenId.delete(tokenId);
+        clearUnauthorizedRevertTimers(tokenId);
         continue;
       }
 
@@ -1593,10 +1883,14 @@ export function setupTacticalMoveTool({ runtime }) {
 
       const localMarker = state.localMarkersByTokenId.get(tokenId);
       if (localMarker && isFreshMarker(localMarker)) {
-        continue;
+        if (markerMatchesScenePosition(localMarker, item.position)) {
+          continue;
+        }
+        state.localMarkersByTokenId.delete(tokenId);
       }
 
       await revertUnauthorizedTokenMove(tokenId, authoritative);
+      scheduleUnauthorizedRevertChecks(tokenId, authoritative, "Use combat movement during your turn.");
     }
   }
 
@@ -1679,6 +1973,7 @@ export function setupTacticalMoveTool({ runtime }) {
   async function start() {
     try {
       await registerTool();
+      void inspectSceneObstructionCandidates("startup");
       unsubscribeBroadcast = await subscribeMoveToolMessages(handleBroadcastMessage);
       unsubscribeSceneItems = await subscribeSceneItems(handleSceneItemsChanged);
       unsubscribePlayer = await subscribePlayerChanges((player) => {
@@ -1689,8 +1984,15 @@ export function setupTacticalMoveTool({ runtime }) {
         if (disposed) return;
         const selectedTokenId = String(state.selectedToken?.id ?? "").trim();
         const hasSelectedCombatToken = !!selectedTokenId && state.participantsByTokenId.has(selectedTokenId);
-        if (!hasSelectedCombatToken) return;
+        const hasMultipleCombatSelection = state.selectedCombatTokenIds.size > 1;
+        if (!hasSelectedCombatToken && !hasMultipleCombatSelection) return;
         if (toolId === TACTICAL_MOVE_TOOL_ID) return;
+        if (!shouldThrottleVanillaMoveBlockNotice()) {
+          const message = hasMultipleCombatSelection
+            ? "Multiple combat tokens cannot be dragged together during combat."
+            : "Vanilla token dragging is disabled during combat. Use Tactical Move.";
+          void notify(message, "WARNING");
+        }
         void ensureToolActivated("tool-reclaim").catch(() => {});
       });
       unsubscribeSession = OBR.broadcast.onMessage(BC_HUD_SESSION, (event) => {
@@ -1743,6 +2045,12 @@ export function setupTacticalMoveTool({ runtime }) {
       if (state.runtimeRefreshTimer) {
         clearTimeout(state.runtimeRefreshTimer);
       }
+      for (const timers of state.pendingUnauthorizedRevertTimers.values()) {
+        for (const timerId of timers) {
+          clearTimeout(timerId);
+        }
+      }
+      state.pendingUnauthorizedRevertTimers.clear();
       await clearPreview({ reason: "dispose", silent: true });
       try { await OBR.tool.removeMode(TACTICAL_MOVE_MODE_ID); } catch {}
       try { await OBR.tool.remove(TACTICAL_MOVE_TOOL_ID); } catch {}
