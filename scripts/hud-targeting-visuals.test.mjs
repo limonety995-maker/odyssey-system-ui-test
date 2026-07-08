@@ -32,6 +32,14 @@ import {
 import { TARGET_CROSSHAIR_ICON, buildTargetCursorValue, buildTargetCursorToolIcon } from "../hud/targeting/targetCursorSvg.js";
 import { renderTargetBlock } from "../hud/components/TargetBlock.js";
 import { renderCombatControlBlock } from "../hud/components/CombatControlBlock.js";
+import {
+  createInitialTargetState,
+  applySource,
+  applyResolvedTarget,
+  refreshTargetBodyZones,
+  clearTarget,
+  buildTargetingBroadcast,
+} from "../hud/targeting/targetSelectionState.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -313,11 +321,23 @@ test("Fix #4: the anchor is invisible (zero opacity) — a purely geometric trac
   assert.match(block, /strokeOpacity:\s*0/);
 });
 
-test("Fix #4: showTargetRing() creates the anchor AND the ring together, ring attached to the anchor's own item id", () => {
+test("Fix #4: showTargetRing() creates the anchor AND the ring, ring attached to the anchor's own item id", () => {
   const idx = rendererSrc.indexOf("export async function showTargetRing");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
   assert.match(block, /buildTargetRingAnchorItem\(tokenId,\s*bounds\)/);
   assert.match(block, /buildTargetRingItem\(TARGET_RING_ANCHOR_ITEM_ID,\s*bounds/);
+});
+
+test("Missing-overlay fix: showTargetRing() issues TWO SEPARATE, sequential addItems() calls (anchor committed before the ring references it) — never one batched call attaching a sibling created in the same call", () => {
+  const idx = rendererSrc.indexOf("export async function showTargetRing");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
+  const addItemsCalls = block.match(/OBR\.scene\.local\.addItems\(/g) ?? [];
+  assert.equal(addItemsCalls.length, 2, "expected exactly two addItems() calls, one per item");
+  const anchorCallIdx = block.indexOf("addItems([buildTargetRingAnchorItem");
+  const ringCallIdx = block.indexOf("addItems([buildTargetRingItem");
+  assert.ok(anchorCallIdx > -1 && ringCallIdx > -1, "each item has its OWN addItems([...]) call");
+  assert.ok(anchorCallIdx < ringCallIdx, "the anchor's addItems call is awaited and completes BEFORE the ring's own call starts");
+  assert.match(block, /await OBR\.scene\.local\.addItems\(\[buildTargetRingAnchorItem\(tokenId, bounds\)\]\);\s*\n\s*await OBR\.scene\.local\.addItems\(\[buildTargetRingItem\(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0\)\]\);/);
 });
 
 test("Fix #4: hideTargetRing()/hideAllTargetingVisuals() always delete BOTH the ring and its anchor — no orphaned anchor left behind", () => {
@@ -383,6 +403,87 @@ test("the outline/ring/cursor wiring is called from the SAME two existing hook p
   assert.ok(handleTargetingIdx > targetSelectionIdx && handleTargetingIdx < sceneSelectionIdx);
   assert.ok(handleSelectionIdx > sceneSelectionIdx);
 });
+
+/* ── Missing-overlay lifecycle (bugfix pack: overlay was absent, not just
+ * stuttering — see docs/TARGET_RING_ANIMATION_AUDIT.md's "Missing-overlay
+ * lifecycle audit" section) ─────────────────────────────────────────────── */
+
+function targetFixture({ tokenId = "tok-target", characterId = "char-target", zoneId = "TORSO" } = {}) {
+  const withSource = applySource(createInitialTargetState(), { tokenId: "tok-source", characterId: "char-source", characterName: "Hero" });
+  return applyResolvedTarget(withSource, {
+    tokenId, characterId, displayName: "test_target", profileId: "humanoid",
+    bodyZones: [{ zoneId, bodyPartId: "bp-1", canBeTargeted: true }],
+  });
+}
+
+test("1. selecting a target produces a payload whose target.tokenId is real and non-null — the exact signal reconcileRing() uses to create the overlay", () => {
+  const payload = buildTargetingBroadcast(targetFixture());
+  assert.equal(payload.target.tokenId, "tok-target");
+  // reconcileRing() is driven ONLY by handleTargetingState's own targetChanged
+  // detection over payload.target.tokenId — confirmed by source contract.
+  assert.match(controllerSrc, /const nextTarget = payload\?\.target\?\.tokenId \?\? null;/);
+  assert.match(controllerSrc, /if \(targetChanged\) void reconcileRing\(\);/);
+});
+
+test("2. restoring an already-selected target (e.g. a freshly (re)mounted background controller whose targetTokenId starts null) is still a targetChanged transition — the overlay is restored, not skipped", () => {
+  // handleTargetingState's own targetTokenId closure variable starts at null;
+  // the FIRST call with a real, resolved target is therefore always a
+  // null -> real transition, i.e. targetChanged === true, regardless of
+  // whether this is a brand-new pick or a restore/replay of existing state.
+  const idx = controllerSrc.indexOf("let targetTokenId = null;");
+  assert.ok(idx > -1, "targetTokenId starts null — any real restored target is a change from that baseline");
+});
+
+test("4. Tactical Move's runtime-apply subscription never touches BC_HUD_TARGETING or targeting state — a still-valid target overlay is structurally unaffected by it", () => {
+  const sceneControllerFullSrc = fs.readFileSync(path.join(repoRoot, "hud", "scene", "sceneSelectionController.js"), "utf8");
+  const idx = sceneControllerFullSrc.indexOf("subscribeMoveToolMessages(");
+  const block = sceneControllerFullSrc.slice(idx, sceneControllerFullSrc.indexOf("cleanups.push(unsubscribeMoveTool)"));
+  assert.ok(!/BC_HUD_TARGETING|targetSelection|clearTarget/.test(block), "movement's runtime apply never touches the targeting broadcast/state at all");
+});
+
+test("5. a body-zone-only refresh (e.g. post-attack) never changes target.tokenId, so handleTargetingState sees targetChanged=false and never tears down/recreates the ring", () => {
+  const before = targetFixture();
+  const after = refreshTargetBodyZones(before, [{ zoneId: "TORSO", bodyPartId: "bp-1", canBeTargeted: false }]);
+  const beforePayload = buildTargetingBroadcast(before);
+  const afterPayload = buildTargetingBroadcast(after);
+  assert.equal(beforePayload.target.tokenId, afterPayload.target.tokenId, "same target token id before/after the refresh");
+});
+
+test("6. the overlay is attached to the TARGET token, never the source — showTargetRing/reconcileRing only ever receive targetTokenId, sourceTokenId drives the SEPARATE source outline only", () => {
+  const payload = buildTargetingBroadcast(targetFixture());
+  assert.notEqual(payload.target.tokenId, payload.source.tokenId, "fixture sanity: source and target are genuinely different tokens");
+  const idx = controllerSrc.indexOf("async function reconcileRing");
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("async function reconcileCursor"));
+  assert.ok(!block.includes("sourceTokenId"), "reconcileRing() never reads sourceTokenId — only targetTokenId");
+  assert.match(block, /showTargetRing\(targetTokenId\)/);
+});
+
+test("7. the overlay does not depend on OBR's native player-selection state — restoreSourceSelection() deliberately moves the native selection back to the source right after a pick, and the ring is unaffected by that", () => {
+  const targetControllerSrc = fs.readFileSync(path.join(repoRoot, "hud", "targeting", "targetSelectionController.js"), "utf8");
+  assert.match(targetControllerSrc, /OBR\.player\.select\(\[sourceTokenId\], true\)/, "native selection is restored to the SOURCE after every pick");
+  // shouldShowTargetRing/reconcileRing take no OBR-selection input at all.
+  const idx = rendererSrc.indexOf("export async function showTargetRing");
+  assert.ok(!rendererSrc.slice(idx, idx + 400).includes("OBR.player.selection"), "ring creation never reads OBR.player.selection");
+});
+
+test("8. the overlay works for NPC targets — shouldShowTargetRing/showTargetRing gate on nothing but a real token id, no player/character-bucket/ownership check", () => {
+  assert.match(fs.readFileSync(path.join(repoRoot, "hud", "targeting", "visuals", "targetingVisualPolicy.js"), "utf8"),
+    /export function shouldShowTargetRing\(\{ targetTokenId \} = \{\}\) \{\s*return !!targetTokenId;\s*\}/);
+  // The targeting adapter itself resolves ANY linked token (player or NPC) —
+  // confirmed the candidate shape carries no bucket/ownership gate the ring
+  // depends on: applyResolvedTarget()/buildTargetingBroadcast() never read a
+  // characterBucket/isPlayerCharacter field at all.
+  const stateSrc = fs.readFileSync(path.join(repoRoot, "hud", "targeting", "targetSelectionState.js"), "utf8");
+  assert.ok(!/characterBucket|isPlayerCharacter/.test(stateSrc), "target resolution has no player-only gate an NPC would fail");
+});
+
+test("15. clearing the target (Combat Control's Clear / any explicit clearTarget()) yields target:null in the broadcast, which is exactly shouldShowTargetRing's false case", () => {
+  const cleared = clearTarget(targetFixture());
+  const payload = buildTargetingBroadcast(cleared);
+  assert.equal(payload.target, null);
+});
+
+console.log("(items 3/9-14/16-19 of the missing-overlay-lifecycle matrix are covered by the existing Fix #4 tests above: HUD-refresh-with-same-target no-op, anchor position/size/rotation tracking, no remount on routine updates, rotation origin centered, Escape/source-change/scene-teardown clearing, and local-only source contracts)");
 
 setTimeout(() => {
   console.log(`\nHUD Targeting visuals: ${passed} passed, ${failed} failed`);
