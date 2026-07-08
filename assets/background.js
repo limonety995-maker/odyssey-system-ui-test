@@ -5859,6 +5859,18 @@ function createInactiveCombatSession() {
 }
 
 // hud/session/combatSessionMapper.js
+function isRuntimeApplicable(next, prev) {
+  const nextEncounter = next?.encounter && typeof next.encounter === "object" ? next.encounter : null;
+  const prevEncounter = prev?.encounter && typeof prev.encounter === "object" ? prev.encounter : null;
+  if (!nextEncounter) return true;
+  const nextVersion = Number(nextEncounter.state_version);
+  if (!Number.isFinite(nextVersion)) return false;
+  if (!prevEncounter) return true;
+  if (String(nextEncounter.id ?? "") !== String(prevEncounter.id ?? "")) return false;
+  const prevVersion = Number(prevEncounter.state_version);
+  if (!Number.isFinite(prevVersion)) return true;
+  return nextVersion >= prevVersion;
+}
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -6360,7 +6372,9 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   let mutationInFlight = false;
   let prevActiveEntryId = null;
   let prevSessionId = null;
+  let reconciliationTimer = null;
   const cleanups3 = [];
+  const RECONCILIATION_DELAY_MS = 1800;
   const viewer = () => (typeof getViewer === "function" ? getViewer() : {}) ?? {};
   const isGm2 = () => String(viewer()?.role ?? "").toUpperCase() === "GM";
   function encounterOf(runtime) {
@@ -6381,6 +6395,10 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   }
   function applyRuntime(runtime, { origin }) {
     const next = runtime && typeof runtime === "object" ? runtime : null;
+    if (!isRuntimeApplicable(next, lastRuntime)) {
+      logDebugEvent("session", "stale-runtime-ignored", { origin }, false);
+      return false;
+    }
     const nextEncounter = encounterOf(next);
     const nextSessionId = nextEncounter?.status === "active" ? nextEncounter.id ?? null : null;
     const nextEntryId = nextEncounter?.active_entry_id ?? null;
@@ -6405,6 +6423,7 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
       }
     }
     broadcastSessionState();
+    return true;
   }
   function hasReadyTacticalRuntime2(runtime) {
     if (!normalizeTacticalGridSettings(runtime?.tactical_grid)) {
@@ -6472,6 +6491,24 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { origin, message: String(error?.message ?? error) }, false);
     }
+  }
+  function scheduleReconciliation(origin) {
+    if (reconciliationTimer || disposed) return;
+    reconciliationTimer = setTimeout(() => {
+      reconciliationTimer = null;
+      if (disposed) return;
+      void refresh(`${origin}-reconciliation`);
+    }, RECONCILIATION_DELAY_MS);
+  }
+  function applyExternalRuntime(runtime, origin) {
+    const next = runtime && typeof runtime === "object" ? runtime : null;
+    if (!next?.encounter || typeof next.encounter !== "object") {
+      logDebugEvent("session", "external-runtime-rejected", { origin, reason: "missing-encounter" }, false);
+      return false;
+    }
+    const applied = applyRuntime(next, { origin });
+    if (applied) scheduleReconciliation(origin);
+    return applied;
   }
   function currentSessionRef() {
     const encounter = encounterOf(lastRuntime);
@@ -6577,8 +6614,13 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   return {
     refresh: () => refresh("external"),
     getSessionRuntime: () => lastRuntime,
+    applyExternalRuntime,
     cleanup() {
       disposed = true;
+      if (reconciliationTimer) {
+        clearTimeout(reconciliationTimer);
+        reconciliationTimer = null;
+      }
       for (const fn of cleanups3.splice(0)) {
         try {
           fn();
@@ -6586,6 +6628,48 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
         }
       }
     }
+  };
+}
+
+// movement/moveToolBridge.js
+var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
+var TACTICAL_MOVE_TOOL_ID = "com.odyssey-system/tactical-move";
+var TACTICAL_MOVE_MODE_ID = "com.odyssey-system/tactical-move/move-character";
+var MOVE_TOOL_COMMANDS = Object.freeze({
+  ActivateSelected: "ACTIVATE_SELECTED",
+  Cancel: "CANCEL",
+  RequestStatus: "REQUEST_STATUS"
+});
+var MOVE_TOOL_EVENTS = Object.freeze({
+  Status: "STATUS",
+  Activated: "ACTIVATED",
+  Cancelled: "CANCELLED",
+  Applied: "APPLIED",
+  Error: "ERROR"
+});
+async function publishMoveToolEvent(type, payload = {}, destination = "LOCAL") {
+  await waitForObrReady();
+  await lib_default.broadcast.sendMessage(
+    MOVE_TOOL_CHANNEL,
+    { type, payload },
+    { destination }
+  );
+}
+async function subscribeMoveToolMessages(listener) {
+  await waitForObrReady();
+  let active = true;
+  const unsubscribe = lib_default.broadcast.onMessage(MOVE_TOOL_CHANNEL, (event) => {
+    if (!active) return;
+    const data = event?.data ?? {};
+    listener({
+      type: String(data?.type ?? "").trim(),
+      payload: data?.payload ?? {},
+      connectionId: event?.connectionId ?? ""
+    });
+  });
+  return () => {
+    active = false;
+    unsubscribe?.();
   };
 }
 
@@ -8158,6 +8242,19 @@ function setupSceneSelection(hooks = {}) {
       }
     }) : null;
     if (sessionController) cleanups3.push(() => sessionController.cleanup());
+    if (sessionController) {
+      const unsubscribeMoveTool = await subscribeMoveToolMessages((event) => {
+        if (event.type !== MOVE_TOOL_EVENTS.Applied) return;
+        const payload = event.payload ?? {};
+        if (payload.source !== "combat-movement" || !payload.runtime) return;
+        sessionController.applyExternalRuntime(payload.runtime, "tactical-move");
+      });
+      if (disposed) {
+        unsubscribeMoveTool?.();
+      } else {
+        cleanups3.push(unsubscribeMoveTool);
+      }
+    }
     let abilitiesRuntime = null;
     const quickbarController = configured ? setupQuickbarController({
       settings,
@@ -11429,48 +11526,6 @@ function resolveCombatMovementPermission({
     controlAllowed: true,
     gmOverrideActive: false,
     message: "It is not your turn."
-  };
-}
-
-// movement/moveToolBridge.js
-var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
-var TACTICAL_MOVE_TOOL_ID = "com.odyssey-system/tactical-move";
-var TACTICAL_MOVE_MODE_ID = "com.odyssey-system/tactical-move/move-character";
-var MOVE_TOOL_COMMANDS = Object.freeze({
-  ActivateSelected: "ACTIVATE_SELECTED",
-  Cancel: "CANCEL",
-  RequestStatus: "REQUEST_STATUS"
-});
-var MOVE_TOOL_EVENTS = Object.freeze({
-  Status: "STATUS",
-  Activated: "ACTIVATED",
-  Cancelled: "CANCELLED",
-  Applied: "APPLIED",
-  Error: "ERROR"
-});
-async function publishMoveToolEvent(type, payload = {}, destination = "LOCAL") {
-  await waitForObrReady();
-  await lib_default.broadcast.sendMessage(
-    MOVE_TOOL_CHANNEL,
-    { type, payload },
-    { destination }
-  );
-}
-async function subscribeMoveToolMessages(listener) {
-  await waitForObrReady();
-  let active = true;
-  const unsubscribe = lib_default.broadcast.onMessage(MOVE_TOOL_CHANNEL, (event) => {
-    if (!active) return;
-    const data = event?.data ?? {};
-    listener({
-      type: String(data?.type ?? "").trim(),
-      payload: data?.payload ?? {},
-      connectionId: event?.connectionId ?? ""
-    });
-  });
-  return () => {
-    active = false;
-    unsubscribe?.();
   };
 }
 

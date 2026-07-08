@@ -6767,13 +6767,17 @@ function resourceBar(kind, label, res) {
 var MOVE_TIP = {
   full: "Movement available",
   partial: "Movement partially spent",
-  empty: "Movement exhausted"
+  empty: "Movement exhausted",
+  unknown: "Movement unavailable"
 };
 function actionPips(actions) {
   const mainOn = Boolean(actions?.main);
-  const moveState = actions?.moveState === "full" || actions?.moveState === "partial" ? actions.moveState : "empty";
+  const rawMoveState = actions?.moveState;
+  const isKnownMoveState = rawMoveState === "full" || rawMoveState === "partial" || rawMoveState === "empty";
+  const moveState = isKnownMoveState ? rawMoveState : "unknown";
+  const moveCssState = isKnownMoveState ? rawMoveState : "empty";
   const mainPip = `<span class="${cls("ohud-pip", mainOn ? "is-on" : "is-off")}"${tipAttr("MAIN action", [mainOn ? "Available" : "Spent"])}>MAIN</span>`;
-  const movePip = `<span class="${cls("ohud-pip", `ohud-pip--move-${moveState}`)}"${tipAttr("MOVE action", [MOVE_TIP[moveState]])}>MOVE</span>`;
+  const movePip = `<span class="${cls("ohud-pip", `ohud-pip--move-${moveCssState}`)}" data-move-state="${moveState}"${tipAttr("MOVE action", [MOVE_TIP[moveState]])}>MOVE</span>`;
   return `<div class="ohud-pips">${mainPip}${movePip}</div>`;
 }
 function pilotStrip(pilot) {
