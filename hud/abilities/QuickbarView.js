@@ -18,7 +18,7 @@ import { esc, cls, tipAttr } from "../components/hudDom.js";
 import { skillIconSvg, ICON_LOCK } from "../components/hudIcons.js";
 import { rowOfSlot, FIRST_ROW_SIZE } from "./quickbarLayoutPolicy.js";
 import { abilityTooltipLines } from "./AbilityTooltip.js";
-import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility } from "./abilityAvailabilityPolicy.js";
+import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility } from "./abilityAvailabilityPolicy.js";
 
 // semanticKind → HUD accent class (same accent vocabulary as SkillBlock).
 const SEMANTIC_ACCENT = {
@@ -100,39 +100,53 @@ function occupiedTile(slot, action, armedActionId, pendingActionId) {
   // behavior — immediate server-side execution, no arm/disarm, no detail-
   // only click. See abilityAvailabilityPolicy.js's isInstantSelfAbility.
   const instantSelf = !isTechnique && isInstantSelfAbility(action);
+  // Phase 4.1B.2: a "directed" action requiring a target character but NO
+  // body zone gets its own execution behavior too — mutually exclusive with
+  // all of the above (a "directed" action can never also be
+  // attack_technique/instant by construction). See isDirectedTargetAbility.
+  const directedTarget = !isTechnique && !instantSelf && isDirectedTargetAbility(action);
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
-  const pending = (directAttack || instantSelf) && pendingActionId != null && pendingActionId === action.characterActionId;
+  const pending = (directAttack || instantSelf || directedTarget) && pendingActionId != null && pendingActionId === action.characterActionId;
   // Phase 4.1A.2: canonical category driving the state marker below — armed
   // takes visual priority (see abilityAvailabilityPolicy.js's doc comment)
   // even when the underlying ability also looks disabled. Direct-attack tiles
   // use their OWN derivation (deriveDirectAttackAvailability), which does not
   // treat this ability's "can't be armed" flag as "unsupported" (see that
-  // function's doc comment for why). Instant/self tiles reuse
-  // deriveSlotAvailability UNCHANGED — their available/executionAvailable
-  // fields are never tainted the way direct-attack's are.
+  // function's doc comment for why). Instant/self and directed-target tiles
+  // reuse deriveSlotAvailability UNCHANGED — their available/
+  // executionAvailable fields are never tainted the way direct-attack's are.
   const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
   // Server-truth for non-direct-attack tiles: available now factors in
   // cooldown/resource sufficiency/effect support (migration 101), so this
   // dimming class is honestly correct for every non-ready state. Direct-
   // attack tiles instead dim on their own derived availability (never
   // "unsupported" — see deriveDirectAttackAvailability) or while pending.
-  // Instant/self tiles dim on the SAME server-truth `available` flag (like
-  // any other non-direct-attack action), or while pending.
+  // Instant/self and directed-target tiles dim on the SAME server-truth
+  // `available` flag (like any other non-direct-attack action), or while
+  // pending — directed-target tiles are NEVER disabled just because no
+  // target is currently selected (spec: target validation happens on click,
+  // not as a permanent disabled state, so a READY ability with no target
+  // selected yet still LOOKS clickable and the "Select a target first."
+  // error surfaces from the click itself).
   const disabled = directAttack
     ? (availability !== SLOT_AVAILABILITY.ready || pending)
-    : (action.state?.available === false || (instantSelf && pending));
+    : (action.state?.available === false || ((instantSelf || directedTarget) && pending));
   const dataAction = directAttack
     ? "execute-direct-ability"
     : instantSelf
       ? "execute-instant-ability"
-      : (isTechnique ? "toggle-armed-technique" : "show-ability-detail");
+      : directedTarget
+        ? "execute-directed-ability"
+        : (isTechnique ? "toggle-armed-technique" : "show-ability-detail");
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
     directAttack
       ? (pending ? "Executing…" : "Direct ability attack — uses selected target and body zone")
       : instantSelf
         ? (pending ? "Executing…" : "Instant ability — no target required")
-        : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
+        : directedTarget
+          ? (pending ? "Executing…" : "Directed ability — uses selected target, no body zone required")
+          : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
   ]);
 
   // The state marker and the (orthogonal) active/ON marker share one

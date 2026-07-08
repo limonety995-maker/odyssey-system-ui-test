@@ -21,8 +21,13 @@
 // state.executionReason/available/disabledReason already read honestly for
 // this action class (never tainted the way direct-attack's are), so the
 // existing generic lines below are reused verbatim.
+//
+// Phase 4.1B.2: a directed-target-eligible action (isDirectedTargetAbility)
+// gets an "Execution: Directed (target)" line plus an explicit "no body
+// zone" note — its Target/Status lines otherwise need no override either
+// (same reasoning as instant/self).
 
-import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
+import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
 
 const TYPE_LABEL = {
   attack_technique: "Attack technique",
@@ -92,6 +97,7 @@ export function abilityTooltipModel(action) {
 
   const directAttack = isDirectAttackAbility(a);
   const instantSelf = !directAttack && isInstantSelfAbility(a);
+  const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
@@ -100,6 +106,7 @@ export function abilityTooltipModel(action) {
 
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
+  else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
 
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
@@ -122,6 +129,7 @@ export function abilityTooltipModel(action) {
     value: directAttack ? "Requires a selected target" : (TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "—")),
   });
   if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
+  else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
 
   const reqParts = [];
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);

@@ -122,3 +122,30 @@ export function isInstantSelfAbility(action) {
   const mode = a.targeting?.mode;
   return mode !== "character" && mode !== "body_part";
 }
+
+// Phase 4.1B.2 — Directed Target Abilities.
+//
+// A quick action is eligible for DIRECTED-TARGET execution (immediate,
+// server-authoritative, requires a selected target character but NO body
+// zone — see hud/scene/sceneSelectionController.js's
+// "execute-directed-ability" handler) when it is type "directed" AND its
+// own targeting.requiresBodyZone is NOT true.
+//
+// The server's own type derivation (101_quickbar_execution_availability.sql)
+// produces "directed" for BOTH target_type='character' (no zone) and
+// target_type='body_part' (needs a zone) whenever the ability isn't an
+// attack — the two are AMBIGUOUS from `type` alone. targeting.requiresBodyZone
+// (already computed server-side as `target_type = 'body_part'`) is the
+// existing field that disambiguates them — see
+// docs/PHASE_4_1B_2_DIRECTED_TARGET_ABILITIES_AUDIT.md §2/§4. No new field
+// was added. A non-attack body_part-targeted ability (requiresBodyZone:true)
+// is deliberately OUT of scope for this phase and falls through to the
+// existing show-ability-detail click, same as before this phase.
+//
+// Unlike direct-attack, this action class's state.available/
+// executionAvailable are not tainted by any arm-onto-weapon-attack concern —
+// deriveSlotAvailability is reused UNCHANGED, no separate derivation needed.
+export function isDirectedTargetAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
+}

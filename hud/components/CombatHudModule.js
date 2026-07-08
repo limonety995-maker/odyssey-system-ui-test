@@ -409,6 +409,19 @@ export function mountCombatHudModule(options) {
           });
         }
         break;
+      case "execute-directed-ability":
+        // Phase 4.1B.2: a directed target ability — requires a selected
+        // target character but no body zone (isDirectedTargetAbility). Same
+        // is-disabled guard; missing-target validation happens inside the
+        // command handler itself, not as a permanent disabled state (a
+        // READY ability with no target picked yet still looks clickable).
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud", feature: "quickbar", type: "execute-directed-ability",
+            characterActionId: t.getAttribute("data-action-id"),
+          });
+        }
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the
@@ -464,8 +477,10 @@ export function mountCombatHudModule(options) {
     // Phase 4.1B.1: same reasoning for an instant/self-eligible action —
     // its click is spoken for by "execute-instant-ability", but it still
     // needs the honest hover/focus detail card.
+    // Phase 4.1B.2: same reasoning for a directed-target-eligible action —
+    // "execute-directed-ability".
     const t = target && target.closest
-      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"]')
+      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"]')
       : null;
     return t && el.contains(t) ? t : null;
   }

@@ -32,7 +32,9 @@ import { buildBasicAttackCtx, buildDirectAbilityAttackCtx, resolveAttack } from 
 import { evaluateDirectAbilityAttack, isDirectAbilityAttackResultStale } from "../combat/directAbilityAttackPolicy.js";
 import { evaluateInstantAbilityExecution, isInstantAbilityResultStale } from "../combat/instantAbilityPolicy.js";
 import { resolveInstantAbilityExecution } from "../combat/instantAbilityPayload.js";
-import { isDirectAttackAbility, isInstantSelfAbility } from "../abilities/abilityAvailabilityPolicy.js";
+import { evaluateDirectedAbilityExecution, isDirectedAbilityResultStale } from "../combat/directedAbilityPolicy.js";
+import { resolveDirectedAbilityExecution } from "../combat/directedAbilityPayload.js";
+import { isDirectAttackAbility, isInstantSelfAbility, isDirectedTargetAbility } from "../abilities/abilityAvailabilityPolicy.js";
 import { buildAttackResolutionTrace, buildRollResolutionDetails } from "../combat/attackResolutionTrace.js";
 import { createSelectedWeaponMemory, resolveStoredWeaponId } from "./selectedWeaponMemory.js";
 import { createArmedTechniqueMemory } from "./armedTechniqueMemory.js";
@@ -40,6 +42,7 @@ import {
   appendCombatLogEntry,
   buildAttackLogEntry,
   buildAbilityExecutionLogEntry,
+  buildDirectedAbilityLogEntry,
   buildReloadLogEntry,
   buildFireModeLogEntry,
 } from "../log/combatResultLogPolicy.js";
@@ -140,6 +143,11 @@ export function setupSceneSelection(hooks = {}) {
     // instant/self ability execution command (never touches target/zone).
     pendingInstantAbilityActionId: null,
     instantAbilityExecutionResult: null,
+    // Phase 4.1B.2: same per-ability in-flight tracking, for the SEPARATE
+    // directed-target ability execution command — requires a selected
+    // target, never a body zone.
+    pendingDirectedAbilityActionId: null,
+    directedAbilityExecutionResult: null,
   };
   // ephemeral.debugEnabled gates the reload/fireMode/basicAttack debug sub-objects
   // in selectionState.js (an unrelated diagnostics feature) — kept independent of
@@ -347,6 +355,8 @@ export function setupSceneSelection(hooks = {}) {
         directAbilityAttackResult: ephemeral.directAbilityAttackResult,
         pendingInstantAbilityActionId: ephemeral.pendingInstantAbilityActionId,
         instantAbilityExecutionResult: ephemeral.instantAbilityExecutionResult,
+        pendingDirectedAbilityActionId: ephemeral.pendingDirectedAbilityActionId,
+        directedAbilityExecutionResult: ephemeral.directedAbilityExecutionResult,
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
@@ -818,6 +828,175 @@ export function setupSceneSelection(hooks = {}) {
           ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
           await refetchCurrent();
           logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-failure" }, true);
+        }
+        return;
+      }
+
+      // Phase 4.1B.2: Directed Target Ability Execution. A SEPARATE command
+      // from execute-instant-ability (above) — requires a selected target
+      // CHARACTER, but never a body zone/body part (isDirectedTargetAbility).
+      // Uses the SAME combat_execute_action(kind:"ability") RPC as
+      // instant/self abilities, just with intent.target_character_id
+      // included — use_ability already supports this (see
+      // docs/PHASE_4_1B_2_DIRECTED_TARGET_ABILITIES_AUDIT.md §5-7). Reads
+      // the SAME ephemeral.targeting state weapon-attack/direct-ability-
+      // attack already read — never a second target source, never Owlbear's
+      // native selection.
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-directed-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "directed-ability-requested", { characterActionId: actionId });
+
+        if (ephemeral.pendingDirectedAbilityActionId) return;
+
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isDirectedTargetAbility(action)) {
+          logDebugEvent("abilities", "directed-ability-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null,
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+
+        const sessionAtRequest = currentMappedSession();
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true,
+        };
+        const evalResult = evaluateDirectedAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.directedAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "directed-ability-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        // Client-side session pre-gate (UX mirror only — the server
+        // re-checks turn/MAIN inside combat_execute_action regardless).
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.directedAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "directed-ability-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId, targetCharacterId: evalCtx.targetCharacterId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest),
+        };
+
+        ephemeral.pendingDirectedAbilityActionId = actionId;
+        logDebugEvent("abilities", "directed-ability-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          sourceCharacterId: ctx.sourceCharacterId,
+          targetCharacterId: ctx.targetCharacterId,
+          targetTokenId: evalCtx.targetTokenId,
+        });
+        if (lastState) publishState(lastState); // slot shows pending immediately
+
+        let outcome;
+        try {
+          outcome = await resolveDirectedAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+
+        ephemeral.pendingDirectedAbilityActionId = null;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null,
+        };
+        const stale = isDirectedAbilityResultStale(requestCtx, currentCtx);
+
+        ephemeral.directedAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildDirectedAbilityLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          abilityName: action.name,
+          targetName: targeting.selectedTargetName ?? null,
+          outcome,
+        }));
+        logDebugEvent("abilities", "directed-ability-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          executionReason: action.state?.executionReason ?? null,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          targetTokenId: evalCtx.targetTokenId,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale,
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "directed-ability-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion,
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "directed-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability used." };
+          // Target/zone are NEVER reset after a successful directed ability
+          // — only a best-effort, non-clearing refresh of the target's own
+          // body-zone condition is requested, same as the weapon-attack/
+          // direct-ability-attack success paths.
+          try {
+            OBR.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "refreshBodyZones" }, { destination: "LOCAL" });
+            logDebugEvent("refresh", "target-refresh-result", { reason: "directed-ability-success", targetCharacterId: requestCtx.targetCharacterId }, true);
+          } catch (_e) { /* best-effort */ }
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "directed-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "directed-ability-failure" }, true);
         }
         return;
       }

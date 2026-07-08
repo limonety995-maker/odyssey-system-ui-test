@@ -435,6 +435,12 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
     if (pendingInstantAbilityActionId) {
       hudSnapshot = { ...hudSnapshot, pendingInstantAbilityActionId };
     }
+    // Phase 4.1B.2: same treatment for the SEPARATE directed-target-ability
+    // in-flight request.
+    const pendingDirectedAbilityActionId = ephemeral.pendingDirectedAbilityActionId ?? null;
+    if (pendingDirectedAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectedAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle
     ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
