@@ -143,10 +143,17 @@ export async function hideSourceOutline() {
 
 export async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
-  await OBR.scene.local.addItems([
-    buildTargetRingAnchorItem(tokenId, bounds),
-    buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0),
-  ]);
+  // Two SEQUENTIAL addItems calls, not one batched call: the ring's
+  // .attachedTo(TARGET_RING_ANCHOR_ITEM_ID) must resolve against an anchor
+  // that is already committed to the local scene store, never a same-call
+  // sibling whose own commit ordering isn't guaranteed. This is the one part
+  // of the local-only mechanism that is genuinely new to this codebase (no
+  // existing local-only overlay — e.g. movement/combatMovementPreview.js —
+  // ever attaches one freshly-created local item to another in the same
+  // operation), so it is deliberately the most conservative possible
+  // sequencing rather than relying on unconfirmed same-batch behavior.
+  await OBR.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
+  await OBR.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
 }
 
 export async function hideTargetRing() {

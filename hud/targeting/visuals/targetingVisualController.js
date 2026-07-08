@@ -21,6 +21,7 @@
 import OBR from "@owlbear-rodeo/sdk";
 import { activateTool, activateToolMode, getActiveTool, getActiveToolMode } from "../../../bridge/obrBridge.js";
 import { buildTargetCursorValue, buildTargetCursorToolIcon } from "../targetCursorSvg.js";
+import { logDebugEvent } from "../../debug/debugLogStore.js";
 import {
   shouldShowSourceOutline,
   shouldShowTargetRing,
@@ -184,9 +185,16 @@ export function setupTargetingVisuals() {
       ringVisible = true;
       ringTokenId = targetTokenId;
       startRingTimer();
-    } catch (_e) {
+      logDebugEvent("targeting", "target-ring-shown", { tokenId: targetTokenId }, true);
+    } catch (error) {
       ringVisible = false;
       ringTokenId = null;
+      // Cosmetic-only (never breaks targeting itself) — but a silently
+      // swallowed failure here is exactly what made a real "ring never
+      // appears" bug indistinguishable from "everything is fine" in the
+      // past. Surface it to the Debug Console so a missing overlay is
+      // diagnosable instead of silent.
+      logDebugEvent("targeting", "target-ring-failed", { tokenId: targetTokenId, message: String(error?.message ?? error) }, false);
     }
   }
 
