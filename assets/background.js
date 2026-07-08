@@ -5439,6 +5439,107 @@ function isDirectAbilityAttackResultStale(requestCtx, currentCtx) {
   return buildDirectAbilityAttackRequestSignature(requestCtx) !== buildDirectAbilityAttackRequestSignature(currentCtx);
 }
 
+// hud/combat/instantAbilityPolicy.js
+var INSTANT_ABILITY_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  noAbility: "No ability selected.",
+  inFlight: "Ability is resolving.",
+  noActiveEncounter: "Not in an active encounter."
+});
+function blocked3(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED3 = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateInstantAbilityExecution(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    abilityId = null,
+    inFlight = false,
+    sessionExists = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked3(INSTANT_ABILITY_BLOCK_REASON.noCharacter);
+  if (!abilityId) return blocked3(INSTANT_ABILITY_BLOCK_REASON.noAbility);
+  if (inFlight) return blocked3(INSTANT_ABILITY_BLOCK_REASON.inFlight);
+  if (!sessionExists) return blocked3(INSTANT_ABILITY_BLOCK_REASON.noActiveEncounter);
+  return ALLOWED3;
+}
+function buildInstantAbilityRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.abilityId ?? ""}`;
+}
+function isInstantAbilityResultStale(requestCtx, currentCtx) {
+  return buildInstantAbilityRequestSignature(requestCtx) !== buildInstantAbilityRequestSignature(currentCtx);
+}
+
+// hud/combat/instantAbilityPayload.js
+function buildInstantAbilityExecutionPayload(input = {}) {
+  const payload = {
+    kind: "ability",
+    character_id: String(input.sourceCharacterId ?? "").trim(),
+    encounter_id: String(input.encounterId ?? "").trim(),
+    actor_player_id: String(input.actorPlayerId ?? "").trim(),
+    actor_is_gm: !!input.actorIsGm,
+    intent: {
+      character_ability_id: String(input.abilityId ?? "").trim()
+    }
+  };
+  if (input.expectedEncounterVersion !== null && input.expectedEncounterVersion !== void 0 && Number.isFinite(Number(input.expectedEncounterVersion))) {
+    payload.expected_encounter_version = Number(input.expectedEncounterVersion);
+  }
+  return payload;
+}
+function asObject(v) {
+  return v && typeof v === "object" ? v : {};
+}
+function normalizeInstantAbilityResult(raw) {
+  const r = asObject(raw);
+  const spent = asObject(r.spent);
+  const result = asObject(r.result);
+  const ability = asObject(result.ability);
+  const resource = asObject(result.resource);
+  return {
+    ok: r.ok !== false,
+    actionCost: spent.action_cost ?? null,
+    moveCost: spent.move_cost ?? null,
+    usedReaction: spent.used_reaction ?? null,
+    abilityCode: ability.code ?? null,
+    abilityName: ability.name ?? null,
+    effectMode: ability.effect_mode ?? null,
+    resourceSpent: resource.spent ?? resource.cost ?? resource.amount_spent ?? null,
+    resourceRemaining: resource.remaining ?? resource.current_value ?? null,
+    narrativeOnly: result.result?.narrative_only === true,
+    encounterStateVersion: r.encounter_state_version ?? null,
+    characterStateVersion: r.character_state_version ?? null
+  };
+}
+async function resolveInstantAbilityExecution(ctx, deps) {
+  const payload = buildInstantAbilityExecutionPayload(ctx);
+  let raw;
+  try {
+    raw = await deps.executeAction(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      payload,
+      raw: error?.details ?? null,
+      normalized: null,
+      code: error?.code ?? null,
+      error: error?.message || "Network or RPC error."
+    };
+  }
+  if (!raw || raw.ok === false) {
+    const code = raw?.error ?? null;
+    return {
+      ok: false,
+      payload,
+      raw: raw ?? null,
+      normalized: raw ? normalizeInstantAbilityResult(raw) : null,
+      code,
+      error: raw?.message || describeError(code, "The ability could not be executed.")
+    };
+  }
+  return { ok: true, payload, raw, normalized: normalizeInstantAbilityResult(raw), code: null, error: null };
+}
+
 // hud/abilities/abilityAvailabilityPolicy.js
 var SLOT_AVAILABILITY = Object.freeze({
   ready: "ready",
@@ -5462,6 +5563,12 @@ function deriveDirectAttackAvailability(action) {
   if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
   if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
   return SLOT_AVAILABILITY.ready;
+}
+function isInstantSelfAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  if (a.type !== "instant") return false;
+  const mode2 = a.targeting?.mode;
+  return mode2 !== "character" && mode2 !== "body_part";
 }
 
 // hud/combat/attackResolutionTrace.js
@@ -5740,7 +5847,8 @@ function createArmedTechniqueMemory() {
 var LOG_TYPE = Object.freeze({
   attack: "attack",
   reload: "reload",
-  fireMode: "fire-mode"
+  fireMode: "fire-mode",
+  abilityExecute: "ability-execute"
 });
 var LOG_OUTCOME = Object.freeze({
   success: "success",
@@ -5771,6 +5879,34 @@ function buildReloadLogEntry({ sourceCharacterId, ok, message }) {
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Reload" : "Reload failed",
     details: [String(message || (ok ? "Reloaded." : "Reload denied."))],
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null
+  };
+}
+function buildAbilityExecutionLogEntry({ sourceCharacterId, abilityName, outcome }) {
+  const ok = !!outcome?.ok;
+  const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  let details2;
+  if (ok) {
+    const n = outcome?.normalized ?? {};
+    const costParts = [];
+    if (Number(n.actionCost) > 0) costParts.push("MAIN spent");
+    if (Number(n.resourceSpent) > 0) costParts.push(`Resource spent: ${n.resourceSpent}`);
+    const effectPart = n.narrativeOnly ? "No mechanical effect." : null;
+    details2 = [
+      `Used ${name}.`,
+      costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
+      ...effectPart ? [effectPart] : []
+    ];
+  } else {
+    details2 = [String(outcome?.error || `${name} denied.`)];
+  }
+  return {
+    timestamp: Date.now(),
+    type: LOG_TYPE.abilityExecute,
+    outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
+    title: ok ? "Ability used" : "Ability failed",
+    details: details2,
     sourceCharacterId: sourceCharacterId ?? null,
     targetCharacterId: null
   };
@@ -8088,6 +8224,10 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     if (pendingDirectAbilityActionId) {
       hudSnapshot = { ...hudSnapshot, pendingDirectAbilityActionId };
     }
+    const pendingInstantAbilityActionId = ephemeral.pendingInstantAbilityActionId ?? null;
+    if (pendingInstantAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingInstantAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
     selectionStatus: s.status,
@@ -8310,7 +8450,11 @@ function setupSceneSelection(hooks = {}) {
     // quickbar lock, so an unrelated ability/weapon attack stays interactive
     // while one request resolves.
     pendingDirectAbilityActionId: null,
-    directAbilityAttackResult: null
+    directAbilityAttackResult: null,
+    // Phase 4.1B.1: same per-ability in-flight tracking, for the SEPARATE
+    // instant/self ability execution command (never touches target/zone).
+    pendingInstantAbilityActionId: null,
+    instantAbilityExecutionResult: null
   };
   let debugEnabled = false;
   try {
@@ -8456,6 +8600,8 @@ function setupSceneSelection(hooks = {}) {
         basicAttackResult: ephemeral.basicAttackResult,
         pendingDirectAbilityActionId: ephemeral.pendingDirectAbilityActionId,
         directAbilityAttackResult: ephemeral.directAbilityAttackResult,
+        pendingInstantAbilityActionId: ephemeral.pendingInstantAbilityActionId,
+        instantAbilityExecutionResult: ephemeral.instantAbilityExecutionResult,
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
@@ -8685,6 +8831,127 @@ function setupSceneSelection(hooks = {}) {
           ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability attack failed." };
           await refetchCurrent();
           logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-failure" }, true);
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-instant-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "ability-execute-requested", { characterActionId: actionId });
+        if (ephemeral.pendingInstantAbilityActionId) return;
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isInstantSelfAbility(action)) {
+          logDebugEvent("abilities", "ability-execute-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+        const sessionAtRequest = currentMappedSession();
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true
+        };
+        const evalResult = evaluateInstantAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.instantAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "ability-execute-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.instantAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "ability-execute-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+        };
+        ephemeral.pendingInstantAbilityActionId = actionId;
+        logDebugEvent("abilities", "ability-execute-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind
+        });
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveInstantAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+        ephemeral.pendingInstantAbilityActionId = null;
+        const currentCtx = { sourceCharacterId: ephemeral.characterId, abilityId: actionId };
+        const stale = isInstantAbilityResultStale(requestCtx, currentCtx);
+        ephemeral.instantAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildAbilityExecutionLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          abilityName: action.name,
+          outcome
+        }));
+        logDebugEvent("abilities", "ability-execute-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          executionReason: action.state?.executionReason ?? null,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "ability-execute-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "instant-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability used." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-failure" }, true);
         }
         return;
       }
@@ -10233,11 +10500,13 @@ function abilityTooltipModel(action) {
   const requirements = a.requirements ?? {};
   const state = a.state ?? {};
   const directAttack = isDirectAttackAbility(a);
+  const instantSelf = !directAttack && isInstantSelfAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
+  else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });

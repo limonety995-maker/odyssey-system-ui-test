@@ -7086,6 +7086,12 @@ function deriveDirectAttackAvailability(action) {
   if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
   return SLOT_AVAILABILITY.ready;
 }
+function isInstantSelfAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  if (a.type !== "instant") return false;
+  const mode = a.targeting?.mode;
+  return mode !== "character" && mode !== "body_part";
+}
 
 // hud/abilities/AbilityTooltip.js
 var TYPE_LABEL = {
@@ -7136,11 +7142,13 @@ function abilityTooltipModel(action) {
   const requirements = a.requirements ?? {};
   const state = a.state ?? {};
   const directAttack = isDirectAttackAbility(a);
+  const instantSelf = !directAttack && isInstantSelfAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
+  else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
@@ -7224,14 +7232,15 @@ function occupiedTile(slot, action, armedActionId, pendingActionId) {
   const mark = TYPE_MARK[action.type] ?? "";
   const isTechnique = action.type === "attack_technique";
   const directAttack = isTechnique && isDirectAttackAbility(action);
+  const instantSelf = !isTechnique && isInstantSelfAbility(action);
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
-  const pending = directAttack && pendingActionId != null && pendingActionId === action.characterActionId;
+  const pending = (directAttack || instantSelf) && pendingActionId != null && pendingActionId === action.characterActionId;
   const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
-  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false;
-  const dataAction = directAttack ? "execute-direct-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false || instantSelf && pending;
+  const dataAction = directAttack ? "execute-direct-ability" : instantSelf ? "execute-instant-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
-    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
   ]);
   const stateMarker = stateMarkerHtml(availability, action, pending);
   const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
@@ -7311,7 +7320,7 @@ function renderSkillBlock(state) {
     const role = String(state?.viewer?.role ?? "").toLowerCase();
     const canEdit = role === "gm" || role === "player";
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? null;
+    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? state?.snapshot?.pendingInstantAbilityActionId ?? null;
     return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId }) });
   }
   const slots = selectQuickSlots(state);
@@ -8395,6 +8404,16 @@ function mountCombatHudModule(options) {
           });
         }
         break;
+      case "execute-instant-ability":
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud",
+            feature: "quickbar",
+            type: "execute-instant-ability",
+            characterActionId: t.getAttribute("data-action-id")
+          });
+        }
+        break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "end-turn" });
@@ -8418,7 +8437,7 @@ function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
   function techniqueSlotFromTarget(target) {
-    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"]') : null;
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"]') : null;
     return t && el.contains(t) ? t : null;
   }
   function onSlotDetailOver(e) {
