@@ -382,6 +382,21 @@ export function mountCombatHudModule(options) {
           characterActionId: t.getAttribute("data-action-id"),
         });
         break;
+      case "execute-direct-ability":
+        // Phase 4.1B.0: a direct single-target ability attack — an immediate
+        // execution, never an arm/disarm toggle (see
+        // hud/abilities/abilityAvailabilityPolicy.js's isDirectAttackAbility).
+        // is-disabled already covers cooldown/insufficient-resource/other
+        // server-derived unavailability AND an in-flight duplicate click
+        // (QuickbarView.js sets is-disabled whenever is-pending is true) — one
+        // guard covers both cases, exactly like basic-attack's own guard above.
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud", feature: "quickbar", type: "execute-direct-ability",
+            characterActionId: t.getAttribute("data-action-id"),
+          });
+        }
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the
@@ -429,7 +444,14 @@ export function mountCombatHudModule(options) {
   // controller (the one shared arbiter reachable by both iframes) is what
   // actually coordinates the shared grace window.
   function techniqueSlotFromTarget(target) {
-    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
+    // Phase 4.1B.0: a direct-attack-eligible technique's click is spoken for
+    // by "execute-direct-ability" instead of "toggle-armed-technique" (see
+    // isDirectAttackAbility), but it is still an attack_technique slot and
+    // must still get the SAME hover/focus detail card — only the click
+    // behavior differs between the two.
+    const t = target && target.closest
+      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"]')
+      : null;
     return t && el.contains(t) ? t : null;
   }
   function onSlotDetailOver(e) {

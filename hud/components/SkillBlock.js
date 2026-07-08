@@ -68,7 +68,11 @@ export function renderSkillBlock(state) {
     // — ephemeral UI state folded in by selectionState.js, never server data
     // by itself (the server re-validates everything at Attack time).
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId }) });
+    // Phase 4.1B.0: which direct-ability-attack request (if any) is currently
+    // in flight — ephemeral UI-only, folded in by selectionState.js exactly
+    // like armedActionId above.
+    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? null;
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId }) });
   }
 
   const slots = selectQuickSlots(state);

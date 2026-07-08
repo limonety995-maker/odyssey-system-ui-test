@@ -42,3 +42,57 @@ export function deriveSlotAvailability(action, isArmed = false) {
   if (state.available === false) return SLOT_AVAILABILITY.unavailable;
   return SLOT_AVAILABILITY.ready;
 }
+
+// Phase 4.1B.0 — Direct Ability Attack.
+//
+// A quick action is eligible for DIRECT execution (immediate, server-
+// authoritative single-target ability attack — see
+// hud/scene/sceneSelectionController.js's "execute-direct-ability" handler)
+// when it is an attack_technique whose own executionReason is EXACTLY
+// migration 100/101's ACTION_EFFECT_NOT_IMPLEMENTED — the same, already-
+// existing, purely metadata-driven signal the audit found (
+// docs/PHASE_4_1B_0_DIRECT_ABILITY_ATTACK_AUDIT.md §17): this reason means
+// "this ability has a damage/armor effect that cannot be ARMED onto a
+// weapon attack" — which is exactly the set of techniques this phase's own
+// separate resolver (odyssey_perform_ability_attack via perform_attack's
+// mode:"skill" branch) already supports natively. No name-based check, no
+// new server field — the client only ever reads action.type/action.state,
+// exactly like deriveSlotAvailability above.
+export function isDirectAttackAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "attack_technique" && a.state?.executionReason === "ACTION_EFFECT_NOT_IMPLEMENTED";
+}
+
+/**
+ * Availability for a direct-attack-eligible action (isDirectAttackAbility()
+ * already true for it) — deliberately does NOT read
+ * state.available/state.executionAvailable, since both are computed
+ * server-side folding in the SAME "unsupported for arming" flag that makes
+ * this ability direct-attack-eligible in the first place (migration 101);
+ * treating that as "unavailable" here would incorrectly lock out every
+ * direct-attack-eligible ability, including Etheric Strike, permanently.
+ * cooldown/resourceSufficient are computed independently of that flag
+ * (confirmed against the migration's SQL) and are exactly what this
+ * function derives readiness from instead. A genuinely different blocking
+ * reason (character disabled/dead/skip-turn) still surfaces as `unavailable`
+ * — detected by `available === false` paired with an executionReason OTHER
+ * than the unsupported-effect one, since that combination can only mean some
+ * other, higher-priority server-side reason applied (see
+ * 101_quickbar_execution_availability.sql's disabledReason CASE priority
+ * order: is_enabled → skip-turn → dead → unsupported-effect → cooldown →
+ * resource).
+ * @param {object} action mapped quick action, already confirmed isDirectAttackAbility()
+ * @returns {string} one of SLOT_AVAILABILITY's values (never "armed"/"unsupported")
+ */
+export function deriveDirectAttackAvailability(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+
+  if (state.available === false && state.executionReason !== "ACTION_EFFECT_NOT_IMPLEMENTED") {
+    return SLOT_AVAILABILITY.unavailable;
+  }
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  return SLOT_AVAILABILITY.ready;
+}

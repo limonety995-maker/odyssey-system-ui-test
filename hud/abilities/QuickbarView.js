@@ -18,7 +18,7 @@ import { esc, cls, tipAttr } from "../components/hudDom.js";
 import { skillIconSvg, ICON_LOCK } from "../components/hudIcons.js";
 import { rowOfSlot, FIRST_ROW_SIZE } from "./quickbarLayoutPolicy.js";
 import { abilityTooltipLines } from "./AbilityTooltip.js";
-import { deriveSlotAvailability, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
+import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability } from "./abilityAvailabilityPolicy.js";
 
 // semanticKind → HUD accent class (same accent vocabulary as SkillBlock).
 const SEMANTIC_ACCENT = {
@@ -46,7 +46,12 @@ function actionById(runtime, id) {
 // mutually exclusive (deriveSlotAvailability returns exactly one), so at
 // most one of these ever renders. "active" (toggle ON) is orthogonal and
 // rendered alongside separately, unchanged from before.
-function stateMarkerHtml(availability, action) {
+function stateMarkerHtml(availability, action, pending) {
+  // Phase 4.1B.0: a direct ability attack in flight — checked BEFORE the
+  // canonical availability switch since "pending" isn't itself one of
+  // SLOT_AVAILABILITY's values (it's an ephemeral request-in-progress fact,
+  // like "armed" is a client-only fact for the weapon-attack channel).
+  if (pending) return `<span class="ohud-qb-state ohud-qb-state--pending">…</span>`;
   switch (availability) {
     case SLOT_AVAILABILITY.armed:
       return `<span class="ohud-qb-state ohud-qb-state--armed">ARMED</span>`;
@@ -65,7 +70,7 @@ function stateMarkerHtml(availability, action) {
   }
 }
 
-function occupiedTile(slot, action, armedActionId) {
+function occupiedTile(slot, action, armedActionId, pendingActionId) {
   if (!action) {
     // A slot whose action vanished from the library — visible + flagged.
     return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
@@ -73,10 +78,6 @@ function occupiedTile(slot, action, armedActionId) {
     </button>`;
   }
   const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
-  // Server-truth: available now factors in cooldown/resource sufficiency/
-  // effect support (migration 101), so this dimming class is honestly correct
-  // for every non-ready state, not just the old is_enabled/skip-turn/alive set.
-  const disabled = action.state?.available === false;
   const active = action.state?.active === true;
   const mark = TYPE_MARK[action.type] ?? "";
 
@@ -86,27 +87,48 @@ function occupiedTile(slot, action, armedActionId) {
   // the technique looks disabled IF it's already the armed one (so the player
   // can always disarm a technique that became invalid after arming — see
   // CombatHudModule.js's toggle-armed-technique guard).
+  //
+  // Phase 4.1B.0: a technique whose own effect can't be armed onto a weapon
+  // attack (isDirectAttackAbility — see abilityAvailabilityPolicy.js) gets a
+  // THIRD, mutually-exclusive click behavior instead: direct execution. A
+  // single ability is never both armable and directly-executable — the
+  // signal is purely metadata-driven (executionReason), never a name check.
   const isTechnique = action.type === "attack_technique";
-  const armed = isTechnique && armedActionId != null && armedActionId === action.characterActionId;
+  const directAttack = isTechnique && isDirectAttackAbility(action);
+  const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
+  const pending = directAttack && pendingActionId != null && pendingActionId === action.characterActionId;
   // Phase 4.1A.2: canonical category driving the state marker below — armed
   // takes visual priority (see abilityAvailabilityPolicy.js's doc comment)
-  // even when the underlying ability also looks disabled.
-  const availability = deriveSlotAvailability(action, armed);
-  const dataAction = isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  // even when the underlying ability also looks disabled. Direct-attack tiles
+  // use their OWN derivation (deriveDirectAttackAvailability), which does not
+  // treat this ability's "can't be armed" flag as "unsupported" (see that
+  // function's doc comment for why).
+  const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
+  // Server-truth for non-direct-attack tiles: available now factors in
+  // cooldown/resource sufficiency/effect support (migration 101), so this
+  // dimming class is honestly correct for every non-ready state. Direct-
+  // attack tiles instead dim on their own derived availability (never
+  // "unsupported" — see deriveDirectAttackAvailability) or while pending.
+  const disabled = directAttack
+    ? (availability !== SLOT_AVAILABILITY.ready || pending)
+    : action.state?.available === false;
+  const dataAction = directAttack ? "execute-direct-ability" : (isTechnique ? "toggle-armed-technique" : "show-ability-detail");
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
-    isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
+    directAttack
+      ? (pending ? "Executing…" : "Direct ability attack — uses selected target and body zone")
+      : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
   ]);
 
   // The state marker and the (orthogonal) active/ON marker share one
   // top-right badge group — wrapped together (rather than each absolutely
   // positioned on its own) so neither ever renders on top of the other.
-  const stateMarker = stateMarkerHtml(availability, action);
+  const stateMarker = stateMarkerHtml(availability, action, pending);
   const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
   const badges = stateMarker || activeMarker
     ? `<span class="ohud-qb-badges">${stateMarker}${activeMarker}</span>`
     : "";
-  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
+  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "", pending ? "is-pending" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
     <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qb-name">${esc(action.name)}</span>
     ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
@@ -128,7 +150,7 @@ function emptyTile(slotIndex, canEdit) {
 /**
  * Render the quickbar strip body for the Skills module.
  * @param {object} runtime mapped abilities runtime (snapshot.quickbar)
- * @param {{ canEdit?: boolean, armedActionId?: (string|null) }} [opts]
+ * @param {{ canEdit?: boolean, armedActionId?: (string|null), pendingActionId?: (string|null) }} [opts]
  * @returns {string} HTML for the panel body
  */
 export function renderQuickbarStrip(runtime, opts = {}) {
@@ -136,6 +158,11 @@ export function renderQuickbarStrip(runtime, opts = {}) {
   const slots = Array.isArray(rt.quickbar?.slots) ? rt.quickbar.slots : [];
   const canEdit = opts.canEdit !== false;
   const armedActionId = opts.armedActionId ?? null;
+  // Phase 4.1B.0: the ONE direct-ability-attack request currently in flight
+  // (if any) — a slot-scoped pending state, never a whole-strip disable, so
+  // unrelated abilities/weapon-attack stay fully interactive while one
+  // request resolves (spec §D: "other unrelated HUD state remains stable").
+  const pendingActionId = opts.pendingActionId ?? null;
 
   // Group slots by row; render rows in ASCENDING order so row 0 (slots 1-10)
   // is on TOP and row 1 (slots 11-20) is BELOW it — matching the Quickbar
@@ -154,7 +181,7 @@ export function renderQuickbarStrip(runtime, opts = {}) {
       .sort((a, b) => a.slotIndex - b.slotIndex)
       .map((slot) => {
         if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
-        return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId);
+        return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId, pendingActionId);
       })
       .join("");
     return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;

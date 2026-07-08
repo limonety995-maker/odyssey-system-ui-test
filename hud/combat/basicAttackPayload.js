@@ -68,3 +68,52 @@ export function buildBasicAttackCtx(input = {}) {
     expectedEncounterVersion: input.expectedEncounterVersion ?? null,
   };
 }
+
+/**
+ * Build the `ctx` object for resolveAttackService.buildAttackPayload() for a
+ * Phase 4.1B.0 DIRECT ability attack — mode: "skill", never mode: "weapon".
+ * buildAttackPayload() then emits `character_ability_id` instead of
+ * `weapon_id`, and this ctx carries no weapon/ammo/magazine/fire-mode field
+ * of any kind (there is nothing here to carry — a direct ability attack does
+ * not read the selected weapon, ammo, magazine, fire mode, reload state, or
+ * weapon profile damage; see docs/PHASE_4_1B_0_DIRECT_ABILITY_ATTACK_AUDIT.md
+ * §7/§18). `armedActionIds` is likewise never set — the Phase 4.1A armed-
+ * technique flow is a completely separate, weapon-attack-only mechanism this
+ * ctx never touches. See hud/combat/directAbilityAttackPolicy.js for the
+ * matching preconditions gate.
+ *
+ * @param {{
+ *   sourceCharacterId: string,
+ *   abilityId: string,
+ *   targetCharacterId: string,
+ *   bodyPartId: string,
+ *   distance?: (number|null),
+ *   roomContext?: { roomId?, campaignId?, sceneId?, encounterId?, actorTokenId?, targetTokenId? },
+ *   expectedEncounterVersion?: (number|null),
+ * }} input
+ */
+export function buildDirectAbilityAttackCtx(input = {}) {
+  const room = input.roomContext ?? {};
+  return {
+    mode: "skill",
+    attackerCharacterId: input.sourceCharacterId,
+    targetCharacterId: input.targetCharacterId,
+    targetBodyPartId: input.bodyPartId,
+    distanceM: input.distance ?? 0,
+    abilityId: input.abilityId,
+    // No manual-modifier UI exists for direct ability attacks (same as basic
+    // weapon attacks) — an empty list matches "no manual modifier", never a
+    // fabricated bonus/penalty.
+    modifiers: [],
+    roomId: room.roomId,
+    campaignId: room.campaignId,
+    sceneId: room.sceneId,
+    encounterId: room.encounterId,
+    actorTokenId: room.actorTokenId,
+    targetTokenId: room.targetTokenId,
+    // Phase 3E.0 session gate (now also enforced for ability attacks server-
+    // side — see migration 102) — only ever set while an active combat
+    // session exists (never fabricated).
+    expectedEncounterVersion: input.expectedEncounterVersion ?? null,
+  };
+}

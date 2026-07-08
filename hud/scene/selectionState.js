@@ -420,6 +420,14 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         };
       }
     }
+    // Phase 4.1B.0: which direct-ability-attack request (if any) is currently
+    // in flight — ephemeral UI-only, same treatment as armedActionId above.
+    // Absent (null) simply omits the key, matching armedActionId's own
+    // only-when-set convention.
+    const pendingDirectAbilityActionId = ephemeral.pendingDirectAbilityActionId ?? null;
+    if (pendingDirectAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle
     ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {

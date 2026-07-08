@@ -28,7 +28,9 @@ import { getCharacterInventory } from "../../api/inventoryApi.js";
 import { resolveReloadMagazineId, normalizeReloadRpcResult } from "./reloadPolicy.js";
 import { normalizeFireModeRpcResult } from "./fireModePolicy.js";
 import { evaluateBasicAttack, buildAttackRequestSignature, isAttackResultStale } from "../combat/basicAttackPolicy.js";
-import { buildBasicAttackCtx, resolveAttack } from "../combat/basicAttackPayload.js";
+import { buildBasicAttackCtx, buildDirectAbilityAttackCtx, resolveAttack } from "../combat/basicAttackPayload.js";
+import { evaluateDirectAbilityAttack, isDirectAbilityAttackResultStale } from "../combat/directAbilityAttackPolicy.js";
+import { isDirectAttackAbility } from "../abilities/abilityAvailabilityPolicy.js";
 import { buildAttackResolutionTrace, buildRollResolutionDetails } from "../combat/attackResolutionTrace.js";
 import { createSelectedWeaponMemory, resolveStoredWeaponId } from "./selectedWeaponMemory.js";
 import { createArmedTechniqueMemory } from "./armedTechniqueMemory.js";
@@ -125,6 +127,12 @@ export function setupSceneSelection(hooks = {}) {
     // fabricated hit/miss/damage, only what buildBasicAttackDebugInfo()
     // forwards from the real server response or exception.
     basicAttackResult: null,
+    // Phase 4.1B.0: which direct-ability-attack request (characterActionId,
+    // never a boolean) is currently in flight — per-ability, not a whole-
+    // quickbar lock, so an unrelated ability/weapon attack stays interactive
+    // while one request resolves.
+    pendingDirectAbilityActionId: null,
+    directAbilityAttackResult: null,
   };
   // ephemeral.debugEnabled gates the reload/fireMode/basicAttack debug sub-objects
   // in selectionState.js (an unrelated diagnostics feature) — kept independent of
@@ -313,6 +321,8 @@ export function setupSceneSelection(hooks = {}) {
         fireModeRpcResult: ephemeral.fireModeRpcResult,
         basicAttackInFlight: ephemeral.basicAttackInFlight,
         basicAttackResult: ephemeral.basicAttackResult,
+        pendingDirectAbilityActionId: ephemeral.pendingDirectAbilityActionId,
+        directAbilityAttackResult: ephemeral.directAbilityAttackResult,
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
@@ -438,6 +448,175 @@ export function setupSceneSelection(hooks = {}) {
             previousCharacterActionId: previousId ?? null,
           });
           if (lastState) publishState(lastState);
+        }
+        return;
+      }
+
+      // Phase 4.1B.0: Direct Ability Attack. A SEPARATE command from both
+      // toggle-armed (above) and basic-attack (below) — clicking a direct-
+      // attack-eligible technique executes it immediately server-side; it
+      // never becomes ARMED and never touches armedTechniqueMemory. Uses the
+      // SAME resolveAttack()/performAttack() weapon attacks use (mode:
+      // "skill" instead of "weapon" — see buildDirectAbilityAttackCtx), so
+      // server result handling (ok:false vs exception vs success) behaves
+      // identically. No weapon/ammo/magazine/fire-mode field is ever built
+      // into this payload — buildDirectAbilityAttackCtx structurally has none.
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-direct-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "direct-attack-requested", { characterActionId: actionId });
+
+        // Double-submit guard: per-ability (not a whole-quickbar lock), so a
+        // second execute on the SAME ability while it's in flight is a
+        // no-op, but every other slot/weapon-attack stays fully interactive.
+        if (ephemeral.pendingDirectAbilityActionId) return;
+
+        const action = ephemeral.abilitiesRuntime?.quickActions?.find((a) => a.characterActionId === actionId) ?? null;
+        if (!actionId || !action || !isDirectAttackAbility(action)) {
+          // Defensive only — QuickbarView.js never dispatches this command
+          // for anything else; a malformed/stale command is ignored rather
+          // than guessed at.
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: "INVALID_ABILITY" }, false);
+          return;
+        }
+
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          bodyZoneId: targeting.selectedBodyPartId ?? null,
+          resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+          inFlight: false,
+        };
+        const evalResult = evaluateDirectAbilityAttack(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.directAbilityAttackResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        // Phase 3E.0: client-side session pre-gate (UX mirror only — the
+        // server re-checks turn/MAIN inside perform_attack regardless, now
+        // for ability attacks too — see migration 102).
+        const sessionAtRequest = currentMappedSession();
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.directAbilityAttackResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        // Snapshot the source/ability/target this request is FOR — same
+        // staleness discipline as basic-attack below.
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId, targetCharacterId: evalCtx.targetCharacterId };
+        const bodyZoneLabel = getZoneLabel(DEFAULT_PROFILE_ID, evalCtx.bodyZoneId) || evalCtx.bodyZoneId;
+        const ctx = buildDirectAbilityAttackCtx({
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          bodyPartId: evalCtx.resolvedBodyPartId,
+          distance: targeting.distance ?? 0,
+          roomContext: sessionAtRequest.exists
+            ? { encounterId: sessionAtRequest.id ?? undefined }
+            : {},
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest),
+        });
+
+        ephemeral.pendingDirectAbilityActionId = actionId;
+        logDebugEvent("abilities", "direct-attack-payload-prepared", { characterActionId: actionId, targetCharacterId: ctx.targetCharacterId, bodyZone: evalCtx.bodyZoneId });
+        if (lastState) publishState(lastState); // slot shows pending immediately
+
+        let outcome;
+        try {
+          outcome = await resolveAttack(ctx, { performAttack: (payload) => performAttack(payload, settings) });
+        } catch (error) {
+          // resolveAttack() already catches RPC/network errors internally —
+          // this catch only guards a thrown ValidationError (a locally-
+          // missing required field).
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability attack failed.") };
+        }
+
+        ephemeral.pendingDirectAbilityActionId = null;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null,
+        };
+        const stale = isDirectAbilityAttackResultStale(requestCtx, currentCtx);
+
+        ephemeral.directAbilityAttackResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        // Logged regardless of staleness — a stale result is still a REAL
+        // thing that happened, attributed to the request it actually belongs
+        // to. Reuses buildAttackLogEntry verbatim (Combat Log doesn't care
+        // whether the outcome came from a weapon or an ability attack).
+        pushLog(buildAttackLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          bodyZoneLabel,
+          outcome,
+        }));
+        logDebugEvent("abilities", "direct-attack-result", { characterActionId: actionId, ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
+        // Full authoritative roll trace — ONLY for a genuinely resolved
+        // attack, same rule as basic-attack's own roll-resolution event.
+        if (outcome.ok) {
+          logDebugEvent(
+            "abilities",
+            "direct-attack-roll-resolution",
+            buildRollResolutionDetails(buildAttackResolutionTrace(outcome)),
+            true,
+          );
+        }
+        // Phase 3E.0 + migration 102: server-confirmed session cost (MAIN
+        // spent on hit AND miss identically) — now present for a resolved
+        // ability attack too, logged from the server's own summary, then the
+        // authoritative session state is re-read (never mutated locally).
+        const sessionCost = outcome.raw?.combat_session ?? null;
+        if (sessionCost && typeof sessionCost === "object") {
+          logDebugEvent("abilities", "direct-attack-action-cost-consumed", {
+            sessionId: sessionCost.encounter_id ?? null,
+            round: sessionCost.round ?? null,
+            participant: sessionCost.participant_entry_id ?? null,
+            versionBefore: sessionCost.state_version_before ?? null,
+            versionAfter: sessionCost.state_version_after ?? null,
+            mainAfter: sessionCost.main_available_after ?? null,
+            moveAfter: sessionCost.move_available_after ?? null,
+            usedReaction: sessionCost.used_reaction ?? null,
+          });
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "direct-ability-attack" }, true);
+        }
+        if ((sessionCost || outcome.code === "STATE_VERSION_CONFLICT") && sessionController) {
+          void sessionController.refresh();
+        }
+
+        if (stale) {
+          // Source/ability/target changed mid-flight: never apply this
+          // result to the new HUD state.
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability attack resolved." };
+          // Same rule as a weapon attack: target/zone are NEVER reset after a
+          // successful ability attack — only a best-effort, non-clearing
+          // refresh of the target's own body-zone condition is requested.
+          try { OBR.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "refreshBodyZones" }, { destination: "LOCAL" }); } catch (_e) { /* best-effort */ }
+          // Authoritative refresh of THIS source's own runtime (cooldown/PSI
+          // now server-updated) — never the target's private bundle.
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability attack failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-failure" }, true);
         }
         return;
       }

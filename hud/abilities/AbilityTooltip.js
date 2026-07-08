@@ -5,6 +5,17 @@
 // never invents a cause. No inventory/private target data. Returns structured
 // lines so the renderer controls markup (and copy-to-clipboard) — this module
 // stays DOM-free and unit-testable.
+//
+// Phase 4.1B.0: a direct-attack-eligible technique (isDirectAttackAbility)
+// gets an "Execution: Direct ability attack" line plus target/body-zone
+// requirement text (spec §I) and its OWN readiness status — never the raw
+// "Attack effect is not supported yet" text the executionReason code would
+// otherwise show, since that reason is exactly what MAKES the ability
+// direct-attack-eligible in the first place (see
+// abilityAvailabilityPolicy.js's isDirectAttackAbility/
+// deriveDirectAttackAvailability doc comments for why).
+
+import { isDirectAttackAbility, deriveDirectAttackAvailability, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
 
 const TYPE_LABEL = {
   attack_technique: "Attack technique",
@@ -29,6 +40,16 @@ const TARGET_LABEL = {
 // convention resolveAttackService.js's ERROR_MESSAGES already uses.
 const EXECUTION_REASON_LABEL = {
   ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet.",
+};
+
+// Phase 4.1B.0: direct-ability-attack readiness → human text (SLOT_AVAILABILITY
+// values from deriveDirectAttackAvailability — never "armed"/"unsupported",
+// those two never apply to a direct-attack-eligible action).
+const DIRECT_ATTACK_STATUS_LABEL = {
+  [SLOT_AVAILABILITY.ready]: "Ready",
+  [SLOT_AVAILABILITY.cooldown]: "On cooldown",
+  [SLOT_AVAILABILITY.insufficientResource]: "Insufficient resource",
+  [SLOT_AVAILABILITY.unavailable]: "Unavailable",
 };
 
 function costText(costs) {
@@ -62,11 +83,14 @@ export function abilityTooltipModel(action) {
   const requirements = a.requirements ?? {};
   const state = a.state ?? {};
 
+  const directAttack = isDirectAttackAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
 
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+
+  if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
 
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
@@ -80,20 +104,32 @@ export function abilityTooltipModel(action) {
     });
   }
 
-  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "—") });
+  // Spec §I: a direct-attack-eligible technique states its ACTUAL target/
+  // body-zone requirement (it always uses Combat Control's own selected
+  // target + body zone) rather than the generic targeting.mode label, which
+  // otherwise reads the same as any other character-targeted ability.
+  lines.push({
+    label: "Target",
+    value: directAttack ? "Requires a selected target" : (TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "—")),
+  });
+  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
 
   const reqParts = [];
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
   if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" · ") });
 
-  // Phase 4.1A.2: executionReason (canonical code, mapped to human text here —
-  // never shown raw) takes the "Status" label — it's the more fundamentally
-  // important reason (won't change until the server supports the effect,
-  // unlike cooldown/resource, which are transient). Any other disabled
-  // reason still shows as "Unavailable"; the server-provided text is used
-  // verbatim (never re-derived), shown last.
-  if (state.executionReason) {
+  if (directAttack) {
+    // An honest execution-status line for a compatible direct attack ability
+    // — never the raw executionReason text (which describes why arming it
+    // onto a weapon attack is unsupported, not why THIS, separate execution
+    // path would fail — see deriveDirectAttackAvailability's doc comment).
+    lines.push({ label: "Status", value: DIRECT_ATTACK_STATUS_LABEL[deriveDirectAttackAvailability(a)] ?? "Unavailable" });
+  } else if (state.executionReason) {
+    // Phase 4.1A.2: executionReason (canonical code, mapped to human text
+    // here — never shown raw) takes the "Status" label — it's the more
+    // fundamentally important reason (won't change until the server
+    // supports the effect, unlike cooldown/resource, which are transient).
     lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
   } else if (state.available === false && state.disabledReason) {
     lines.push({ label: "Unavailable", value: String(state.disabledReason) });
