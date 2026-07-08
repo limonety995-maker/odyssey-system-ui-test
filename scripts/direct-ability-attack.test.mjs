@@ -179,7 +179,7 @@ test("10. pending state blocks duplicate clicks — the handler's very first che
   assert.match(block, /if \(ephemeral\.pendingDirectAbilityActionId\) return;/);
   // QuickbarView.js also renders is-pending/is-disabled for the SPECIFIC
   // slot, not the whole strip.
-  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
+  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf \|\| directedTarget\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
 });
 
 test("11. failure clears the pending state unconditionally — ephemeral.pendingDirectAbilityActionId is reset to null right after the resolveAttack() try/catch, before any outcome.ok branching", () => {

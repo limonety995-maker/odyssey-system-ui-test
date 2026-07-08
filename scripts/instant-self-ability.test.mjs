@@ -172,14 +172,14 @@ test("12. insufficient PSI/resource blocks execution — same reused deriveSlotA
 test("13. pending state blocks duplicate clicks — per-ability, not whole-quickbar", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
   assert.ok(idx > -1);
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   assert.match(block, /if \(ephemeral\.pendingInstantAbilityActionId\) return;/);
-  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
+  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf \|\| directedTarget\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
 });
 
 test("14. failure clears pending state unconditionally — reset to null right after the resolveInstantAbilityExecution() try/catch, before any outcome.ok branching", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   const resetIdx = block.indexOf("ephemeral.pendingInstantAbilityActionId = null;");
   const okBranchIdx = block.indexOf("if (outcome.ok) {");
   assert.ok(resetIdx > -1 && okBranchIdx > -1 && resetIdx < okBranchIdx);
@@ -238,7 +238,7 @@ test("21. execution payload never includes ammo/magazine/fire-mode fields, and n
 
 test("22/23/24. a successful result applies the authoritative runtime via refetchCurrent() (Skills Block cooldown/PSI) AND sessionController.refresh() (Player Block MAIN) — the SAME two calls the weapon-attack/direct-ability-attack handlers already make", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   const okIdx = block.indexOf("if (outcome.ok) {");
   const refetchIdx = block.indexOf("await refetchCurrent();", okIdx);
   assert.ok(okIdx > -1 && refetchIdx > okIdx);
@@ -247,7 +247,7 @@ test("22/23/24. a successful result applies the authoritative runtime via refetc
 
 test("25. Combat Log receives a readable non-attack summary via buildAbilityExecutionLogEntry — never raw JSON", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   assert.match(block, /pushLog\(buildAbilityExecutionLogEntry\(\{/);
 
   const ok = buildAbilityExecutionLogEntry({
@@ -272,7 +272,7 @@ test("26. Debug Console receives structured non-attack trace events: ability-exe
 
 test("27/28. the selected target and static target ring are never touched by this handler — no ephemeral.targeting reassignment, no clear-target command, anywhere in the block (this ability class has no target concept at all)", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   assert.ok(!/ephemeral\.targeting/.test(block), "targeting state is never referenced by this handler");
   assert.ok(!/clear-target|clearTarget\(/.test(block));
 });
@@ -281,13 +281,13 @@ test("27/28. the selected target and static target ring are never touched by thi
 
 test("29/30/31. a rejected execution never locally spends MAIN/PSI or applies cooldown — the handler only READS cooldown/costs for gating/display, it never assigns to any cost/cooldown/main field", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   assert.ok(!/\.main\s*=|\.psi\s*=|\.cooldown\s*=|current_cooldown/i.test(block));
 });
 
 test("32. a server/network error path shows a useful, real error message — never a fabricated success", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   assert.match(block, /outcome = \{ ok: false, payload: null, raw: null, normalized: null, code: null, error: String\(error\?\.message \?\? error \?\? "Ability execution failed\."\) \};/);
 });
 
@@ -297,7 +297,7 @@ test("33. a stale version response never overwrites newer runtime — isInstantA
   assert.equal(isInstantAbilityResultStale(requestCtx, { ...requestCtx, abilityId: "ability-2" }), true);
   assert.equal(buildInstantAbilityRequestSignature(requestCtx), "char-1|ability-1");
   const idx = controllerSrc.indexOf('command?.type === "execute-instant-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.2: Directed Target Ability Execution", idx));
   const staleCheckIdx = block.indexOf("const stale = isInstantAbilityResultStale(");
   const staleGuardIdx = block.indexOf("if (stale) {");
   assert.ok(staleCheckIdx > -1 && staleGuardIdx > staleCheckIdx);

@@ -249,7 +249,14 @@ test("4.0i: empty slots open the quickbar editor; the all-empty fallback is also
 });
 
 test("4.0i: a filled slot never carries the open-editor trigger — only show-ability-detail, unchanged", () => {
-  const html = renderQuickbarStrip(runtime([{ slotIndex: 0, characterActionId: "act-1", empty: false }], [action({ id: "act-1" })]));
+  // Phase 4.1B.2: the default "directed"/character-target/no-body-zone
+  // fixture is now, correctly, execute-directed-ability-eligible (see
+  // abilityAvailabilityPolicy.js's isDirectedTargetAbility) — this test's
+  // own purpose (no filled slot ever leaks open-quickbar-editor) is type-
+  // agnostic, so it uses "toggle" here instead: a type with no execution
+  // wiring in any phase so far, still correctly falling back to
+  // show-ability-detail.
+  const html = renderQuickbarStrip(runtime([{ slotIndex: 0, characterActionId: "act-1", empty: false }], [action({ id: "act-1", type: "toggle" })]));
   assert.match(html, /data-action="show-ability-detail"/);
   assert.ok(!html.includes("open-quickbar-editor"), "filled slot must never open the editor");
 });

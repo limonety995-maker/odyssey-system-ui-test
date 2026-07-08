@@ -148,10 +148,21 @@ test("3. an occupied attack_technique slot dispatches toggle-armed-technique, no
   assert.ok(!html.includes('data-action="show-ability-detail" data-action-id="act-1"'));
 });
 
-test("3b. a non-attack_technique occupied slot (directed/instant/toggle) is COMPLETELY untouched — still show-ability-detail, even if its id happens to match armedActionId", () => {
+test("3b. a non-attack_technique occupied slot (directed/instant/toggle) is COMPLETELY untouched by the ARMED mechanism — never becomes armable, never gets the armed highlight, even if its id happens to match armedActionId", () => {
+  // Phase 4.1B.2: this fixture's default targeting (mode:"character",
+  // requiresBodyZone:false) makes a "directed"-typed action
+  // execute-directed-ability-eligible (see abilityAvailabilityPolicy.js's
+  // isDirectedTargetAbility) — a real, intentional click-behavior change for
+  // that ONE type in this loop. "toggle" has no execution wiring in any
+  // phase so far; "instant" here keeps targeting.mode:"character", which
+  // isInstantSelfAbility explicitly excludes, so it stays on
+  // show-ability-detail. The ARMED-specific assertions (never armable,
+  // never highlighted) remain true — and still checked — for all three.
+  const EXPECTED_DATA_ACTION = { directed: "execute-directed-ability", instant: "show-ability-detail", toggle: "show-ability-detail" };
   for (const type of ["directed", "instant", "toggle"]) {
     const html = renderQuickbarStrip(runtime(undefined, [action({ id: "act-1", type })]), { armedActionId: "act-1" });
-    assert.match(html, /data-action="show-ability-detail"[^>]*data-action-id="act-1"/, `type=${type} still uses the Phase 4.0b detail action`);
+    const expected = EXPECTED_DATA_ACTION[type];
+    assert.match(html, new RegExp(`data-action="${expected}"[^>]*data-action-id="act-1"`), `type=${type} uses the correct, unarmed click action`);
     assert.ok(!html.includes("toggle-armed-technique"), `type=${type} never becomes armable`);
     assert.ok(!html.includes("is-armed"), `type=${type} never gets the armed highlight even with a matching id`);
   }
