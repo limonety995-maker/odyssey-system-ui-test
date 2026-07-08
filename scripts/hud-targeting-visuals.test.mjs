@@ -337,7 +337,26 @@ test("Missing-overlay fix: showTargetRing() issues TWO SEPARATE, sequential addI
   const ringCallIdx = block.indexOf("addItems([buildTargetRingItem");
   assert.ok(anchorCallIdx > -1 && ringCallIdx > -1, "each item has its OWN addItems([...]) call");
   assert.ok(anchorCallIdx < ringCallIdx, "the anchor's addItems call is awaited and completes BEFORE the ring's own call starts");
-  assert.match(block, /await OBR\.scene\.local\.addItems\(\[buildTargetRingAnchorItem\(tokenId, bounds\)\]\);\s*\n\s*await OBR\.scene\.local\.addItems\(\[buildTargetRingItem\(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0\)\]\);/);
+});
+
+test("Missing-overlay fix: showTargetRing() self-heals by deleting any PRE-EXISTING anchor/ring under these fixed ids before creating fresh ones — never assumes nothing is already there", () => {
+  const idx = rendererSrc.indexOf("export async function showTargetRing");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
+  const preCleanupIdx = block.indexOf("deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID])");
+  const anchorCreateIdx = block.indexOf("addItems([buildTargetRingAnchorItem");
+  assert.ok(preCleanupIdx > -1, "a defensive delete-by-id runs before creation");
+  assert.ok(preCleanupIdx < anchorCreateIdx, "the defensive delete happens BEFORE the anchor is (re)created");
+});
+
+test("Missing-overlay fix: each showTargetRing() step tags a thrown error with a specific phase/operation (scene-item-lookup vs ring-creation) so the controller's catch can report more than a generic fallback", () => {
+  assert.match(rendererSrc, /function tagPhase\(error, phase, operation\)/);
+  const boundsIdx = rendererSrc.indexOf("async function getTokenBounds");
+  const boundsBlock = rendererSrc.slice(boundsIdx, rendererSrc.indexOf("export async function showSourceOutline"));
+  assert.match(boundsBlock, /tagPhase\(error, "scene-item-lookup", "getItemBounds"\)/);
+  const idx = rendererSrc.indexOf("export async function showTargetRing");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
+  assert.match(block, /tagPhase\(error, "ring-creation", "addItems\(anchor\)"\)/);
+  assert.match(block, /tagPhase\(error, "ring-creation", "addItems\(ring\)"\)/);
 });
 
 test("Fix #4: hideTargetRing()/hideAllTargetingVisuals() always delete BOTH the ring and its anchor — no orphaned anchor left behind", () => {
