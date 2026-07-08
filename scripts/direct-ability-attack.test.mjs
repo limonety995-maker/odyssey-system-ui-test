@@ -378,6 +378,119 @@ test("migration 102: odyssey_perform_ability_attack itself is called verbatim (n
   assert.equal(occurrences.length, 1, "the ability resolver is called exactly once, unchanged");
 });
 
+/* ── Hotfix: direct ability lookup used ephemeral.abilitiesRuntime, which
+ * never existed — abilitiesRuntime is a controller-level closure variable,
+ * handed to buildBroadcastPayload as its own separate argument, never folded
+ * onto `ephemeral`. Every direct-attack click therefore blocked as
+ * INVALID_ABILITY before ever reaching the RPC. ──────────────────────────── */
+
+function handlerBlock() {
+  const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
+  return controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+}
+
+// Pure re-implementation of findQuickActionByCharacterActionId's algorithm —
+// used to prove the LOGIC is correct, since sceneSelectionController.js
+// itself can't be imported/executed under plain Node (OBR SDK import; see
+// this file's header for why every other OBR-touching file here is tested
+// the same source-contract way).
+function findQuickActionByCharacterActionId(runtime, characterActionId) {
+  const id = String(characterActionId ?? "").trim();
+  if (!id) return null;
+  return (runtime?.quickActions ?? [])
+    .find((action) => String(action?.characterActionId ?? "") === id) ?? null;
+}
+
+test("1. a direct-ability command with a VALID characterActionId finds the action in the controller-level abilitiesRuntime (the closure variable, not a snapshot/ephemeral copy)", () => {
+  const runtime = { quickActions: [directAttackFixture({ characterActionId: "act-real" })] };
+  const found = findQuickActionByCharacterActionId(runtime, "act-real");
+  assert.ok(found);
+  assert.equal(found.characterActionId, "act-real");
+});
+
+test("2. the handler no longer reads ephemeral.abilitiesRuntime anywhere — it calls findQuickActionByCharacterActionId(actionId), which itself reads the closure-level abilitiesRuntime, never a field hung off ephemeral", () => {
+  const block = handlerBlock();
+  assert.ok(!block.includes("ephemeral.abilitiesRuntime"), "the handler block itself never references the non-existent ephemeral.abilitiesRuntime field");
+  assert.match(block, /const action = findQuickActionByCharacterActionId\(actionId\);/);
+  const helperIdx = controllerSrc.indexOf("function findQuickActionByCharacterActionId(characterActionId)");
+  assert.ok(helperIdx > -1, "the helper is defined");
+  const helperBlock = controllerSrc.slice(helperIdx, controllerSrc.indexOf("\n    }\n", helperIdx));
+  assert.match(helperBlock, /abilitiesRuntime\?\.quickActions/, "the helper reads the REAL closure variable");
+  assert.ok(!helperBlock.includes("ephemeral."), "the helper never reads anything off ephemeral");
+});
+
+test("3. a valid direct-attack-eligible action (found + isDirectAttackAbility) no longer blocks with INVALID_ABILITY — the found/eligible action reaches the same code path as before the fix", () => {
+  const runtime = { quickActions: [directAttackFixture({ characterActionId: "act-real" })] };
+  const action = findQuickActionByCharacterActionId(runtime, "act-real");
+  assert.ok(action && isDirectAttackAbility(action), "a real, direct-attack-eligible action is found — the (!actionId || !action || !isDirectAttackAbility(action)) guard no longer trips for it");
+});
+
+test("4. a non-existent characterActionId still blocks with INVALID_ABILITY — the lookup honestly returns null rather than any fallback/guess", () => {
+  const runtime = { quickActions: [directAttackFixture({ characterActionId: "act-real" })] };
+  const missing = findQuickActionByCharacterActionId(runtime, "act-does-not-exist");
+  assert.equal(missing, null);
+  const block = handlerBlock();
+  assert.match(block, /if \(!actionId \|\| !action \|\| !isDirectAttackAbility\(action\)\) \{/, "the guard is still present and still blocks on a null/ineligible action");
+});
+
+test("5. an existing NON-direct ability (found, but isDirectAttackAbility is false) still does not execute — found !== eligible", () => {
+  const runtime = { quickActions: [actionFixture({ characterActionId: "act-armable" })] }; // executionReason: null (armable, not direct-attack)
+  const action = findQuickActionByCharacterActionId(runtime, "act-armable");
+  assert.ok(action, "the action IS found — the lookup itself is fixed");
+  assert.equal(isDirectAttackAbility(action), false, "but it is not direct-attack-eligible, so the guard still blocks execution");
+});
+
+test("6. the existing ARMED attack technique toggle is a completely separate command/handler, untouched by this hotfix", () => {
+  assert.match(controllerSrc, /command\?\.type === "toggle-armed"/);
+  const armedIdx = controllerSrc.indexOf('command?.type === "toggle-armed"');
+  const executeIdx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
+  assert.ok(armedIdx > -1 && executeIdx > -1 && armedIdx < executeIdx, "toggle-armed is its own earlier branch, never merged with execute-direct-ability");
+  assert.match(controllerSrc, /armedTechniqueMemory\.toggle\(/, "arming still goes through armedTechniqueMemory, unaffected");
+});
+
+test("7. a missing/not-yet-loaded runtime produces a useful diagnostic and a clear local message, not a silent 'invalid ability'", () => {
+  const block = handlerBlock();
+  assert.match(block, /if \(!abilitiesRuntime\) \{/);
+  assert.match(block, /message: "Ability runtime is not loaded yet\."/);
+});
+
+test("8. the debug payload includes hasAbilitiesRuntime and quickActionCount, distinguishing 'runtime not loaded' from 'action not present' from 'action not direct-attack-compatible'", () => {
+  const block = handlerBlock();
+  const logIdx = block.indexOf('logDebugEvent("abilities", "direct-attack-blocked"');
+  const payloadBlock = block.slice(logIdx, block.indexOf("}, false);", logIdx));
+  assert.match(payloadBlock, /hasAbilitiesRuntime: Boolean\(abilitiesRuntime\)/);
+  assert.match(payloadBlock, /quickActionCount: abilitiesRuntime\?\.quickActions\?\.length \?\? 0/);
+  assert.match(payloadBlock, /matchingActionFound: Boolean\(action\)/);
+  assert.match(payloadBlock, /matchingActionType: action\?\.type \?\? null/);
+  assert.match(payloadBlock, /matchingExecutionReason: action\?\.state\?\.executionReason \?\? null/);
+  assert.match(payloadBlock, /matchingExecutionAvailable: action\?\.state\?\.executionAvailable \?\? null/);
+});
+
+test("9. no full private runtime bundle, credentials, or GM-only data is ever logged — only scalar/short diagnostic fields", () => {
+  const block = handlerBlock();
+  const logIdx = block.indexOf('logDebugEvent("abilities", "direct-attack-blocked"');
+  const payloadBlock = block.slice(logIdx, block.indexOf("}, false);", logIdx));
+  assert.ok(!/\bquickActions\s*[,:]\s*abilitiesRuntime/.test(payloadBlock), "never logs the raw quickActions array");
+  assert.ok(!payloadBlock.includes("abilitiesRuntime,"), "never logs the whole runtime object verbatim");
+  assert.ok(!/token|auth|password|secret|credential|apikey|session|cookie/i.test(payloadBlock), "no credential-shaped field names anywhere in the debug payload");
+});
+
+test("10. after a valid lookup, the handler proceeds to the same direct-attack-payload-prepared path as before — the fix only corrects the lookup, not anything downstream", () => {
+  const block = handlerBlock();
+  const guardIdx = block.indexOf("if (!actionId || !action || !isDirectAttackAbility(action)) {");
+  const evalIdx = block.indexOf("const evalResult = evaluateDirectAbilityAttack(evalCtx);");
+  const preparedIdx = block.indexOf('"direct-attack-payload-prepared"');
+  assert.ok(guardIdx > -1 && evalIdx > -1 && preparedIdx > -1);
+  assert.ok(guardIdx < evalIdx && evalIdx < preparedIdx, "lookup guard -> preconditions -> payload-prepared, in that order, unchanged");
+});
+
+test("optional refresh: a missing runtime best-effort triggers the existing quickbar controller refresh — never a fake success, never a call into performAttack without a found action", () => {
+  const block = handlerBlock();
+  const missingRuntimeBlock = block.slice(block.indexOf("if (!abilitiesRuntime) {"), block.indexOf("return;", block.indexOf("if (!abilitiesRuntime) {")));
+  assert.match(missingRuntimeBlock, /quickbarController\?\.refresh\(\)/);
+  assert.ok(!missingRuntimeBlock.includes("performAttack"), "no RPC call is ever made from the missing-runtime branch");
+});
+
 setTimeout(() => {
   console.log(`\nPhase 4.1B.0 direct ability attack: ${passed} passed, ${failed} failed`);
   if (failures.length) {
