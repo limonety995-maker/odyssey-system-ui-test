@@ -7051,6 +7051,42 @@ function isDraftDirty(draft, originalDraft) {
   return false;
 }
 
+// hud/abilities/abilityAvailabilityPolicy.js
+var SLOT_AVAILABILITY = Object.freeze({
+  ready: "ready",
+  armed: "armed",
+  cooldown: "cooldown",
+  insufficientResource: "insufficient_resource",
+  unsupported: "unsupported",
+  unavailable: "unavailable"
+});
+function deriveSlotAvailability(action, isArmed = false) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (isArmed) return SLOT_AVAILABILITY.armed;
+  if (state.executionAvailable === false) return SLOT_AVAILABILITY.unsupported;
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.available === false && state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  if (state.available === false) return SLOT_AVAILABILITY.unavailable;
+  return SLOT_AVAILABILITY.ready;
+}
+function isDirectAttackAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "attack_technique" && a.state?.executionReason === "ACTION_EFFECT_NOT_IMPLEMENTED";
+}
+function deriveDirectAttackAvailability(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (state.available === false && state.executionReason !== "ACTION_EFFECT_NOT_IMPLEMENTED") {
+    return SLOT_AVAILABILITY.unavailable;
+  }
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  return SLOT_AVAILABILITY.ready;
+}
+
 // hud/abilities/AbilityTooltip.js
 var TYPE_LABEL = {
   attack_technique: "Attack technique",
@@ -7070,6 +7106,12 @@ var TARGET_LABEL = {
 };
 var EXECUTION_REASON_LABEL = {
   ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet."
+};
+var DIRECT_ATTACK_STATUS_LABEL = {
+  [SLOT_AVAILABILITY.ready]: "Ready",
+  [SLOT_AVAILABILITY.cooldown]: "On cooldown",
+  [SLOT_AVAILABILITY.insufficientResource]: "Insufficient resource",
+  [SLOT_AVAILABILITY.unavailable]: "Unavailable"
 };
 function costText(costs) {
   const c = costs ?? {};
@@ -7093,10 +7135,12 @@ function abilityTooltipModel(action) {
   const targeting = a.targeting ?? {};
   const requirements = a.requirements ?? {};
   const state = a.state ?? {};
+  const directAttack = isDirectAttackAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+  if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
@@ -7107,12 +7151,18 @@ function abilityTooltipModel(action) {
       value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
     });
   }
-  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014") });
+  lines.push({
+    label: "Target",
+    value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
+  });
+  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
   const reqParts = [];
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
   if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
-  if (state.executionReason) {
+  if (directAttack) {
+    lines.push({ label: "Status", value: DIRECT_ATTACK_STATUS_LABEL[deriveDirectAttackAvailability(a)] ?? "Unavailable" });
+  } else if (state.executionReason) {
     lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
   } else if (state.available === false && state.disabledReason) {
     lines.push({ label: "Unavailable", value: String(state.disabledReason) });
@@ -7124,27 +7174,6 @@ function abilityTooltipModel(action) {
 function abilityTooltipLines(action) {
   const model = abilityTooltipModel(action);
   return model.lines.map((l) => `${l.label}: ${l.value}`);
-}
-
-// hud/abilities/abilityAvailabilityPolicy.js
-var SLOT_AVAILABILITY = Object.freeze({
-  ready: "ready",
-  armed: "armed",
-  cooldown: "cooldown",
-  insufficientResource: "insufficient_resource",
-  unsupported: "unsupported",
-  unavailable: "unavailable"
-});
-function deriveSlotAvailability(action, isArmed = false) {
-  const a = action && typeof action === "object" ? action : {};
-  const state = a.state ?? {};
-  const cooldown = a.cooldown ?? {};
-  if (isArmed) return SLOT_AVAILABILITY.armed;
-  if (state.executionAvailable === false) return SLOT_AVAILABILITY.unsupported;
-  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
-  if (state.available === false && state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
-  if (state.available === false) return SLOT_AVAILABILITY.unavailable;
-  return SLOT_AVAILABILITY.ready;
 }
 
 // hud/abilities/QuickbarView.js
@@ -7165,7 +7194,8 @@ function actionById(runtime, id) {
   if (!id) return null;
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
 }
-function stateMarkerHtml(availability, action) {
+function stateMarkerHtml(availability, action, pending) {
+  if (pending) return `<span class="ohud-qb-state ohud-qb-state--pending">\u2026</span>`;
   switch (availability) {
     case SLOT_AVAILABILITY.armed:
       return `<span class="ohud-qb-state ohud-qb-state--armed">ARMED</span>`;
@@ -7183,28 +7213,30 @@ function stateMarkerHtml(availability, action) {
       return "";
   }
 }
-function occupiedTile(slot, action, armedActionId) {
+function occupiedTile(slot, action, armedActionId, pendingActionId) {
   if (!action) {
     return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
       <span class="ohud-qb-missing">?</span>
     </button>`;
   }
   const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
-  const disabled = action.state?.available === false;
   const active = action.state?.active === true;
   const mark = TYPE_MARK[action.type] ?? "";
   const isTechnique = action.type === "attack_technique";
-  const armed = isTechnique && armedActionId != null && armedActionId === action.characterActionId;
-  const availability = deriveSlotAvailability(action, armed);
-  const dataAction = isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  const directAttack = isTechnique && isDirectAttackAbility(action);
+  const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
+  const pending = directAttack && pendingActionId != null && pendingActionId === action.characterActionId;
+  const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
+  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false;
+  const dataAction = directAttack ? "execute-direct-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
-    isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
   ]);
-  const stateMarker = stateMarkerHtml(availability, action);
+  const stateMarker = stateMarkerHtml(availability, action, pending);
   const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
   const badges = stateMarker || activeMarker ? `<span class="ohud-qb-badges">${stateMarker}${activeMarker}</span>` : "";
-  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
+  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "", pending ? "is-pending" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
     <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qb-name">${esc(action.name)}</span>
     ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
@@ -7222,6 +7254,7 @@ function renderQuickbarStrip(runtime, opts = {}) {
   const slots = Array.isArray(rt.quickbar?.slots) ? rt.quickbar.slots : [];
   const canEdit = opts.canEdit !== false;
   const armedActionId = opts.armedActionId ?? null;
+  const pendingActionId = opts.pendingActionId ?? null;
   const rows = /* @__PURE__ */ new Map();
   for (const slot of slots) {
     const r = rowOfSlot(slot.slotIndex);
@@ -7232,7 +7265,7 @@ function renderQuickbarStrip(runtime, opts = {}) {
   const rowsHtml = rowKeys.map((r) => {
     const tiles = rows.get(r).sort((a, b) => a.slotIndex - b.slotIndex).map((slot) => {
       if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
-      return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId);
+      return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId, pendingActionId);
     }).join("");
     return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;
   }).join("");
@@ -7278,7 +7311,8 @@ function renderSkillBlock(state) {
     const role = String(state?.viewer?.role ?? "").toLowerCase();
     const canEdit = role === "gm" || role === "player";
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId }) });
+    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? null;
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId }) });
   }
   const slots = selectQuickSlots(state);
   const selectedId = selectSelectedSkill(state)?.id ?? null;
@@ -8351,6 +8385,16 @@ function mountCombatHudModule(options) {
           characterActionId: t.getAttribute("data-action-id")
         });
         break;
+      case "execute-direct-ability":
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud",
+            feature: "quickbar",
+            type: "execute-direct-ability",
+            characterActionId: t.getAttribute("data-action-id")
+          });
+        }
+        break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "end-turn" });
@@ -8374,7 +8418,7 @@ function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
   function techniqueSlotFromTarget(target) {
-    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"]') : null;
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"]') : null;
     return t && el.contains(t) ? t : null;
   }
   function onSlotDetailOver(e) {

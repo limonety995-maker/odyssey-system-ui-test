@@ -5370,6 +5370,99 @@ function buildBasicAttackCtx(input = {}) {
     expectedEncounterVersion: input.expectedEncounterVersion ?? null
   };
 }
+function buildDirectAbilityAttackCtx(input = {}) {
+  const room = input.roomContext ?? {};
+  return {
+    mode: "skill",
+    attackerCharacterId: input.sourceCharacterId,
+    targetCharacterId: input.targetCharacterId,
+    targetBodyPartId: input.bodyPartId,
+    distanceM: input.distance ?? 0,
+    abilityId: input.abilityId,
+    // No manual-modifier UI exists for direct ability attacks (same as basic
+    // weapon attacks) — an empty list matches "no manual modifier", never a
+    // fabricated bonus/penalty.
+    modifiers: [],
+    roomId: room.roomId,
+    campaignId: room.campaignId,
+    sceneId: room.sceneId,
+    encounterId: room.encounterId,
+    actorTokenId: room.actorTokenId,
+    targetTokenId: room.targetTokenId,
+    // Phase 3E.0 session gate (now also enforced for ability attacks server-
+    // side — see migration 102) — only ever set while an active combat
+    // session exists (never fabricated).
+    expectedEncounterVersion: input.expectedEncounterVersion ?? null
+  };
+}
+
+// hud/combat/directAbilityAttackPolicy.js
+var DIRECT_ABILITY_ATTACK_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  noAbility: "No ability selected.",
+  inFlight: "Ability attack is resolving.",
+  // Phase 4.1B.0 spec §D, verbatim required wording.
+  noTarget: "Select a target first.",
+  targetNotLinked: "Target has no linked character.",
+  selfTarget: "Cannot target yourself.",
+  noZone: "Select a body zone.",
+  zoneUnresolved: "Target body zone data unavailable."
+});
+function blocked2(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED2 = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateDirectAbilityAttack(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    abilityId = null,
+    targetTokenId = null,
+    targetCharacterId = null,
+    bodyZoneId = null,
+    resolvedBodyPartId = null,
+    inFlight = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noCharacter);
+  if (!abilityId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noAbility);
+  if (inFlight) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.inFlight);
+  if (!targetTokenId && !targetCharacterId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noTarget);
+  if (!targetCharacterId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.targetNotLinked);
+  if (String(targetCharacterId) === String(sourceCharacterId)) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.selfTarget);
+  if (!bodyZoneId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noZone);
+  if (!resolvedBodyPartId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.zoneUnresolved);
+  return ALLOWED2;
+}
+function buildDirectAbilityAttackRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.abilityId ?? ""}|${ctx.targetCharacterId ?? ""}`;
+}
+function isDirectAbilityAttackResultStale(requestCtx, currentCtx) {
+  return buildDirectAbilityAttackRequestSignature(requestCtx) !== buildDirectAbilityAttackRequestSignature(currentCtx);
+}
+
+// hud/abilities/abilityAvailabilityPolicy.js
+var SLOT_AVAILABILITY = Object.freeze({
+  ready: "ready",
+  armed: "armed",
+  cooldown: "cooldown",
+  insufficientResource: "insufficient_resource",
+  unsupported: "unsupported",
+  unavailable: "unavailable"
+});
+function isDirectAttackAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "attack_technique" && a.state?.executionReason === "ACTION_EFFECT_NOT_IMPLEMENTED";
+}
+function deriveDirectAttackAvailability(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (state.available === false && state.executionReason !== "ACTION_EFFECT_NOT_IMPLEMENTED") {
+    return SLOT_AVAILABILITY.unavailable;
+  }
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  return SLOT_AVAILABILITY.ready;
+}
 
 // hud/combat/attackResolutionTrace.js
 var NOT_RETURNED = "Not returned by server";
@@ -7991,6 +8084,10 @@ function buildBroadcastPayload(state, ephemeral = {}) {
         };
       }
     }
+    const pendingDirectAbilityActionId = ephemeral.pendingDirectAbilityActionId ?? null;
+    if (pendingDirectAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
     selectionStatus: s.status,
@@ -8207,7 +8304,13 @@ function setupSceneSelection(hooks = {}) {
     // Last outcome for ?debug=1 / the commandStatus toast — never a
     // fabricated hit/miss/damage, only what buildBasicAttackDebugInfo()
     // forwards from the real server response or exception.
-    basicAttackResult: null
+    basicAttackResult: null,
+    // Phase 4.1B.0: which direct-ability-attack request (characterActionId,
+    // never a boolean) is currently in flight — per-ability, not a whole-
+    // quickbar lock, so an unrelated ability/weapon attack stays interactive
+    // while one request resolves.
+    pendingDirectAbilityActionId: null,
+    directAbilityAttackResult: null
   };
   let debugEnabled = false;
   try {
@@ -8346,6 +8449,8 @@ function setupSceneSelection(hooks = {}) {
         fireModeRpcResult: ephemeral.fireModeRpcResult,
         basicAttackInFlight: ephemeral.basicAttackInFlight,
         basicAttackResult: ephemeral.basicAttackResult,
+        pendingDirectAbilityActionId: ephemeral.pendingDirectAbilityActionId,
+        directAbilityAttackResult: ephemeral.directAbilityAttackResult,
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
@@ -8443,6 +8548,124 @@ function setupSceneSelection(hooks = {}) {
             previousCharacterActionId: previousId ?? null
           });
           if (lastState) publishState(lastState);
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-direct-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "direct-attack-requested", { characterActionId: actionId });
+        if (ephemeral.pendingDirectAbilityActionId) return;
+        const action = ephemeral.abilitiesRuntime?.quickActions?.find((a) => a.characterActionId === actionId) ?? null;
+        if (!actionId || !action || !isDirectAttackAbility(action)) {
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: "INVALID_ABILITY" }, false);
+          return;
+        }
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          bodyZoneId: targeting.selectedBodyPartId ?? null,
+          resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+          inFlight: false
+        };
+        const evalResult = evaluateDirectAbilityAttack(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.directAbilityAttackResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const sessionAtRequest = currentMappedSession();
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.directAbilityAttackResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId, targetCharacterId: evalCtx.targetCharacterId };
+        const bodyZoneLabel = getZoneLabel(DEFAULT_PROFILE_ID, evalCtx.bodyZoneId) || evalCtx.bodyZoneId;
+        const ctx = buildDirectAbilityAttackCtx({
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          bodyPartId: evalCtx.resolvedBodyPartId,
+          distance: targeting.distance ?? 0,
+          roomContext: sessionAtRequest.exists ? { encounterId: sessionAtRequest.id ?? void 0 } : {},
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+        });
+        ephemeral.pendingDirectAbilityActionId = actionId;
+        logDebugEvent("abilities", "direct-attack-payload-prepared", { characterActionId: actionId, targetCharacterId: ctx.targetCharacterId, bodyZone: evalCtx.bodyZoneId });
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveAttack(ctx, { performAttack: (payload) => performAttack(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability attack failed.") };
+        }
+        ephemeral.pendingDirectAbilityActionId = null;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null
+        };
+        const stale = isDirectAbilityAttackResultStale(requestCtx, currentCtx);
+        ephemeral.directAbilityAttackResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildAttackLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          bodyZoneLabel,
+          outcome
+        }));
+        logDebugEvent("abilities", "direct-attack-result", { characterActionId: actionId, ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
+        if (outcome.ok) {
+          logDebugEvent(
+            "abilities",
+            "direct-attack-roll-resolution",
+            buildRollResolutionDetails(buildAttackResolutionTrace(outcome)),
+            true
+          );
+        }
+        const sessionCost = outcome.raw?.combat_session ?? null;
+        if (sessionCost && typeof sessionCost === "object") {
+          logDebugEvent("abilities", "direct-attack-action-cost-consumed", {
+            sessionId: sessionCost.encounter_id ?? null,
+            round: sessionCost.round ?? null,
+            participant: sessionCost.participant_entry_id ?? null,
+            versionBefore: sessionCost.state_version_before ?? null,
+            versionAfter: sessionCost.state_version_after ?? null,
+            mainAfter: sessionCost.main_available_after ?? null,
+            moveAfter: sessionCost.move_available_after ?? null,
+            usedReaction: sessionCost.used_reaction ?? null
+          });
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "direct-ability-attack" }, true);
+        }
+        if ((sessionCost || outcome.code === "STATE_VERSION_CONFLICT") && sessionController) {
+          void sessionController.refresh();
+        }
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability attack resolved." };
+          try {
+            lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "refreshBodyZones" }, { destination: "LOCAL" });
+          } catch (_e) {
+          }
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability attack failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-failure" }, true);
         }
         return;
       }
@@ -9962,6 +10185,12 @@ var TARGET_LABEL = {
 var EXECUTION_REASON_LABEL = {
   ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet."
 };
+var DIRECT_ATTACK_STATUS_LABEL = {
+  [SLOT_AVAILABILITY.ready]: "Ready",
+  [SLOT_AVAILABILITY.cooldown]: "On cooldown",
+  [SLOT_AVAILABILITY.insufficientResource]: "Insufficient resource",
+  [SLOT_AVAILABILITY.unavailable]: "Unavailable"
+};
 function costText(costs) {
   const c = costs ?? {};
   const parts = [];
@@ -9984,10 +10213,12 @@ function abilityTooltipModel(action) {
   const targeting = a.targeting ?? {};
   const requirements = a.requirements ?? {};
   const state = a.state ?? {};
+  const directAttack = isDirectAttackAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+  if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
@@ -9998,12 +10229,18 @@ function abilityTooltipModel(action) {
       value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
     });
   }
-  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014") });
+  lines.push({
+    label: "Target",
+    value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
+  });
+  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
   const reqParts = [];
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
   if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
-  if (state.executionReason) {
+  if (directAttack) {
+    lines.push({ label: "Status", value: DIRECT_ATTACK_STATUS_LABEL[deriveDirectAttackAvailability(a)] ?? "Unavailable" });
+  } else if (state.executionReason) {
     lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
   } else if (state.available === false && state.disabledReason) {
     lines.push({ label: "Unavailable", value: String(state.disabledReason) });
