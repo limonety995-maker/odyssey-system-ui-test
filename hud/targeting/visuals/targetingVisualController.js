@@ -35,7 +35,7 @@ import {
   hideSourceOutline,
   showTargetRing,
   hideTargetRing,
-  setTargetRingRotation,
+  updateTargetRingGeometry,
   hideAllTargetingVisuals,
 } from "./targetingVisualRenderer.js";
 
@@ -67,7 +67,11 @@ export function setupTargetingVisuals() {
 
   let outlineVisible = false;
   let ringVisible = false;
-  let ringTokenId = null; // the token the ring is CURRENTLY attached to
+  // anchorState: pure internal JS bookkeeping only — never an OBR item, never
+  // passed to addItems. Tracks which token the ring is CURRENTLY following;
+  // updateTargetRingGeometry() re-reads that token's bounds every tick and
+  // folds the result into the one real local ring item's transform.
+  let ringTokenId = null;
   let ringRotationDeg = 0;
   let ringTimer = null;
   let ringTickInFlight = false;
@@ -184,9 +188,9 @@ export function setupTargetingVisuals() {
       ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
       ringTickInFlight = true;
       try {
-        await setTargetRingRotation(ringRotationDeg);
+        await updateTargetRingGeometry(ringTokenId, ringRotationDeg);
       } catch (error) {
-        logRingFailure("ring-animation-update", "setTargetRingRotation", error);
+        logRingFailure("ring-animation-update", "updateTargetRingGeometry", error);
       }
       ringTickInFlight = false;
     }, RING_TICK_MS);

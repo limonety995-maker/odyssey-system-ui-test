@@ -9,23 +9,26 @@
 //
 // `attachedTo(tokenId)` makes OBR itself keep the shape's position/scale in
 // sync with its token on move/resize (and auto-delete it if the token is
-// deleted) — this file never re-computes that by hand.
+// deleted) — this file never re-computes that by hand for the source outline.
 //
-// Bugfix pack (Fix #4): the target ring is TWO local items, not one —
-//   - TARGET_RING_ANCHOR: invisible, attachedTo(tokenId) with full default
-//     sync (position/scale/rotation/delete all follow the token). This is the
-//     ONLY item whose transform tracks target geometry.
-//   - TARGET_RING: the visible dashed circle, attachedTo(the anchor's id,
-//     not the token), with ROTATION sync disabled — its own `.rotation` is
-//     the SOLE thing the controller's animation timer ever touches.
-// Before this fix both roles were the same single item (attachedTo(tokenId)
-// directly), so the one transform OBR recomputes on every token geometry
-// update was the exact same transform the animation timer was writing to —
-// the two writers raced, which is what produced the reported stutter/reset
-// on token move. Splitting them into a parent/child pair means the timer's
-// writes land on an item whose own parent (the anchor) never changes rotation
-// out from under it; the animation and the geometry-follow are now on
-// genuinely separate transform layers, as required.
+// Hotfix (ValidationError on addItems(anchor)): the target ring used to be
+// TWO local items — an invisible TARGET_RING_ANCHOR attachedTo(tokenId), plus
+// a TARGET_RING attachedTo(the anchor) with rotation-sync disabled. A live
+// Owlbear Rodeo session showed this anchor item failing host-side schema
+// validation ("items[0]" does not match any of the allowed types) the moment
+// it reached OBR.scene.local.addItems. attachedTo/layer("ATTACHMENT") has no
+// other precedent anywhere in this codebase for OBR.scene.local items — the
+// one PROVEN local-only overlay pattern this project already has,
+// movement/combatMovementPreview.js, never attaches at all: it computes
+// absolute position/size from the token's own bounds and uses
+// layer("POINTER"). The ring now follows that exact proven pattern instead:
+//   - anchorState: pure internal JS bookkeeping (which token, last-known
+//     bounds/rotation) — never an OBR item, never passed to addItems.
+//   - TARGET_RING: the one real local item, created ONCE via addItems, then
+//     kept in sync by re-fetching the token's bounds and writing
+//     position/width/height/rotation together in a single updateItems() call
+//     every animation tick (updateTargetRingGeometry) — addItems is never
+//     called again after the initial creation.
 //
 // Every local item ADD/UPDATE/DELETE call is wrapped in try/catch: a failure
 // here is a lost cosmetic effect, never a reason to break targeting itself.
@@ -34,7 +37,6 @@ import OBR, { buildShape } from "@owlbear-rodeo/sdk";
 import { computeOverlayGeometry, OUTLINE_GAP_RATIO, RING_GAP_RATIO } from "./targetingVisualPolicy.js";
 
 export const SOURCE_OUTLINE_ITEM_ID = "com.odyssey-system/targeting-source-outline";
-export const TARGET_RING_ANCHOR_ITEM_ID = "com.odyssey-system/targeting-target-ring-anchor";
 export const TARGET_RING_ITEM_ID = "com.odyssey-system/targeting-target-ring";
 
 const SOURCE_OUTLINE_COLOR = "#34e1d6"; // --odyssey-cyan
@@ -66,37 +68,14 @@ function buildSourceOutlineItem(tokenId, bounds) {
     .build();
 }
 
-/** The outer anchor: invisible, attachedTo the TOKEN with full default sync
- *  (position/scale/rotation/delete). This is the ONLY item whose transform
- *  is driven by the target's own geometry — the ring never attaches to the
- *  token directly, so the animation timer below never writes to the same
- *  transform OBR is simultaneously recomputing from token movement. */
-function buildTargetRingAnchorItem(tokenId, bounds) {
-  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
-  return buildShape()
-    .id(TARGET_RING_ANCHOR_ITEM_ID)
-    .name("Odyssey Target Ring Anchor (local only, invisible)")
-    .shapeType("RECTANGLE")
-    .width(geo.width)
-    .height(geo.height)
-    .position(geo.position)
-    .style({ fillColor: TARGET_RING_COLOR, fillOpacity: 0, strokeColor: TARGET_RING_COLOR, strokeOpacity: 0, strokeWidth: 0 })
-    .layer("ATTACHMENT")
-    .locked(true)
-    .disableHit(true)
-    .disableAutoZIndex(true)
-    .attachedTo(tokenId)
-    .visible(true)
-    .build();
-}
-
-/** The inner ring: the visible dashed circle, attachedTo the ANCHOR (never
- *  the token) with ROTATION sync disabled — its `.rotation` is set ONLY by
- *  setTargetRingRotation() below, continuously, and is never reset/restarted
- *  by a token geometry update (that only ever touches the anchor). Centered
- *  on itself (position IS its own center — CIRCLE shapes have no top-left
- *  anchor concept), so its spin is a pure rotation-in-place. */
-function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
+/** The ring: the visible dashed circle, positioned/sized directly from the
+ *  target token's own bounds — same as movement/combatMovementPreview.js's
+ *  proven local-only overlay pattern (layer("POINTER"), no attachedTo). Its
+ *  geometry is refreshed by re-calling this same computation on a fresh
+ *  bounds read (see updateTargetRingGeometry), never by OBR's own attachment
+ *  sync. Centered on itself (position IS its own center — CIRCLE shapes have
+ *  no top-left anchor concept), so its spin is a pure rotation-in-place. */
+function buildTargetRingItem(bounds, rotationDeg = 0) {
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   return buildShape()
     .id(TARGET_RING_ITEM_ID)
@@ -114,15 +93,10 @@ function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
       strokeWidth: 5,
       strokeDash: [14, 10],
     })
-    .layer("ATTACHMENT")
+    .layer("POINTER")
     .locked(true)
     .disableHit(true)
     .disableAutoZIndex(true)
-    .attachedTo(anchorItemId)
-    // Position/scale/visibility/delete follow the ANCHOR; rotation is owned
-    // exclusively by the controller's own animation tick, never the anchor's
-    // (i.e. never the token's) facing.
-    .disableAttachmentBehavior(["ROTATION"])
     .visible(true)
     .build();
 }
@@ -164,55 +138,52 @@ export async function hideSourceOutline() {
 
 export async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
-  // Self-healing: unconditionally clear any PRE-EXISTING item under these
-  // fixed ids before creating fresh ones. These ids are constants (not
-  // per-target-unique), so if a previous session ever left a ghost anchor/
-  // ring behind (e.g. a hard page reload that skipped cleanup()'s own
-  // best-effort hideAllTargetingVisuals()), a later addItems() call reusing
-  // the SAME id could collide with — or silently attach to — stale state
-  // instead of the fresh one just computed here. This does not depend on
-  // this module's own in-memory ringVisible tracking (which only reflects
-  // what THIS session believes, not what is actually already in the local
-  // scene store).
+  // Self-healing: unconditionally clear any PRE-EXISTING item under this
+  // fixed id before creating a fresh one. The id is a constant (not
+  // per-target-unique), so if a previous session ever left a ghost ring
+  // behind (e.g. a hard page reload that skipped cleanup()'s own best-effort
+  // hideAllTargetingVisuals()), a later addItems() call reusing the SAME id
+  // could collide with stale state instead of the fresh one just computed
+  // here. This does not depend on this module's own in-memory ringVisible
+  // tracking (which only reflects what THIS session believes, not what is
+  // actually already in the local scene store).
   try {
-    await OBR.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+    await OBR.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
   } catch (_e) { /* nothing to delete is the common, expected case */ }
-  // Two SEQUENTIAL addItems calls, not one batched call: the ring's
-  // .attachedTo(TARGET_RING_ANCHOR_ITEM_ID) must resolve against an anchor
-  // that is already committed to the local scene store, never a same-call
-  // sibling whose own commit ordering isn't guaranteed. This is the one part
-  // of the local-only mechanism that is genuinely new to this codebase (no
-  // existing local-only overlay — e.g. movement/combatMovementPreview.js —
-  // ever attaches one freshly-created local item to another in the same
-  // operation), so it is deliberately the most conservative possible
-  // sequencing rather than relying on unconfirmed same-batch behavior.
+  // ONE addItems call for a single, plain, unattached local item — matching
+  // movement/combatMovementPreview.js's proven pattern. addItems is never
+  // called again after this for the same target; geometry/rotation updates
+  // go through updateTargetRingGeometry()'s updateItems call instead.
   try {
-    await OBR.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
+    await OBR.scene.local.addItems([buildTargetRingItem(bounds, 0)]);
   } catch (error) {
-    throw tagPhase(error, "ring-creation", "addItems(anchor)");
-  }
-  try {
-    await OBR.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
-  } catch (error) {
-    // The anchor now exists but the ring doesn't — never leave a half-shown,
-    // invisible-only overlay behind; clean up before surfacing the failure.
-    try { await OBR.scene.local.deleteItems([TARGET_RING_ANCHOR_ITEM_ID]); } catch (_e) { /* best effort */ }
     throw tagPhase(error, "ring-creation", "addItems(ring)");
   }
 }
 
 export async function hideTargetRing() {
-  await OBR.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+  await OBR.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
 }
 
-/** Sets ONLY the inner ring's own rotation — never touches the anchor, never
- *  re-adds/removes either item. Called every animation tick. */
-export async function setTargetRingRotation(rotationDeg) {
+/** Refreshes the ring's position/width/height (re-derived from the target
+ *  token's CURRENT bounds) together with its rotation in a single
+ *  updateItems() call. Called every animation tick in place of the old
+ *  rotation-only setTargetRingRotation — this is the "outer anchor" role now:
+ *  a piece of logic that re-reads token geometry and folds it into the one
+ *  real local item's transform, never a second OBR item of its own. */
+export async function updateTargetRingGeometry(tokenId, rotationDeg) {
+  const bounds = await getTokenBounds(tokenId);
+  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   await OBR.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
-    for (const item of items) item.rotation = rotationDeg;
+    for (const item of items) {
+      item.position = geo.position;
+      item.width = geo.width;
+      item.height = geo.height;
+      item.rotation = rotationDeg;
+    }
   });
 }
 
 export async function hideAllTargetingVisuals() {
-  await OBR.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+  await OBR.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID]);
 }
