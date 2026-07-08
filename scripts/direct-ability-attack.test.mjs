@@ -121,7 +121,7 @@ test("4. recognition is purely metadata-driven — an action named something OTH
 
 test("5. a READY direct attack ability is clickable — QuickbarView's occupiedTile sets data-action=execute-direct-ability and is-disabled is absent", () => {
   assert.match(quickbarViewSrc, /const directAttack = isTechnique && isDirectAttackAbility\(action\);/);
-  assert.match(quickbarViewSrc, /dataAction = directAttack \? "execute-direct-ability"/);
+  assert.match(quickbarViewSrc, /dataAction = directAttack\s*\n\s*\? "execute-direct-ability"/);
   assert.match(quickbarViewSrc, /directAttack\s*\n\s*\? \(availability !== SLOT_AVAILABILITY\.ready \|\| pending\)/);
 });
 
@@ -175,16 +175,16 @@ test("9. no new body-zone default policy is invented — evaluateDirectAbilityAt
 test("10. pending state blocks duplicate clicks — the handler's very first check after logging is `if (ephemeral.pendingDirectAbilityActionId) return;`, per-ability not whole-quickbar", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
   assert.ok(idx > -1);
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.match(block, /if \(ephemeral\.pendingDirectAbilityActionId\) return;/);
   // QuickbarView.js also renders is-pending/is-disabled for the SPECIFIC
   // slot, not the whole strip.
-  assert.match(quickbarViewSrc, /const pending = directAttack && pendingActionId != null && pendingActionId === action\.characterActionId;/);
+  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
 });
 
 test("11. failure clears the pending state unconditionally — ephemeral.pendingDirectAbilityActionId is reset to null right after the resolveAttack() try/catch, before any outcome.ok branching", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   const resetIdx = block.indexOf("ephemeral.pendingDirectAbilityActionId = null;");
   const okBranchIdx = block.indexOf("if (outcome.ok) {");
   assert.ok(resetIdx > -1 && okBranchIdx > -1 && resetIdx < okBranchIdx, "pending is cleared before success/failure branching, so it clears on EITHER outcome");
@@ -248,7 +248,7 @@ test("18. execution payload never includes ammo/magazine/fire_mode fields — bu
 
 test("19/20/21. the client never locally spends MAIN, PSI, or applies cooldown for a direct ability attack — the execute-direct-ability block only READS cooldown/costs (for gating/display elsewhere), it never assigns to any cost/cooldown/main field", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.ok(!/\.main\s*=|\.psi\s*=|\.cooldown\s*=|current_cooldown/i.test(block), "no local mutation of main/psi/cooldown fields anywhere in the handler");
 });
 
@@ -256,7 +256,7 @@ test("19/20/21. the client never locally spends MAIN, PSI, or applies cooldown f
 
 test("22/23/24. a successful result applies the authoritative runtime via refetchCurrent() — the SAME refresh path basic-attack already uses, so Skills Block cooldown/availability AND Player Block MAIN/PSI both come from one real re-fetch, never a locally-patched value", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   const okIdx = block.indexOf("if (outcome.ok) {");
   const refetchIdx = block.indexOf("await refetchCurrent();", okIdx);
   assert.ok(okIdx > -1 && refetchIdx > -1 && refetchIdx > okIdx, "refetchCurrent() runs inside the success branch");
@@ -264,26 +264,26 @@ test("22/23/24. a successful result applies the authoritative runtime via refetc
 
 test("25. the target body doll refreshes — a refreshBodyZones command is broadcast on success, same as basic-attack's own post-attack refresh", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.match(block, /BC_HUD_TARGETING_COMMAND, \{ type: "refreshBodyZones" \}/);
 });
 
 test("26/27. the selected target (and therefore the static target ring) is never cleared by this handler — no clearTarget/clear command, no ephemeral.targeting reassignment anywhere in the block", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.ok(!/ephemeral\.targeting\s*=/.test(block), "targeting state is never reassigned by this handler");
   assert.ok(!/type:\s*"clear-target"|clearTarget\(/.test(block), "no clear-target command is ever sent from this handler");
 });
 
 test("28. Combat Log receives a readable summary via the EXISTING buildAttackLogEntry — no second/raw-JSON log entry builder", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.match(block, /pushLog\(buildAttackLogEntry\(\{/);
 });
 
 test("29. Debug Console receives the normalized two-step roll trace via the EXISTING buildAttackResolutionTrace/buildRollResolutionDetails, only for a genuinely resolved (outcome.ok) attack", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   const rollIdx = block.indexOf('"direct-attack-roll-resolution"');
   assert.ok(rollIdx > -1);
   assert.match(block.slice(0, rollIdx + 200), /if \(outcome\.ok\) \{\s*\n\s*logDebugEvent\(\s*\n\s*"abilities",\s*\n\s*"direct-attack-roll-resolution"/);
@@ -293,7 +293,7 @@ test("29. Debug Console receives the normalized two-step roll trace via the EXIS
 
 test("30. a rejected ability attack never consumes local resources — same guarantee as 19/20/21, verified again on the explicit failure/catch path (outcome.ok===false never runs the success branch's refresh-only code, and there is still no cost/cooldown mutation anywhere in the block)", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.match(block, /ephemeral\.commandStatus = \{ type: "error", message: outcome\.error \|\| "Ability attack failed\." \};/);
 });
 
@@ -303,7 +303,7 @@ test("31. a stale version response never overwrites newer runtime — isDirectAb
   assert.equal(isDirectAbilityAttackResultStale(requestCtx, { ...requestCtx, targetCharacterId: "char-3" }), true);
   assert.equal(buildDirectAbilityAttackRequestSignature(requestCtx), "char-1|action-1|char-2");
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   const staleCheckIdx = block.indexOf("const stale = isDirectAbilityAttackResultStale(");
   const staleGuardIdx = block.indexOf("if (stale) {");
   assert.ok(staleCheckIdx > -1 && staleGuardIdx > staleCheckIdx);
@@ -311,7 +311,7 @@ test("31. a stale version response never overwrites newer runtime — isDirectAb
 
 test("32. a server/network error path shows a useful, real error message — the catch block never fabricates a fake success, and commandStatus surfaces the REAL message", () => {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
   assert.match(block, /outcome = \{ ok: false, payload: null, raw: null, normalized: null, code: null, error: String\(error\?\.message \?\? error \?\? "Ability attack failed\."\) \};/);
 });
 
@@ -386,7 +386,7 @@ test("migration 102: odyssey_perform_ability_attack itself is called verbatim (n
 
 function handlerBlock() {
   const idx = controllerSrc.indexOf('command?.type === "execute-direct-ability"');
-  return controllerSrc.slice(idx, controllerSrc.indexOf("// Basic Weapon Attack v1", idx));
+  return controllerSrc.slice(idx, controllerSrc.indexOf("// Phase 4.1B.1: Instant / Self Ability Execution", idx));
 }
 
 // Pure re-implementation of findQuickActionByCharacterActionId's algorithm —
