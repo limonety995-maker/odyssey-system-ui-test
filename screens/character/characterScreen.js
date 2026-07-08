@@ -2575,6 +2575,7 @@ export function mountCharacterScreen({ root, runtime }) {
     const part = t.closest("[data-part]"); if (part && !t.closest("[data-wact],[data-mact]")) { pinPart(part.dataset.part); return; }
     const attrRoll = t.closest("[data-attr-roll]"); if (attrRoll && !t.closest("[data-attr-edit]")) { onRoll(attrRoll.dataset.attrRoll); return; }
     const attrEdit = t.closest("[data-attr-edit]"); if (attrEdit) { e.stopPropagation(); onAttrEdit(attrEdit.dataset.attrEdit); return; }
+    const gmDel = t.closest("[data-gmdel]"); if (gmDel) { e.preventDefault(); e.stopPropagation(); onGmDelete(gmDel.dataset.gmdel, gmDel.dataset.id); return; }
     const skillEdit = t.closest("[data-skill-edit]"); if (skillEdit) { e.stopPropagation(); onSkillEdit(skillEdit.dataset.skillEdit); return; }
     const skillRoll = t.closest("[data-skill-roll]"); if (skillRoll && !t.closest("[data-skill-edit]")) { onRollSkill(skillRoll.dataset.skillRoll); return; }
     const abilityUse = t.closest("[data-ability-use]"); if (abilityUse) { onUseAbility(abilityUse.dataset.abilityUse); return; }
@@ -2608,8 +2609,6 @@ export function mountCharacterScreen({ root, runtime }) {
       }
       return;
     }
-    const gmDel = t.closest("[data-gmdel]");
-    if (gmDel) { onGmDelete(gmDel.dataset.gmdel, gmDel.dataset.id); return; }
     const gmBtn = t.closest("[data-gmbtn]");
     if (gmBtn) {
       if (gmBtn.dataset.gmbtn === "addmag" && gmBtn.closest("[data-gmmag]") === null) {
@@ -2963,7 +2962,7 @@ export function mountCharacterScreen({ root, runtime }) {
     if (type === "skill") {
       runMutation("Delete skill", () => bridges.supabase.mutateSupabaseRows(
         `odyssey_character_skills?${idFilter}&${charIdFilter}`, null, settings(), DEL
-      ), () => refresh({ armory: false, equipment: false, inventory: false, perkAvailability: true }));
+      ), () => refresh({ armory: false, equipment: false, inventory: false, abilities: true, perkAvailability: true }));
     } else if (type === "weapon") {
       runMutation("Delete weapon", () => bridges.supabase.mutateSupabaseRows(
         `odyssey_character_weapons?${idFilter}&${charIdFilter}`, null, settings(), DEL

@@ -42,6 +42,45 @@ function actionById(runtime, id) {
   return (runtime.quickActions ?? []).find((a) => a.characterActionId === id) ?? null;
 }
 
+function gmDeleteMenu(action, gmAdmin) {
+  if (!gmAdmin?.enabled || !action?.characterActionId) return "";
+  const open = gmAdmin.openActionId === action.characterActionId;
+  const abilityDeletePending = gmAdmin.pendingDeleteId === `ability:${action.characterActionId}`;
+  const skillDeletePending = action.characterSkillId && gmAdmin.pendingDeleteId === `skill:${action.characterSkillId}`;
+  const currentDeletePending = Boolean(abilityDeletePending || skillDeletePending);
+
+  return `
+    <button
+      type="button"
+      class="${cls("ohud-qb-gm-trigger", open ? "is-open" : "", currentDeletePending ? "is-busy" : "")}"
+      data-action="toggle-gm-skill-menu"
+      data-action-id="${esc(action.characterActionId)}"
+      aria-label="GM skill actions"
+      aria-expanded="${open ? "true" : "false"}"
+      ${tipAttr("GM actions", ["Delete this ability or its source skill."])}
+    >GM</button>
+    ${open ? `<div class="ohud-qb-gm-menu" data-gm-menu="skills" data-action-id="${esc(action.characterActionId)}">
+      ${action.characterSkillId ? `<button
+        type="button"
+        class="ohud-qb-gm-menu-btn"
+        data-action="gm-delete-skill"
+        data-skill-id="${esc(action.characterSkillId)}"
+        data-character-skill-id="${esc(action.characterSkillId)}"
+        data-action-id="${esc(action.characterActionId)}"
+        ${skillDeletePending ? "disabled" : ""}
+      >${skillDeletePending ? "Deleting skill..." : "Delete skill"}</button>` : ""}
+      <button
+        type="button"
+        class="ohud-qb-gm-menu-btn is-danger"
+        data-action="gm-delete-ability"
+        data-action-id="${esc(action.characterActionId)}"
+        data-character-skill-id="${action.characterSkillId ? esc(action.characterSkillId) : ""}"
+        ${abilityDeletePending ? "disabled" : ""}
+      >${abilityDeletePending ? "Deleting ability..." : "Delete ability"}</button>
+    </div>` : ""}
+  `;
+}
+
 // Phase 4.1A.2: one small marker per canonical availability category —
 // mutually exclusive (deriveSlotAvailability returns exactly one), so at
 // most one of these ever renders. "active" (toggle ON) is orthogonal and
@@ -70,7 +109,7 @@ function stateMarkerHtml(availability, action, pending) {
   }
 }
 
-function occupiedTile(slot, action, armedActionId, pendingActionId) {
+function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   if (!action) {
     // A slot whose action vanished from the library — visible + flagged.
     return `<button type="button" class="${cls("ohud-qb-slot", "is-missing")}" data-action="show-ability-detail" data-slot-index="${slot.slotIndex}" ${tipAttr("Missing action", ["This action is no longer available.", "Open EDIT to remove it."])}>
@@ -157,12 +196,14 @@ function occupiedTile(slot, action, armedActionId, pendingActionId) {
   const badges = stateMarker || activeMarker
     ? `<span class="ohud-qb-badges">${stateMarker}${activeMarker}</span>`
     : "";
-  return `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "", pending ? "is-pending" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
+  const tile = `<button type="button" class="${cls("ohud-qb-slot", `ohud-accent--${accent}`, disabled ? "is-disabled" : "", active ? "is-active" : "", armed ? "is-armed" : "", pending ? "is-pending" : "")}" data-action="${dataAction}" data-action-id="${esc(action.characterActionId)}" data-slot-index="${slot.slotIndex}" data-slot-state="${availability}"${tip}>
     <span class="ohud-qb-icon">${skillIconSvg(action.iconKey)}</span>
     <span class="ohud-qb-name">${esc(action.name)}</span>
     ${mark ? `<span class="ohud-qb-type">${esc(mark)}</span>` : ""}
     ${badges}
   </button>`;
+  if (!gmAdmin?.enabled) return tile;
+  return `<div class="ohud-qb-card" data-qb-card="${esc(action.characterActionId)}">${tile}${gmDeleteMenu(action, gmAdmin)}</div>`;
 }
 
 // An empty slot doubles as the open-editor trigger (Phase 4.0i) — same
@@ -192,6 +233,13 @@ export function renderQuickbarStrip(runtime, opts = {}) {
   // unrelated abilities/weapon-attack stay fully interactive while one
   // request resolves (spec §D: "other unrelated HUD state remains stable").
   const pendingActionId = opts.pendingActionId ?? null;
+  const gmAdmin = opts.gmAdmin && opts.gmAdmin.enabled
+    ? {
+        enabled: true,
+        openActionId: opts.gmAdmin.openActionId ?? null,
+        pendingDeleteId: opts.gmAdmin.pendingDeleteId ?? null,
+      }
+    : null;
 
   // Group slots by row; render rows in ASCENDING order so row 0 (slots 1-10)
   // is on TOP and row 1 (slots 11-20) is BELOW it — matching the Quickbar
@@ -210,7 +258,7 @@ export function renderQuickbarStrip(runtime, opts = {}) {
       .sort((a, b) => a.slotIndex - b.slotIndex)
       .map((slot) => {
         if (slot.empty || slot.characterActionId == null) return emptyTile(slot.slotIndex, canEdit);
-        return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId, pendingActionId);
+        return occupiedTile(slot, actionById(rt, slot.characterActionId), armedActionId, pendingActionId, gmAdmin);
       })
       .join("");
     return `<div class="ohud-qb-row" data-row="${r}">${tiles}</div>`;

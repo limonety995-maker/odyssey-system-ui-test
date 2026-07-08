@@ -1,4 +1,4 @@
-import OBR from "@owlbear-rodeo/sdk";
+﻿import OBR from "@owlbear-rodeo/sdk";
 import { addDiagnosticEntry } from "../utils/diagnostics.js";
 import { normalizeError, toErrorMessage } from "../utils/errors.js";
 import {
@@ -44,7 +44,7 @@ import {
 } from "./moveToolBridge.js";
 
 const MOVE_TOOL_ICON_URL =
-  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.63";
+  "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.64";
 
 const PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 const MARKER_TTL_MS = 15_000;
@@ -2057,3 +2057,4 @@ export function setupTacticalMoveTool({ runtime }) {
     },
   };
 }
+

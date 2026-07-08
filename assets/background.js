@@ -7179,6 +7179,8 @@ function mapQuickAction(raw) {
   return {
     characterActionId: str(q.characterActionId) ?? str(q.character_action_id) ?? null,
     definitionId: str(q.definitionId) ?? str(q.definition_id) ?? null,
+    characterSkillId: str(q.characterSkillId) ?? str(q.character_skill_id) ?? null,
+    sourceCharacterWeaponId: str(q.sourceCharacterWeaponId) ?? str(q.source_character_weapon_id) ?? null,
     sourceType: normalizeSource(q),
     type: normalizeType(q),
     name: str(q.name) ?? "Unknown action",
@@ -8561,6 +8563,7 @@ function setupSceneSelection(hooks = {}) {
   let lastState = null;
   let sceneTimer = null;
   let currentSelectionIds = [];
+  let skillAdminDeleteInFlight = null;
   const selectedWeaponMemory = createSelectedWeaponMemory();
   const armedTechniqueMemory = createArmedTechniqueMemory();
   let combatLog = [];
@@ -8798,6 +8801,95 @@ function setupSceneSelection(hooks = {}) {
     async function handleCommand(command) {
       if (!command || typeof command !== "object") return;
       if (!lastPayload || lastPayload.status !== "ready") return;
+      if (command?.scope === "combat-hud" && command?.feature === "gm-skill-admin") {
+        const viewerIsGm = String(viewer?.role ?? "").toUpperCase() === "GM";
+        const deleteType = String(command.type ?? "");
+        const characterSkillId = String(command.characterSkillId ?? command.skillId ?? "").trim() || null;
+        const characterActionId = String(command.characterActionId ?? "").trim() || null;
+        const deleteKey = deleteType === "delete-skill" ? `skill:${characterSkillId ?? ""}` : `ability:${characterActionId ?? ""}`;
+        logDebugEvent("skills", "gm-delete-click", {
+          type: deleteType,
+          characterSkillId,
+          characterActionId
+        });
+        if (!viewerIsGm) {
+          ephemeral.commandStatus = {
+            type: "error",
+            message: "GM delete is available only for the GM.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (skillAdminDeleteInFlight) return;
+        if (deleteType !== "delete-skill" && deleteType !== "delete-ability") return;
+        if (deleteType === "delete-skill" && !characterSkillId) {
+          ephemeral.commandStatus = {
+            type: "error",
+            message: "Missing character skill id.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (deleteType === "delete-ability" && !characterActionId) {
+          ephemeral.commandStatus = {
+            type: "error",
+            message: "Missing character ability id.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        skillAdminDeleteInFlight = deleteKey;
+        try {
+          if (deleteType === "delete-skill") {
+            await mutateSupabaseRows(
+              `odyssey_character_skills?id=eq.${encodeURIComponent(characterSkillId)}&character_id=eq.${encodeURIComponent(ephemeral.characterId)}`,
+              null,
+              settings,
+              { method: "DELETE", prefer: "return=minimal", fallbackMessage: "Unable to delete character skill." }
+            );
+          } else {
+            await mutateSupabaseRows(
+              `odyssey_character_abilities?id=eq.${encodeURIComponent(characterActionId)}&character_id=eq.${encodeURIComponent(ephemeral.characterId)}`,
+              null,
+              settings,
+              { method: "DELETE", prefer: "return=minimal", fallbackMessage: "Unable to delete character ability." }
+            );
+            if (armedTechniqueMemory.get(ephemeral.characterId) === characterActionId) {
+              armedTechniqueMemory.forget(ephemeral.characterId);
+            }
+          }
+          ephemeral.commandStatus = {
+            type: "ok",
+            message: deleteType === "delete-skill" ? "Skill deleted." : "Ability deleted.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          logDebugEvent("skills", "gm-delete-result", { ok: true, type: deleteType, deleteKey }, true);
+          await Promise.allSettled([
+            quickbarController?.refresh?.(),
+            refetchCurrent()
+          ]);
+        } catch (error) {
+          const message = String(error?.message ?? error ?? "Delete failed.");
+          ephemeral.commandStatus = {
+            type: "error",
+            message,
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          logDebugEvent("skills", "gm-delete-result", { ok: false, type: deleteType, deleteKey, error: message }, false);
+          if (lastState) publishState(lastState);
+        } finally {
+          skillAdminDeleteInFlight = null;
+        }
+        return;
+      }
       if (command?.scope === "combat-hud" && command?.feature === "fire-mode") {
         const fmType = String(command.type ?? "");
         if (fmType === "toggle-selector") {
@@ -12472,7 +12564,7 @@ function resolveCombatMovementPermission({
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.62";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.64";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;

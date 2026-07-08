@@ -53,7 +53,7 @@ function skillTile(skill, selectedId) {
   </button>`;
 }
 
-export function renderSkillBlock(state) {
+export function renderSkillBlock(state, opts = {}) {
   // Phase 4.0b: when the live snapshot carries the persisted quickbar runtime
   // (folded in by selectionState.buildBroadcastPayload), render the real
   // server-backed quickbar. Absent (mock/legacy) → the category view below.
@@ -79,7 +79,14 @@ export function renderSkillBlock(state) {
       ?? state?.snapshot?.pendingInstantAbilityActionId
       ?? state?.snapshot?.pendingDirectedAbilityActionId
       ?? null;
-    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId }) });
+    const openActionId = opts?.openSkillsMenu?.kind === "action"
+      ? String(opts.openSkillsMenu.id ?? "").trim() || null
+      : null;
+    const pendingDeleteId = String(opts?.pendingGmDeleteId ?? "").trim() || null;
+    const gmAdmin = role === "gm"
+      ? { enabled: true, openActionId, pendingDeleteId }
+      : null;
+    return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId, gmAdmin }) });
   }
 
   const slots = selectQuickSlots(state);

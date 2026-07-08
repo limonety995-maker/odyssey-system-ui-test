@@ -182,6 +182,8 @@ export function mapQuickAction(raw) {
   return {
     characterActionId: str(q.characterActionId) ?? str(q.character_action_id) ?? null,
     definitionId: str(q.definitionId) ?? str(q.definition_id) ?? null,
+    characterSkillId: str(q.characterSkillId) ?? str(q.character_skill_id) ?? null,
+    sourceCharacterWeaponId: str(q.sourceCharacterWeaponId) ?? str(q.source_character_weapon_id) ?? null,
     sourceType: normalizeSource(q),
     type: normalizeType(q),
     name: str(q.name) ?? "Unknown action",

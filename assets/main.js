@@ -37147,6 +37147,13 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
       onAttrEdit(attrEdit.dataset.attrEdit);
       return;
     }
+    const gmDel = t.closest("[data-gmdel]");
+    if (gmDel) {
+      e.preventDefault();
+      e.stopPropagation();
+      onGmDelete(gmDel.dataset.gmdel, gmDel.dataset.id);
+      return;
+    }
     const skillEdit = t.closest("[data-skill-edit]");
     if (skillEdit) {
       e.stopPropagation();
@@ -37213,11 +37220,6 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         const qty = root2.querySelector(`[data-gmammoqty="${CSS.escape(ammoStockId)}"]`)?.value ?? 1;
         onGmRemoveAmmo(ammoStockId, qty);
       }
-      return;
-    }
-    const gmDel = t.closest("[data-gmdel]");
-    if (gmDel) {
-      onGmDelete(gmDel.dataset.gmdel, gmDel.dataset.id);
       return;
     }
     const gmBtn = t.closest("[data-gmbtn]");
@@ -37633,7 +37635,7 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
         null,
         settings(),
         DEL
-      ), () => refresh({ armory: false, equipment: false, inventory: false, perkAvailability: true }));
+      ), () => refresh({ armory: false, equipment: false, inventory: false, abilities: true, perkAvailability: true }));
     } else if (type === "weapon") {
       runMutation("Delete weapon", () => bridges.supabase.mutateSupabaseRows(
         `odyssey_character_weapons?${idFilter}&${charIdFilter}`,
