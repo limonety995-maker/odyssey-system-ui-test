@@ -20,7 +20,7 @@
 import OBR from "@owlbear-rodeo/sdk";
 import { logDebugEvent } from "../debug/debugLogStore.js";
 import { BC_HUD_COMMAND, BC_HUD_SESSION, BC_HUD_SESSION_REQUEST } from "../overlay/overlayConstants.js";
-import { mapCombatRuntimeToSession } from "./combatSessionMapper.js";
+import { mapCombatRuntimeToSession, isRuntimeApplicable } from "./combatSessionMapper.js";
 import { buildStartCandidates, canSeeGmTracker } from "./combatSessionPolicy.js";
 import { normalizeTacticalGridSettings } from "../../movement/gridMath.js";
 import { syncCombatScenePositions } from "../../movement/tacticalSync.js";
@@ -45,8 +45,14 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
   let mutationInFlight = false;
   let prevActiveEntryId = null;
   let prevSessionId = null;
+  let reconciliationTimer = null;
   /** @type {Array<() => void>} */
   const cleanups = [];
+
+  // Bugfix pack: one quiet background re-read scheduled after an externally
+  // applied runtime (Tactical Move) — a safety reconciliation, never required
+  // for the immediate render, and never more than one pending at a time.
+  const RECONCILIATION_DELAY_MS = 1800;
 
   const viewer = () => (typeof getViewer === "function" ? getViewer() : {}) ?? {};
   const isGm = () => String(viewer()?.role ?? "").toUpperCase() === "GM";
@@ -68,8 +74,20 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
     } catch (_e) { /* ignore */ }
   }
 
+  /**
+   * THE single authoritative-runtime apply path (bugfix pack). Every caller —
+   * refresh(), a mutation's own fresh result, and now Tactical Move's
+   * accepted-movement runtime via applyExternalRuntime() below — goes through
+   * this one function, guarded by isRuntimeApplicable() so a stale/foreign
+   * runtime can never regress a newer one already in place.
+   * @returns {boolean} whether the runtime was actually applied
+   */
   function applyRuntime(runtime, { origin }) {
     const next = runtime && typeof runtime === "object" ? runtime : null;
+    if (!isRuntimeApplicable(next, lastRuntime)) {
+      logDebugEvent("session", "stale-runtime-ignored", { origin }, false);
+      return false;
+    }
     const nextEncounter = encounterOf(next);
     const nextSessionId = nextEncounter?.status === "active" ? nextEncounter.id ?? null : null;
     const nextEntryId = nextEncounter?.active_entry_id ?? null;
@@ -93,6 +111,7 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
       try { onSessionRuntime(lastRuntime); } catch (_e) { /* consumer owns its errors */ }
     }
     broadcastSessionState();
+    return true;
   }
 
   function hasReadyTacticalRuntime(runtime) {
@@ -175,6 +194,42 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { origin, message: String(error?.message ?? error) }, false);
     }
+  }
+
+  function scheduleReconciliation(origin) {
+    if (reconciliationTimer || disposed) return; // never a second pending reconciliation
+    reconciliationTimer = setTimeout(() => {
+      reconciliationTimer = null;
+      if (disposed) return;
+      void refresh(`${origin}-reconciliation`);
+    }, RECONCILIATION_DELAY_MS);
+  }
+
+  /**
+   * External authoritative-runtime entry point (bugfix pack) for flows that
+   * fetch/receive their OWN fresh combat runtime outside this controller's
+   * own mutation calls — Tactical Move's accepted combat_move_character
+   * result is the first such caller. Reuses the exact same applyRuntime()/
+   * isRuntimeApplicable() path every internal mutation already goes
+   * through, so there is exactly one runtime-apply code path, never a
+   * second one forked for movement.
+   *
+   * Unlike applyRuntime's internal callers (which legitimately see "session
+   * just ended" — e.g. gm-end — as a real `encounter: null` transition), a
+   * movement result can only ever exist WITHIN an already-active session, so
+   * a missing/malformed encounter here can only mean a foreign or corrupt
+   * payload and is rejected before ever reaching the shared apply path.
+   * @returns {boolean} whether the runtime was applied
+   */
+  function applyExternalRuntime(runtime, origin) {
+    const next = runtime && typeof runtime === "object" ? runtime : null;
+    if (!next?.encounter || typeof next.encounter !== "object") {
+      logDebugEvent("session", "external-runtime-rejected", { origin, reason: "missing-encounter" }, false);
+      return false;
+    }
+    const applied = applyRuntime(next, { origin });
+    if (applied) scheduleReconciliation(origin);
+    return applied;
   }
 
   function currentSessionRef() {
@@ -296,8 +351,10 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
   return {
     refresh: () => refresh("external"),
     getSessionRuntime: () => lastRuntime,
+    applyExternalRuntime,
     cleanup() {
       disposed = true;
+      if (reconciliationTimer) { clearTimeout(reconciliationTimer); reconciliationTimer = null; }
       for (const fn of cleanups.splice(0)) { try { fn(); } catch (_e) { /* ignore */ } }
     },
   };

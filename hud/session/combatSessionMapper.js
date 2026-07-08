@@ -13,6 +13,43 @@
 
 import { createInactiveCombatSession } from "../models/combatHudContracts.js";
 
+/**
+ * Pure freshness guard for the ONE shared runtime-apply path (bugfix pack:
+ * immediate HUD refresh after Tactical Move). Every mutation that returns a
+ * fresh combat runtime — end turn, GM turn controls, combat-session refresh,
+ * and now Tactical Move's own accepted combat_move_character result — goes
+ * through this same check before it is allowed to replace the cached
+ * runtime, so a slower-resolving mutation can never regress a newer runtime
+ * another, faster one already applied.
+ *
+ * Policy (see docs/TACTICAL_MOVE_HUD_REFRESH_AUDIT.md):
+ *   - no incoming encounter at all -> a real "session ended" transition,
+ *     always applicable (existing mutations like gm-end legitimately return
+ *     this shape);
+ *   - incoming encounter with a non-numeric state_version -> malformed,
+ *     never applied;
+ *   - nothing cached yet -> any well-formed runtime wins;
+ *   - incoming encounter id differs from the cached one -> a foreign/stale
+ *     encounter, ignored;
+ *   - same encounter -> applied only when its state_version is the same or
+ *     newer (never older) than what is already cached.
+ * @param {object|null} next
+ * @param {object|null} prev
+ * @returns {boolean}
+ */
+export function isRuntimeApplicable(next, prev) {
+  const nextEncounter = next?.encounter && typeof next.encounter === "object" ? next.encounter : null;
+  const prevEncounter = prev?.encounter && typeof prev.encounter === "object" ? prev.encounter : null;
+  if (!nextEncounter) return true;
+  const nextVersion = Number(nextEncounter.state_version);
+  if (!Number.isFinite(nextVersion)) return false;
+  if (!prevEncounter) return true;
+  if (String(nextEncounter.id ?? "") !== String(prevEncounter.id ?? "")) return false;
+  const prevVersion = Number(prevEncounter.state_version);
+  if (!Number.isFinite(prevVersion)) return true;
+  return nextVersion >= prevVersion;
+}
+
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;

@@ -41,6 +41,7 @@ import {
 import { getZoneLabel, DEFAULT_PROFILE_ID } from "../targeting/targetProfiles.js";
 import { logDebugEvent } from "../debug/debugLogStore.js";
 import { setupCombatSessionController } from "../session/combatSessionController.js";
+import { subscribeMoveToolMessages, MOVE_TOOL_EVENTS } from "../../movement/moveToolBridge.js";
 import { setupQuickbarController } from "../abilities/quickbarController.js";
 import { mapCombatRuntimeToSession } from "../session/combatSessionMapper.js";
 import { sessionAttackGate, sessionReloadGate, expectedVersionOf } from "../session/combatSessionPolicy.js";
@@ -165,6 +166,24 @@ export function setupSceneSelection(hooks = {}) {
         })
       : null;
     if (sessionController) cleanups.push(() => sessionController.cleanup());
+
+    // Bugfix pack: immediate HUD refresh after Tactical Move. The move tool's
+    // OWN accepted-movement result already carries a fresh authoritative
+    // combat runtime (see movement/moveToolController.js's
+    // finalizeMutationSuccess) — this listener is the only piece that was
+    // missing: nothing under hud/ ever consumed MOVE_TOOL_EVENTS.Applied.
+    // Reuses the session controller's own applyExternalRuntime() (same
+    // apply path + freshness guard end-turn/GM controls already go through)
+    // rather than forking a second runtime-apply mechanism for movement.
+    if (sessionController) {
+      const unsubscribeMoveTool = await subscribeMoveToolMessages((event) => {
+        if (event.type !== MOVE_TOOL_EVENTS.Applied) return;
+        const payload = event.payload ?? {};
+        if (payload.source !== "combat-movement" || !payload.runtime) return;
+        sessionController.applyExternalRuntime(payload.runtime, "tactical-move");
+      });
+      if (disposed) { unsubscribeMoveTool?.(); } else { cleanups.push(unsubscribeMoveTool); }
+    }
 
     // Phase 4.0b: abilities/quickbar layer. The quickbar controller owns the
     // per-character quick-actions runtime (library + persisted layout); this
