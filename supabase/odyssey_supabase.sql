@@ -63463,6 +63463,35 @@ before update on public.odyssey_ability_grants
 for each row
 execute function public.odyssey_touch_updated_at();
 
+insert into public.odyssey_ability_grants (
+  source_type,
+  source_def_id,
+  ability_def_id,
+  min_level,
+  is_enabled,
+  data,
+  sort_order
+)
+select
+  'skill',
+  ad.linked_skill_id,
+  ad.id,
+  1,
+  true,
+  jsonb_build_object(
+    'generated_from_legacy_linked_skill_id', true
+  ),
+  coalesce(ad.sort_order, 0)
+from public.odyssey_ability_defs ad
+where ad.linked_skill_id is not null
+  and not exists (
+    select 1
+    from public.odyssey_ability_grants grant_link
+    where grant_link.source_type = 'skill'
+      and grant_link.source_def_id = ad.linked_skill_id
+      and grant_link.ability_def_id = ad.id
+  );
+
 create or replace function public.odyssey_reconcile_character_abilities(
   p_character_id uuid
 )
@@ -63503,24 +63532,7 @@ begin
   end if;
 
   for v_source in
-    with legacy_skill_grants as (
-      select
-        ad.id as ability_def_id,
-        ad.code as ability_code,
-        ad.linked_skill_id as skill_def_id,
-        cs.id as character_skill_id,
-        greatest(coalesce(cs.level, 0), 0) as skill_level,
-        coalesce(ad.sort_order, 0) as sort_order,
-        '{}'::jsonb as grant_data,
-        0 as source_priority
-      from public.odyssey_ability_defs ad
-      join public.odyssey_character_skills cs
-        on cs.character_id = p_character_id
-       and cs.skill_def_id = ad.linked_skill_id
-      where ad.source_type = 'skill'
-        and ad.linked_skill_id is not null
-    ),
-    mapped_skill_grants as (
+    with mapped_skill_grants as (
       select
         ad.id as ability_def_id,
         ad.code as ability_code,
@@ -63529,7 +63541,7 @@ begin
         greatest(coalesce(cs.level, 0), 0) as skill_level,
         coalesce(grant_link.sort_order, ad.sort_order, 0) as sort_order,
         coalesce(grant_link.data, '{}'::jsonb) as grant_data,
-        1 as source_priority
+        0 as source_priority
       from public.odyssey_ability_grants grant_link
       join public.odyssey_ability_defs ad on ad.id = grant_link.ability_def_id
       join public.odyssey_character_skills cs
@@ -63538,6 +63550,31 @@ begin
       where grant_link.source_type = 'skill'
         and grant_link.is_enabled = true
         and greatest(coalesce(cs.level, 0), 0) >= greatest(coalesce(grant_link.min_level, 1), 1)
+    ),
+    legacy_skill_grants as (
+      select
+        ad.id as ability_def_id,
+        ad.code as ability_code,
+        ad.linked_skill_id as skill_def_id,
+        cs.id as character_skill_id,
+        greatest(coalesce(cs.level, 0), 0) as skill_level,
+        coalesce(ad.sort_order, 0) as sort_order,
+        jsonb_build_object(
+          'generated_from_legacy_linked_skill_id', true
+        ) as grant_data,
+        1 as source_priority
+      from public.odyssey_ability_defs ad
+      join public.odyssey_character_skills cs
+        on cs.character_id = p_character_id
+       and cs.skill_def_id = ad.linked_skill_id
+      where ad.linked_skill_id is not null
+        and not exists (
+          select 1
+          from public.odyssey_ability_grants grant_link
+          where grant_link.source_type = 'skill'
+            and grant_link.source_def_id = ad.linked_skill_id
+            and grant_link.ability_def_id = ad.id
+        )
     )
     select distinct on (combined.ability_def_id, combined.character_skill_id)
       combined.*
@@ -63639,7 +63676,7 @@ begin
       from public.odyssey_ability_defs ad
       where ad.id = ability.ability_def_id
         and (
-          (ad.source_type = 'skill' and ad.linked_skill_id is not null)
+          (ad.linked_skill_id is not null)
           or exists (
             select 1
             from public.odyssey_ability_grants grant_link
@@ -63655,7 +63692,6 @@ begin
         on skill_row.character_id = p_character_id
        and skill_row.skill_def_id = ad.linked_skill_id
       where ad.id = ability.ability_def_id
-        and ad.source_type = 'skill'
         and ad.linked_skill_id is not null
         and skill_row.id is not null
       union all
