@@ -9321,6 +9321,59 @@ function buildTargetCursorToolIcon() {
   return `data:image/svg+xml,${svg}`;
 }
 
+// hud/debug/errorSerialization.js
+var SENSITIVE_KEY_PATTERN = /token|auth|password|secret|credential|api[-_]?key|session|cookie|bearer/i;
+var REDACTED = "[redacted]";
+var MAX_STACK_CHARS = 2e3;
+function isPlainObject2(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function redact(value, depth = 0) {
+  if (depth > 6) return "[max-depth]";
+  if (Array.isArray(value)) return value.slice(0, 50).map((v) => redact(v, depth + 1));
+  if (isPlainObject2(value)) {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SENSITIVE_KEY_PATTERN.test(k) ? REDACTED : redact(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+function serializeError(error) {
+  if (error instanceof Error) {
+    const out = {
+      name: error.name,
+      message: error.message,
+      stack: typeof error.stack === "string" ? error.stack.slice(0, MAX_STACK_CHARS) : void 0
+    };
+    if (error.cause !== void 0) out.cause = serializeError(error.cause);
+    for (const key of Object.keys(error)) {
+      if (key in out) continue;
+      out[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redact(error[key]);
+    }
+    return out;
+  }
+  if (error && typeof error === "object") {
+    try {
+      return redact(JSON.parse(JSON.stringify(error)));
+    } catch {
+      let keys = [];
+      try {
+        keys = Object.keys(error);
+      } catch {
+        keys = [];
+      }
+      return {
+        type: Object.prototype.toString.call(error),
+        keys,
+        message: error.message !== void 0 ? String(error.message) : void 0
+      };
+    }
+  }
+  return { message: String(error) };
+}
+
 // hud/targeting/visuals/targetingVisualPolicy.js
 var OUTLINE_GAP_RATIO = 0.1;
 var RING_GAP_RATIO = 0.18;
@@ -9391,9 +9444,24 @@ function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
     strokeDash: [14, 10]
   }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(anchorItemId).disableAttachmentBehavior(["ROTATION"]).visible(true).build();
 }
+function tagPhase(error, phase, operation) {
+  if (error && typeof error === "object") {
+    try {
+      error.phase = phase;
+      error.operation = operation;
+      return error;
+    } catch (_e) {
+    }
+  }
+  return { phase, operation, message: String(error), originalError: error };
+}
 async function getTokenBounds(tokenId) {
-  const box = await lib_default.scene.items.getItemBounds([tokenId]);
-  return { width: box.width, height: box.height, center: box.center };
+  try {
+    const box = await lib_default.scene.items.getItemBounds([tokenId]);
+    return { width: box.width, height: box.height, center: box.center };
+  } catch (error) {
+    throw tagPhase(error, "scene-item-lookup", "getItemBounds");
+  }
 }
 async function showSourceOutline(tokenId) {
   const bounds = await getTokenBounds(tokenId);
@@ -9404,8 +9472,24 @@ async function hideSourceOutline() {
 }
 async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
-  await lib_default.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
-  await lib_default.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
+  try {
+    await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+  } catch (_e) {
+  }
+  try {
+    await lib_default.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
+  } catch (error) {
+    throw tagPhase(error, "ring-creation", "addItems(anchor)");
+  }
+  try {
+    await lib_default.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
+  } catch (error) {
+    try {
+      await lib_default.scene.local.deleteItems([TARGET_RING_ANCHOR_ITEM_ID]);
+    } catch (_e) {
+    }
+    throw tagPhase(error, "ring-creation", "addItems(ring)");
+  }
 }
 async function hideTargetRing() {
   await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
@@ -9435,10 +9519,17 @@ function setupTargetingVisuals() {
   let previousToolId = "";
   let previousModeId = "";
   let sourceTokenId = null;
+  let sourceCharacterId = null;
   let targetTokenId = null;
+  let targetCharacterId = null;
   let picking = false;
   let viewerRole = "player";
   let canView = false;
+  let sceneId = null;
+  void getRoomSceneContext().then((ctx) => {
+    sceneId = ctx?.sceneId ?? null;
+  }).catch(() => {
+  });
   let outlineVisible = false;
   let ringVisible = false;
   let ringTokenId = null;
@@ -9503,6 +9594,27 @@ function setupTargetingVisuals() {
       previousModeId = "";
     }
   }
+  function logRingFailure(phase, operation, error) {
+    const context = {
+      phase,
+      operation,
+      tokenId: targetTokenId,
+      targetCharacterId,
+      sourceCharacterId,
+      sceneId
+    };
+    try {
+      logDebugEvent("targeting", "target-ring-failed", { ...context, ...serializeError(error) }, false);
+    } catch (_e) {
+    }
+    try {
+      console.error("[Odyssey HUD] target ring failed", error, context);
+    } catch (_e) {
+    }
+  }
+  function logRingSuccess(operation) {
+    logDebugEvent("targeting", "target-ring-shown", { operation, tokenId: targetTokenId, targetCharacterId, sourceCharacterId, sceneId }, true);
+  }
   function stopRingTimer() {
     if (ringTimer) {
       clearInterval(ringTimer);
@@ -9521,7 +9633,8 @@ function setupTargetingVisuals() {
       ringTickInFlight = true;
       try {
         await setTargetRingRotation(ringRotationDeg);
-      } catch (_e) {
+      } catch (error) {
+        logRingFailure("ring-animation-update", "setTargetRingRotation", error);
       }
       ringTickInFlight = false;
     }, RING_TICK_MS);
@@ -9538,7 +9651,13 @@ function setupTargetingVisuals() {
     }
   }
   async function reconcileRing() {
-    const wanted = shouldShowTargetRing({ targetTokenId });
+    let wanted;
+    try {
+      wanted = shouldShowTargetRing({ targetTokenId });
+    } catch (error) {
+      logRingFailure("target-state-to-token-lookup", "shouldShowTargetRing", error);
+      return;
+    }
     if (!wanted) {
       if (!ringVisible) return;
       ringVisible = false;
@@ -9546,7 +9665,8 @@ function setupTargetingVisuals() {
       stopRingTimer();
       try {
         await hideTargetRing();
-      } catch (_e) {
+      } catch (error) {
+        logRingFailure("ring-cleanup", "hideTargetRing(clear)", error);
       }
       return;
     }
@@ -9555,7 +9675,8 @@ function setupTargetingVisuals() {
     if (ringVisible) {
       try {
         await hideTargetRing();
-      } catch (_e) {
+      } catch (error) {
+        logRingFailure("ring-anchor-update", "hideTargetRing(retarget)", error);
       }
     }
     ringVisible = false;
@@ -9566,11 +9687,11 @@ function setupTargetingVisuals() {
       ringVisible = true;
       ringTokenId = targetTokenId;
       startRingTimer();
-      logDebugEvent("targeting", "target-ring-shown", { tokenId: targetTokenId }, true);
+      logRingSuccess("showTargetRing");
     } catch (error) {
       ringVisible = false;
       ringTokenId = null;
-      logDebugEvent("targeting", "target-ring-failed", { tokenId: targetTokenId, message: String(error?.message ?? error) }, false);
+      logRingFailure(error?.phase ?? "ring-creation", error?.operation ?? "showTargetRing", error);
     }
   }
   async function reconcileCursor() {
@@ -9579,18 +9700,24 @@ function setupTargetingVisuals() {
   }
   function handleTargetingState(payload) {
     if (disposed) return;
-    const nextSource = payload?.source?.tokenId ?? null;
-    const nextTarget = payload?.target?.tokenId ?? null;
-    const nextPicking = isPickingActive(payload?.mode);
-    const sourceChanged = nextSource !== sourceTokenId;
-    const targetChanged = nextTarget !== targetTokenId;
-    const pickingChanged = nextPicking !== picking;
-    sourceTokenId = nextSource;
-    targetTokenId = nextTarget;
-    picking = nextPicking;
-    if (pickingChanged) void reconcileCursor();
-    if (sourceChanged) void reconcileOutline();
-    if (targetChanged) void reconcileRing();
+    try {
+      const nextSource = payload?.source?.tokenId ?? null;
+      const nextTarget = payload?.target?.tokenId ?? null;
+      const nextPicking = isPickingActive(payload?.mode);
+      const sourceChanged = nextSource !== sourceTokenId;
+      const targetChanged = nextTarget !== targetTokenId;
+      const pickingChanged = nextPicking !== picking;
+      sourceTokenId = nextSource;
+      sourceCharacterId = payload?.source?.characterId ?? null;
+      targetTokenId = nextTarget;
+      targetCharacterId = payload?.target?.characterId ?? null;
+      picking = nextPicking;
+      if (pickingChanged) void reconcileCursor();
+      if (sourceChanged) void reconcileOutline();
+      if (targetChanged) void reconcileRing();
+    } catch (error) {
+      logRingFailure("target-state-to-token-lookup", "handleTargetingState", error);
+    }
   }
   function handleSelectionState(payload) {
     if (disposed) return;
@@ -9605,12 +9732,16 @@ function setupTargetingVisuals() {
     if (disposed) return;
     unsubscribeSceneReady = lib_default.scene.onReadyChange((ready) => {
       if (disposed || ready) return;
-      stopRingTimer();
-      outlineVisible = false;
-      ringVisible = false;
-      ringTokenId = null;
-      picking = false;
-      toolActive = false;
+      try {
+        stopRingTimer();
+        outlineVisible = false;
+        ringVisible = false;
+        ringTokenId = null;
+        picking = false;
+        toolActive = false;
+      } catch (error) {
+        logRingFailure("scene-change-handling", "onReadyChange-reset", error);
+      }
     });
   });
   return {
@@ -9624,7 +9755,8 @@ function setupTargetingVisuals() {
       await restorePickingCursor();
       try {
         await hideAllTargetingVisuals();
-      } catch (_e) {
+      } catch (error) {
+        logRingFailure("ring-cleanup", "hideAllTargetingVisuals(teardown)", error);
       }
       if (toolRegistered) {
         try {
