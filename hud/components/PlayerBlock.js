@@ -60,15 +60,21 @@ const MOVE_TIP = {
   full: "Movement available",
   partial: "Movement partially spent",
   empty: "Movement exhausted",
+  unknown: "Movement unavailable",
 };
 
 function actionPips(actions) {
   const mainOn = Boolean(actions?.main);
-  // Missing/unknown moveState (no active session, no tactical-move runtime
-  // yet) renders as "empty" (gray) — never falsely green.
-  const moveState = actions?.moveState === "full" || actions?.moveState === "partial" ? actions.moveState : "empty";
+  const rawMoveState = actions?.moveState;
+  const isKnownMoveState = rawMoveState === "full" || rawMoveState === "partial" || rawMoveState === "empty";
+  // data-move-state distinguishes "no combat runtime available at all" (never
+  // falsely green) from a real server-confirmed "empty" — both render the
+  // SAME neutral/gray color (see combatHudLayout.css), only the semantic
+  // marker differs.
+  const moveState = isKnownMoveState ? rawMoveState : "unknown";
+  const moveCssState = isKnownMoveState ? rawMoveState : "empty";
   const mainPip = `<span class="${cls("ohud-pip", mainOn ? "is-on" : "is-off")}"${tipAttr("MAIN action", [mainOn ? "Available" : "Spent"])}>MAIN</span>`;
-  const movePip = `<span class="${cls("ohud-pip", `ohud-pip--move-${moveState}`)}"${tipAttr("MOVE action", [MOVE_TIP[moveState]])}>MOVE</span>`;
+  const movePip = `<span class="${cls("ohud-pip", `ohud-pip--move-${moveCssState}`)}" data-move-state="${moveState}"${tipAttr("MOVE action", [MOVE_TIP[moveState]])}>MOVE</span>`;
   return `<div class="ohud-pips">${mainPip}${movePip}</div>`;
 }
 
