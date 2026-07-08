@@ -49,16 +49,16 @@
   text-align: center; padding: 8px;
   border-color: var(--odyssey-hud-negative);
 }
-.ohud-moderr-title { font-size: 11px; font-weight: 800; color: var(--odyssey-hud-negative); }
+.ohud-moderr-title { font-size: var(--ohud-font-11); font-weight: 800; color: var(--odyssey-hud-negative); }
 .ohud-moderr-detail {
-  font-size: 9px; line-height: 1.3; color: var(--odyssey-hud-muted);
+  font-size: var(--ohud-font-9); line-height: 1.3; color: var(--odyssey-hud-muted);
   max-height: 60%; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 
 /* Dev-only diagnostic badge (?debug=1). Tiny, corner, never in production. */
 .ohud-module-debug {
   position: absolute; left: 2px; bottom: 2px; z-index: 6; pointer-events: none;
-  font-size: 8px; font-weight: 700; letter-spacing: 0.3px;
+  font-size: var(--ohud-font-8); font-weight: 700; letter-spacing: 0.3px;
   color: var(--odyssey-cyan); background: rgba(8, 12, 22, 0.7);
   border: 1px solid var(--odyssey-hud-border); border-radius: 4px; padding: 0 4px;
 }
@@ -77,12 +77,12 @@
  * .ohud-res-label ("SHIELD"/"PSI" captions) and .ohud-res-track height are
  * deliberately left alone — decorative/secondary, shrinks with everything
  * else via the outer module transform (per spec: reduce secondary first). */
-.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(16px * var(--ohud-critical-text-ratio, 1)); }
-.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(12px * var(--ohud-critical-text-ratio, 1)); }
-.ohud-module[data-module="player"] .ohud-res-label { font-size: 9px; }
+.ohud-module[data-module="player"] .ohud-player-name { font-size: calc(var(--ohud-font-16) * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-num { font-size: calc(var(--ohud-font-12) * var(--ohud-critical-text-ratio, 1)); }
+.ohud-module[data-module="player"] .ohud-res-label { font-size: var(--ohud-font-9); }
 .ohud-module[data-module="player"] .ohud-res-track { height: 8px; }
-.ohud-module[data-module="player"] .ohud-pip { font-size: calc(9px * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }
-.ohud-module[data-module="player"] .ohud-chip-status { font-size: 9.5px; }
+.ohud-module[data-module="player"] .ohud-pip { font-size: calc(var(--ohud-font-9) * var(--ohud-critical-text-ratio, 1)); padding: 2px 8px; }
+.ohud-module[data-module="player"] .ohud-chip-status { font-size: var(--ohud-font-9-5); }
 
 /* Skills (600×165): centred content, larger tiles, wrap past one row. This
  * centering is for the LEGACY category-grouped view (.ohud-skill-groups,
@@ -163,7 +163,7 @@
   min-width: 0; height: 18px; padding: 1px 5px;
   border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
   background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
-  font-size: 8px; text-align: left;
+  font-size: var(--ohud-font-8); text-align: left;
 }
 .ohud-weapon-option.is-selected { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }
 .ohud-weapon-option-name,
@@ -171,7 +171,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ohud-weapon-option-type,
-.ohud-weapon-option-ammo { color: var(--odyssey-hud-muted); font-size: 7.5px; }
+.ohud-weapon-option-ammo { color: var(--odyssey-hud-muted); font-size: var(--ohud-font-7-5); }
 /* Spare-magazine companion popover: a flowing, full-width row list SIZED TO
  * CONTENT by the controller (see hudPopoverLifecycle.computeCompanionSelectorHeight)
  * — this list must NEVER be absolutely positioned to a corner (that was the bug:
@@ -189,7 +189,7 @@
 .ohud-firemode-list.is-loading,
 .ohud-firemode-list.is-empty {
   display: flex; align-items: center; justify-content: center;
-  min-height: 18px; color: var(--odyssey-hud-muted); font-size: 9px; text-align: center;
+  min-height: 18px; color: var(--odyssey-hud-muted); font-size: var(--ohud-font-9); text-align: center;
 }
 .ohud-reserve-mag,
 .ohud-firemode-option {
@@ -197,7 +197,7 @@
   width: 100%; height: 22px; flex: 0 0 auto; padding: 0 8px;
   border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
   background: rgba(10, 16, 31, 0.74); color: var(--odyssey-hud-text);
-  font-size: 9px; white-space: nowrap;
+  font-size: var(--ohud-font-9); white-space: nowrap;
 }
 .ohud-reserve-mag-label,
 .ohud-firemode-option-name {
@@ -234,7 +234,7 @@
 
 /* Debug Log companion popover (Phase 3D.1, ?debug=1 only). */
 .ohud-debuglog-clear {
-  font-size: 8px; font-weight: 700; padding: 1px 6px;
+  font-size: var(--ohud-font-8); font-weight: 700; padding: 1px 6px;
   border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
   background: transparent; color: var(--odyssey-hud-muted); cursor: pointer;
 }
@@ -244,7 +244,7 @@
   overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;
 }
 .ohud-debuglog-row {
-  display: flex; gap: 5px; align-items: baseline; font-size: 8.5px; line-height: 1.3;
+  display: flex; gap: 5px; align-items: baseline; font-size: var(--ohud-font-8-5); line-height: 1.3;
   padding: 1px 3px; border-radius: 4px; background: rgba(10, 16, 31, 0.5);
 }
 .ohud-debuglog-row.is-fail { background: rgba(231, 76, 60, 0.12); }
@@ -254,7 +254,7 @@
 .ohud-debuglog-details {
   color: var(--odyssey-hud-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-.ohud-debuglog-empty { font-size: 10px; color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }
+.ohud-debuglog-empty { font-size: var(--ohud-font-10); color: var(--odyssey-hud-dim); display: grid; place-items: center; flex: 1; padding: 8px; }
 
 /* Modifiers — two mini-sections (AUTO, ARMED) instead of one flat chip wall.
  * AUTO = passive + narrative (armor/weapon/implant/passive ability/status/GM
@@ -263,11 +263,11 @@
  * 4.0f; no selector, no validation, no spend logic lives here yet. */
 .ohud-cc-mod .ohud-panel-head { min-height: 10px; flex: 0 0 auto; }
 .ohud-cc-modsec { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
-.ohud-cc-modsec-head { font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }
+.ohud-cc-modsec-head { font-size: var(--ohud-font-8-5); font-weight: 800; letter-spacing: 0.4px; color: var(--odyssey-hud-muted); text-transform: uppercase; }
 .ohud-cc-modsec[data-modifier-state="empty"] .ohud-cc-modsec-head { opacity: 0.65; }
-.ohud-cc-modsec-empty { font-size: 8.5px; color: var(--odyssey-hud-dim); }
+.ohud-cc-modsec-empty { font-size: var(--ohud-font-8-5); color: var(--odyssey-hud-dim); }
 .ohud-cc-modsec-chips { display: flex; gap: 3px; flex-wrap: nowrap; overflow: hidden; }
-.ohud-cc-modsec-chips .ohud-mod { flex: 1 1 0; min-width: 0; height: auto; min-height: 16px; font-size: 8.5px; padding: 1px 5px; }
+.ohud-cc-modsec-chips .ohud-mod { flex: 1 1 0; min-width: 0; height: auto; min-height: 16px; font-size: var(--ohud-font-8-5); padding: 1px 5px; }
 .ohud-cc-modsec-chips .ohud-mod--more { flex: 0 0 auto; justify-content: center; }
 
 /* Full-width action bar — ATTACK (primary, cyan) | END TURN (secondary, amber).
@@ -315,7 +315,7 @@
  */
 .ohud-cc-abtn {
   display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
-  font-size: calc(11px * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;
+  font-size: calc(var(--ohud-font-11) * var(--ohud-critical-text-ratio, 1)); font-weight: 800; letter-spacing: 0.4px;
   border: none; cursor: pointer;
 }
 .ohud-cc-abtn--attack {
@@ -337,18 +337,18 @@
 }
 .ohud-bind-badge {
   align-self: flex-start;
-  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  font-size: var(--ohud-font-9); font-weight: 800; letter-spacing: 0.5px;
   padding: 2px 7px; border-radius: 6px;
   border: 1px solid var(--odyssey-hud-border-strong); color: var(--odyssey-hud-muted);
 }
 .ohud-bind-badge--gm { color: #fff; background: var(--odyssey-purple-strong); border-color: var(--odyssey-purple-strong); }
 .ohud-bind-badge--owned { color: var(--odyssey-cyan); border-color: var(--odyssey-cyan); }
 .ohud-bind-name {
-  font-size: 16px; font-weight: 800; color: var(--odyssey-hud-text);
+  font-size: var(--ohud-font-16); font-weight: 800; color: var(--odyssey-hud-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.ohud-bind-status { font-size: 10px; color: var(--odyssey-hud-muted); }
-.ohud-bind-owner { font-size: 9px; color: var(--odyssey-hud-muted); opacity: 0.8; }
+.ohud-bind-status { font-size: var(--ohud-font-10); color: var(--odyssey-hud-muted); }
+.ohud-bind-owner { font-size: var(--ohud-font-9); color: var(--odyssey-hud-muted); opacity: 0.8; }
 
 /* Neutral, clearly-labeled fallback for ready-only modules until their runtime
  * mapping lands (never fabricated gameplay data). */
@@ -357,11 +357,11 @@
   display: flex; flex-direction: column; gap: 3px;
   align-items: center; justify-content: center; text-align: center; padding: 8px;
 }
-.ohud-bind-fallback-label { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-muted); }
-.ohud-bind-fallback-hint { font-size: 8.5px; color: var(--odyssey-hud-muted); opacity: 0.7; }
+.ohud-bind-fallback-label { font-size: var(--ohud-font-10); font-weight: 700; color: var(--odyssey-hud-muted); }
+.ohud-bind-fallback-hint { font-size: var(--ohud-font-8-5); color: var(--odyssey-hud-muted); opacity: 0.7; }
 
 /* Dev-only (?debug=1) error detail under a Player prompt. */
-.ohud-bind-dev { font-size: 8px; color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }
+.ohud-bind-dev { font-size: var(--ohud-font-8); color: var(--odyssey-hud-muted); opacity: 0.6; margin-top: 4px; word-break: break-word; }
 
 /* ===================== Arrange-HUD editor ===================== */
 .ohud-editor-root {
@@ -381,11 +381,11 @@
   padding: 8px 14px; background: var(--odyssey-hud-panel);
   border-bottom: 1px solid var(--odyssey-hud-border-strong);
 }
-.ohud-editor-title { font-size: 13px; font-weight: 800; letter-spacing: 0.5px; color: var(--odyssey-hud-text); }
-.ohud-editor-hint { font-size: 11px; color: var(--odyssey-hud-muted); }
+.ohud-editor-title { font-size: var(--ohud-font-13); font-weight: 800; letter-spacing: 0.5px; color: var(--odyssey-hud-text); }
+.ohud-editor-hint { font-size: var(--ohud-font-11); color: var(--odyssey-hud-muted); }
 .ohud-editor-actions { margin-left: auto; display: flex; gap: 8px; }
 .ohud-editor-btn {
-  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  font: inherit; font-size: var(--ohud-font-12); font-weight: 700; cursor: pointer;
   padding: 5px 12px; border-radius: 8px;
   border: 1px solid var(--odyssey-hud-border-strong);
   background: var(--odyssey-panel-base); color: var(--odyssey-hud-text);
@@ -418,7 +418,7 @@
 }
 .ohud-card.is-dragging .ohud-card-bar { cursor: grabbing; }
 .ohud-card-grip { display: inline-flex; color: var(--odyssey-hud-muted); }
-.ohud-card-name { font-size: 10px; font-weight: 700; color: var(--odyssey-hud-text); }
+.ohud-card-name { font-size: var(--ohud-font-10); font-weight: 700; color: var(--odyssey-hud-text); }
 .ohud-card-body { position: relative; flex: 1 1 auto; min-height: 0; pointer-events: none; }
 .ohud-card-body > .ohud-panel { width: 100%; height: 100%; flex: none; }
 .ohud-card-body .ohud-panel--bare { background: transparent; border: none; box-shadow: none; }
