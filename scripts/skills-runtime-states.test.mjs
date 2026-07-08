@@ -186,17 +186,31 @@ test("cooldown/insufficient-resource/unsupported slots render is-disabled + the 
   assert.match(res, /data-slot-state="insufficient_resource"/);
   assert.match(res, /ohud-qb-state--resource">PSI 3/);
 
-  const unsup = renderQuickbarStrip(runtime([action({ state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } })]));
+  // Phase 4.1B.0: an attack_technique with executionReason:
+  // ACTION_EFFECT_NOT_IMPLEMENTED is now direct-attack-eligible (see
+  // scripts/direct-ability-attack.test.mjs test 5) — it no longer renders
+  // through this "locked/unsupported" path in the quickbar. This scenario
+  // uses a non-technique type instead, to keep exercising the ORIGINAL,
+  // still-fully-valid "unsupported" lock-icon rendering for actions that
+  // stay on the show-ability-detail (never execute/arm) click path.
+  const unsup = renderQuickbarStrip(runtime([action({ type: "directed", state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } })]));
   assert.match(unsup, /data-slot-state="unsupported"/);
   assert.match(unsup, /ohud-qb-state--lock/);
-  // Click wiring is untouched regardless of state — still the SAME data-action.
-  for (const html of [cd, res, unsup]) assert.match(html, /data-action="toggle-armed-technique"/);
+  assert.match(unsup, /data-action="show-ability-detail"/);
+  // Click wiring for the two still-armable technique slots is untouched.
+  for (const html of [cd, res]) assert.match(html, /data-action="toggle-armed-technique"/);
 });
 
 /* ── 9/10. Detail card content: human-readable, no raw ids/JSON/internal data ── */
 
 test("9. the detail card shows the canonical executionReason as human-readable text, never the raw code", () => {
-  const a = action({ state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } });
+  // Phase 4.1B.0: an attack_technique with this exact executionReason is now
+  // direct-attack-eligible (see scripts/direct-ability-attack.test.mjs test
+  // 8/deriveDirectAttackAvailability) and shows its OWN status text instead —
+  // this test uses a non-technique type to keep exercising the ORIGINAL,
+  // still-fully-valid "unsupported executionReason" text mapping for actions
+  // that are not direct-attack-eligible.
+  const a = action({ type: "directed", state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } });
   const html = renderAbilityDetailCard(a);
   assert.match(html, /Attack effect is not supported yet\./);
   assert.ok(!html.includes("ACTION_EFFECT_NOT_IMPLEMENTED"), "the raw code itself is never shown");
