@@ -9414,7 +9414,6 @@ function nextRingRotation(currentDeg, elapsedMs, periodMs = RING_ROTATION_PERIOD
 
 // hud/targeting/visuals/targetingVisualRenderer.js
 var SOURCE_OUTLINE_ITEM_ID = "com.odyssey-system/targeting-source-outline";
-var TARGET_RING_ANCHOR_ITEM_ID = "com.odyssey-system/targeting-target-ring-anchor";
 var TARGET_RING_ITEM_ID = "com.odyssey-system/targeting-target-ring";
 var SOURCE_OUTLINE_COLOR = "#34e1d6";
 var TARGET_RING_COLOR = "#ff5c6c";
@@ -9429,11 +9428,7 @@ function buildSourceOutlineItem(tokenId, bounds) {
     strokeDash: []
   }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
 }
-function buildTargetRingAnchorItem(tokenId, bounds) {
-  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
-  return buildShape().id(TARGET_RING_ANCHOR_ITEM_ID).name("Odyssey Target Ring Anchor (local only, invisible)").shapeType("RECTANGLE").width(geo.width).height(geo.height).position(geo.position).style({ fillColor: TARGET_RING_COLOR, fillOpacity: 0, strokeColor: TARGET_RING_COLOR, strokeOpacity: 0, strokeWidth: 0 }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
-}
-function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
+function buildTargetRingItem(bounds, rotationDeg = 0) {
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).rotation(rotationDeg).style({
     fillColor: TARGET_RING_COLOR,
@@ -9442,7 +9437,7 @@ function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
     strokeOpacity: 0.95,
     strokeWidth: 5,
     strokeDash: [14, 10]
-  }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(anchorItemId).disableAttachmentBehavior(["ROTATION"]).visible(true).build();
+  }).layer("POINTER").locked(true).disableHit(true).disableAutoZIndex(true).visible(true).build();
 }
 function tagPhase(error, phase, operation) {
   if (error && typeof error === "object") {
@@ -9473,34 +9468,32 @@ async function hideSourceOutline() {
 async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
   try {
-    await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+    await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
   } catch (_e) {
   }
   try {
-    await lib_default.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
+    await lib_default.scene.local.addItems([buildTargetRingItem(bounds, 0)]);
   } catch (error) {
-    throw tagPhase(error, "ring-creation", "addItems(anchor)");
-  }
-  try {
-    await lib_default.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
-  } catch (error) {
-    try {
-      await lib_default.scene.local.deleteItems([TARGET_RING_ANCHOR_ITEM_ID]);
-    } catch (_e) {
-    }
     throw tagPhase(error, "ring-creation", "addItems(ring)");
   }
 }
 async function hideTargetRing() {
-  await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+  await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
 }
-async function setTargetRingRotation(rotationDeg) {
+async function updateTargetRingGeometry(tokenId, rotationDeg) {
+  const bounds = await getTokenBounds(tokenId);
+  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   await lib_default.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
-    for (const item of items) item.rotation = rotationDeg;
+    for (const item of items) {
+      item.position = geo.position;
+      item.width = geo.width;
+      item.height = geo.height;
+      item.rotation = rotationDeg;
+    }
   });
 }
 async function hideAllTargetingVisuals() {
-  await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+  await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID]);
 }
 
 // hud/targeting/visuals/targetingVisualController.js
@@ -9632,9 +9625,9 @@ function setupTargetingVisuals() {
       ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
       ringTickInFlight = true;
       try {
-        await setTargetRingRotation(ringRotationDeg);
+        await updateTargetRingGeometry(ringTokenId, ringRotationDeg);
       } catch (error) {
-        logRingFailure("ring-animation-update", "setTargetRingRotation", error);
+        logRingFailure("ring-animation-update", "updateTargetRingGeometry", error);
       }
       ringTickInFlight = false;
     }, RING_TICK_MS);

@@ -3545,6 +3545,14 @@ function visibleEntries(entries, filter) {
   return list.filter((e) => entryMatchesFilter(e, filter));
 }
 function truncateValue(value) {
+  if (value && typeof value === "object") {
+    try {
+      const s2 = JSON.stringify(value);
+      return s2.length <= 80 ? s2 : `${s2.slice(0, 76)}\u2026`;
+    } catch {
+      return "[unserializable]";
+    }
+  }
   const s = String(value);
   if (s.length <= 20 || /\s/.test(s)) return s;
   return `${s.slice(0, 10)}\u2026${s.slice(-4)}`;
@@ -3572,7 +3580,20 @@ function detailLines(details2, indent = "") {
       lines.push(`${indent}${k}:`);
       lines.push(...detailLines(v, `${indent}  `));
     } else if (Array.isArray(v)) {
-      lines.push(`${indent}${k}: ${v.map((item) => truncateValue(item)).join(", ")}`);
+      const hasObjectItem = v.some((item) => item && typeof item === "object");
+      if (hasObjectItem) {
+        lines.push(`${indent}${k}:`);
+        v.forEach((item, i) => {
+          if (item && typeof item === "object") {
+            lines.push(`${indent}  [${i}]:`);
+            lines.push(...detailLines(item, `${indent}    `));
+          } else {
+            lines.push(`${indent}  [${i}]: ${truncateValue(item)}`);
+          }
+        });
+      } else {
+        lines.push(`${indent}${k}: ${v.map((item) => truncateValue(item)).join(", ")}`);
+      }
     } else {
       lines.push(`${indent}${k}: ${truncateValue(v)}`);
     }
