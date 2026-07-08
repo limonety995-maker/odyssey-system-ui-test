@@ -272,3 +272,182 @@ currently Owlbear-selected, and removed on every required teardown path
 (clear/Escape/source-change/scene-change/token-deletion/HUD-teardown) —
 all as pure/source-contract tests (no live OBR session available to this
 harness; see the file header for why).
+
+**Superseded note (2026-07-08):** the two-item anchor+ring architecture
+described in §1-8 above (`TARGET_RING_ANCHOR_ITEM_ID`, `attachedTo`,
+`layer("ATTACHMENT")`) was itself replaced by a later hotfix after a live
+Owlbear Rodeo session produced a real `ValidationError` on
+`addItems(anchor)` — Owlbear's host-side item-schema validator rejected the
+anchor item outright. `attachedTo`/`layer("ATTACHMENT")` had no precedent
+anywhere else in this codebase for `OBR.scene.local` items, and the anchor
+concept was removed entirely in favor of a single local Shape item plus pure
+internal JS state (`ringTokenId`) — see the git history for
+`hud/targeting/visuals/targetingVisualRenderer.js` around that change. The
+video-regression section below documents the NEXT bug found in that
+single-item architecture, and is the CURRENT, authoritative description of
+how the ring works today.
+
+## Video regression: 2026-07-08 target ring stutter
+
+A screen recording from the user showed the (by-then single-item, no-anchor)
+target ring appearing correctly — visible, centered, roughly the right size —
+but its rotation was NOT smooth: the dashed segments visibly jumped/stepped/
+strobed instead of rotating continuously. This is a different bug from
+anything in §1-16 above: the ring exists and is positioned correctly: only
+its *animation* was broken.
+
+### 1. How the ring was created (at the time of the video)
+
+`targetingVisualRenderer.js`'s `showTargetRing(tokenId)` — a single
+`buildShape()` `CIRCLE` item (`TARGET_RING_ITEM_ID`), `layer("POINTER")`, no
+`attachedTo`, created ONCE via `OBR.scene.local.addItems([...])` when the
+target token changes. This part was already correct and is unchanged by this
+fix.
+
+### 2. How rotation was animated (at the time of the video)
+
+`targetingVisualController.js`'s `startRingTimer()` ran a plain
+`setInterval(..., RING_TICK_MS)` with `RING_TICK_MS = 150`. On every tick it
+computed a new `ringRotationDeg` via `nextRingRotation()` (a linear stepping
+function advancing degrees proportionally to elapsed time, wrapping at 360°)
+and pushed BOTH the freshly-recomputed geometry AND that new rotation value
+through a single `OBR.scene.local.updateItems([TARGET_RING_ITEM_ID], ...)`
+call — i.e. a real network/message-bus round trip to the host, once every
+150ms, for as long as any target remained selected.
+
+### 3. Whether Owlbear local item update calls happened every animation frame
+
+Not every rendered frame (which would be ~16ms at 60fps), but every 150ms —
+still a **fixed-interval poll**, entirely decoupled from whether the token's
+geometry had actually changed. Every one of those ~6.7 calls per second was a
+real `OBR.scene.local.updateItems` round trip through the host's message
+bus, regardless of whether anything about the target had moved.
+
+### 4. Whether the ring item was deleted/re-added during animation
+
+No — this part was already correct. `showTargetRing()`/`hideTargetRing()`
+(add/delete) were only ever called on retarget or clear, never from the
+150ms tick; the tick exclusively called `updateItems`. Delete/re-add churn
+was ruled out as a contributing cause.
+
+### 5. Whether target/HUD refresh restarted the animation
+
+No — also already correct, and covered by existing tests
+(`hud-targeting-visuals.test.mjs`'s `ringVisible && ringTokenId ===
+targetTokenId` no-op guard, and the Tactical-Move/attack-result refresh
+tests in `tactical-move-hud-refresh.test.mjs`). A same-target HUD/Tactical-
+Move/attack-result refresh never re-entered `reconcileRing()`'s creation
+path, so it never restarted `startRingTimer()`. Refresh-driven restarts were
+ruled out as the cause.
+
+### 6. Exact reason the video shows stepped/stuttering animation
+
+The rotation was driven by **repeated discrete writes to a real scene item**,
+not by continuous rendering. Each `updateItems` call is a genuine
+message-bus round trip from the extension's background context, through
+Owlbear's host, to the item the renderer actually paints — there is no
+mechanism in the `@owlbear-rodeo/sdk` for a local item's transform to
+interpolate BETWEEN two writes on its own. At a 150ms cadence, the rendered
+ring therefore visibly "jumps" through roughly `(150ms / 3500ms) × 360° ≈
+15.4°` of rotation on every write, instead of appearing to glide — exactly
+the "jump/step/strobe" behavior in the video. Reducing the tick interval
+would only shrink the step size, never eliminate it (and violates the
+architecture requirement below regardless: no per-frame scene-item writes),
+and timer/network jitter on top of a fixed interval can make the steps
+themselves visibly uneven in addition to being discrete.
+
+### 7. Final fixed architecture
+
+**The ring no longer animates rotation at all.** Two changes, both required
+by the fact above:
+
+1. **`buildTargetRingItem()` never calls `.rotation()`** — the ring is a
+   static, correctly-centered, correctly-sized dashed circle. There is no
+   longer any repeated write driving a visible spin, so there is nothing left
+   to step or stutter.
+2. **Geometry (position/width/height) is now updated by a real scene event,
+   never a fixed-interval poll.** The controller subscribes to
+   `OBR.scene.items.onChange(...)` once (alongside the existing
+   `OBR.scene.onReadyChange` subscription); its handler,
+   `handleSceneItemsChanged(items)`, only proceeds if the reported change
+   batch actually includes the CURRENT target token's id, then calls
+   `updateTargetRingGeometry(ringTokenId, lastRingBounds)`. That function
+   re-reads the token's bounds via `getItemBounds` and diffs them against
+   `lastRingBounds` (the anchor layer's own last-known geometry, kept as
+   plain JS state in the controller) — it only issues an
+   `OBR.scene.local.updateItems` write when the bounds genuinely differ,
+   never unconditionally. `RING_TICK_MS`/`RING_ROTATION_PERIOD_MS`/
+   `nextRingRotation()` are deleted entirely (dead code once the tick is
+   gone) — see `hud/targeting/visuals/targetingVisualPolicy.js`'s git history.
+
+This satisfies the required lifecycle exactly: ring created once on target
+select, kept alive (never recreated) while the same target remains selected
+across HUD/Tactical-Move/attack-result refreshes, geometry-synced only when
+the target's OWN bounds actually change, and removed on
+clear/source-change/scene-change/teardown.
+
+### Option A (animated local image/effect) — feasibility assessment
+
+The task's own preferred approach was an animated local IMAGE item (an SVG
+with an internal `animateTransform`/CSS keyframe spin) so the animation lives
+in the asset itself and Owlbear's own renderer plays it continuously, with no
+JS-driven scene writes at all. Two candidates were investigated in the
+installed `@owlbear-rodeo/sdk` (v3.1.0) before ruling this out for THIS pass:
+
+- **`buildImage()` / `IMAGE` items** (`image.url` + `image.mime`): Owlbear
+  Rodeo's scene renderer is a canvas/WebGL-based engine, which — like
+  virtually every renderer of this kind — decodes an image URL into a single
+  static GPU texture at load time. SMIL (`animateTransform`) or CSS
+  keyframe animation embedded in an SVG document does not survive that
+  rasterize-once-to-texture step; the texture becomes a frozen snapshot of
+  the SVG's initial frame. This is a general, well-established limitation of
+  WebGL/canvas image compositing, not something this SDK's types can
+  override. A pre-rendered ANIMATED raster format (GIF/APNG/animated WEBP —
+  Owlbear Rodeo does support animated GIF *tokens* as a first-party feature)
+  is a somewhat more plausible variant, but building a valid animated
+  GIF/WEBP by hand was judged out of scope: this repo has no image/canvas
+  encoding dependency in `package.json` (only `@owlbear-rodeo/sdk`,
+  `@supabase/supabase-js`, and `esbuild`), and whether a local extension-
+  created `IMAGE` item's raw `image.url` is decoded through the SAME
+  animated-frame-aware path as a user-uploaded token (vs. a simpler
+  always-static-texture path used for extension-drawn overlays) could not be
+  confirmed from the SDK alone.
+- **`buildEffect()` / `EFFECT` items** (`sksl` Skia shader string +
+  `uniforms`): the only item type genuinely driven by the HOST's own
+  per-frame render loop rather than by our JS — in principle the correct
+  mechanism for real continuous animation with zero scene writes. However,
+  whether Owlbear auto-feeds any continuously-incrementing "time" uniform to
+  a shader (the only way a shader could animate at all, since a shader is a
+  pure function of its given uniforms/position with no persisted state
+  between frames) is NOT documented anywhere in the installed
+  `@owlbear-rodeo/sdk` package — no README, no type comment, no reference in
+  this codebase. Relying on it would be exactly the same kind of unverified
+  assumption as the IMAGE-texture approach.
+
+**Both hypotheses require a live Owlbear Rodeo render to verify.** This
+harness attempted to check for a connected browser via the same
+`claude-in-chrome` MCP bridge used earlier in this engagement to reproduce
+the original `ValidationError` — `list_connected_browsers()` returned empty;
+no browser is currently connected/authorized, and re-establishing that
+requires the user to reinstall/reauthorize "Claude for Chrome" and share a
+room URL again. Given neither approach could be genuinely tested, and given
+the real risk that guessing wrong on either (especially `IMAGE` items' grid/
+scale math, which is materially more complex than `Shape`'s direct
+`.width()/.height()`) could reintroduce a DIFFERENT visible regression (a
+mis-scaled or fully invisible ring) — worse than the current stutter — this
+pass takes the task's own explicitly-sanctioned fallback: **Option B, a
+stable, correctly-anchored, non-animated ring**, exactly as described above.
+A live-tested follow-up with real OBR access could revisit Option A/the
+EFFECT-shader route with actual verification.
+
+### Tests
+
+See `scripts/hud-targeting-visuals.test.mjs` and
+`scripts/target-ring-diagnostic.test.mjs` for the full source-contract suite
+covering: no fixed-interval timer survives in the controller
+(`setInterval`/`RING_TICK_MS`/`nextRingRotation` all gone), the ring builder
+never calls `.rotation()`, `updateTargetRingGeometry` only writes via
+`updateItems` (never `addItems`/`deleteItems`), `handleSceneItemsChanged`
+only acts on changes that include the current target token id, and the
+existing same-target/HUD-refresh/Tactical-Move-refresh/scene-teardown
+lifecycle guards all still hold.
