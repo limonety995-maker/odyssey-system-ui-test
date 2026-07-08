@@ -212,6 +212,21 @@ export function setupSceneSelection(hooks = {}) {
       : null;
     if (quickbarController) cleanups.push(() => quickbarController.cleanup());
 
+    /** Hotfix: the execute-direct-ability handler used to look up
+     *  `ephemeral.abilitiesRuntime`, a field that has never existed —
+     *  abilitiesRuntime is kept ONLY as this controller-level closure
+     *  variable (assigned above in quickbarController's onRuntime callback)
+     *  and handed to buildBroadcastPayload as its own separate argument, not
+     *  folded onto `ephemeral`. The old lookup therefore always returned
+     *  null, and every direct-attack click blocked as INVALID_ABILITY before
+     *  ever reaching the RPC. This helper reads the REAL source. */
+    function findQuickActionByCharacterActionId(characterActionId) {
+      const id = String(characterActionId ?? "").trim();
+      if (!id) return null;
+      return (abilitiesRuntime?.quickActions ?? [])
+        .find((action) => String(action?.characterActionId ?? "") === id) ?? null;
+    }
+
     /** Latest mapped session for the currently selected character — used only
      *  for the client-side pre-gates + request payload context; the server
      *  re-checks everything. */
@@ -470,12 +485,33 @@ export function setupSceneSelection(hooks = {}) {
         // no-op, but every other slot/weapon-attack stays fully interactive.
         if (ephemeral.pendingDirectAbilityActionId) return;
 
-        const action = ephemeral.abilitiesRuntime?.quickActions?.find((a) => a.characterActionId === actionId) ?? null;
+        const action = findQuickActionByCharacterActionId(actionId);
         if (!actionId || !action || !isDirectAttackAbility(action)) {
           // Defensive only — QuickbarView.js never dispatches this command
           // for anything else; a malformed/stale command is ignored rather
-          // than guessed at.
-          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: "INVALID_ABILITY" }, false);
+          // than guessed at. Diagnostics are deliberately structured so a
+          // real failure (runtime not loaded yet, action genuinely absent,
+          // action present but not direct-attack-compatible) can be told
+          // apart from each other in the Debug Console — never a full
+          // private runtime bundle, never credentials/auth/GM-only data.
+          logDebugEvent("abilities", "direct-attack-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null,
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            // Best-effort: ask the existing quickbar controller to (re)load
+            // its runtime — never a fake success, never a perform_attack
+            // call without a real, found, direct-attack-eligible action.
+            void quickbarController?.refresh();
+          }
           return;
         }
 
