@@ -8369,6 +8369,11 @@ function setupSceneSelection(hooks = {}) {
       }
     }) : null;
     if (quickbarController) cleanups3.push(() => quickbarController.cleanup());
+    function findQuickActionByCharacterActionId(characterActionId) {
+      const id = String(characterActionId ?? "").trim();
+      if (!id) return null;
+      return (abilitiesRuntime?.quickActions ?? []).find((action) => String(action?.characterActionId ?? "") === id) ?? null;
+    }
     function currentMappedSession() {
       return mapCombatRuntimeToSession(sessionRuntime, {
         viewerPlayerId: viewer?.playerId ?? null,
@@ -8555,9 +8560,23 @@ function setupSceneSelection(hooks = {}) {
         const actionId = String(command.characterActionId ?? "").trim() || null;
         logDebugEvent("abilities", "direct-attack-requested", { characterActionId: actionId });
         if (ephemeral.pendingDirectAbilityActionId) return;
-        const action = ephemeral.abilitiesRuntime?.quickActions?.find((a) => a.characterActionId === actionId) ?? null;
+        const action = findQuickActionByCharacterActionId(actionId);
         if (!actionId || !action || !isDirectAttackAbility(action)) {
-          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: "INVALID_ABILITY" }, false);
+          logDebugEvent("abilities", "direct-attack-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
           return;
         }
         const targeting = ephemeral.targeting ?? {};
