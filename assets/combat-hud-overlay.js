@@ -7092,6 +7092,10 @@ function isInstantSelfAbility(action) {
   const mode = a.targeting?.mode;
   return mode !== "character" && mode !== "body_part";
 }
+function isDirectedTargetAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
+}
 
 // hud/abilities/AbilityTooltip.js
 var TYPE_LABEL = {
@@ -7143,12 +7147,14 @@ function abilityTooltipModel(action) {
   const state = a.state ?? {};
   const directAttack = isDirectAttackAbility(a);
   const instantSelf = !directAttack && isInstantSelfAbility(a);
+  const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
+  else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
@@ -7164,6 +7170,7 @@ function abilityTooltipModel(action) {
     value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
   });
   if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
+  else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
   const reqParts = [];
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
@@ -7233,14 +7240,15 @@ function occupiedTile(slot, action, armedActionId, pendingActionId) {
   const isTechnique = action.type === "attack_technique";
   const directAttack = isTechnique && isDirectAttackAbility(action);
   const instantSelf = !isTechnique && isInstantSelfAbility(action);
+  const directedTarget = !isTechnique && !instantSelf && isDirectedTargetAbility(action);
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
-  const pending = (directAttack || instantSelf) && pendingActionId != null && pendingActionId === action.characterActionId;
+  const pending = (directAttack || instantSelf || directedTarget) && pendingActionId != null && pendingActionId === action.characterActionId;
   const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
-  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false || instantSelf && pending;
-  const dataAction = directAttack ? "execute-direct-ability" : instantSelf ? "execute-instant-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false || (instantSelf || directedTarget) && pending;
+  const dataAction = directAttack ? "execute-direct-ability" : instantSelf ? "execute-instant-ability" : directedTarget ? "execute-directed-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
-    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : directedTarget ? pending ? "Executing\u2026" : "Directed ability \u2014 uses selected target, no body zone required" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
   ]);
   const stateMarker = stateMarkerHtml(availability, action, pending);
   const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
@@ -7320,7 +7328,7 @@ function renderSkillBlock(state) {
     const role = String(state?.viewer?.role ?? "").toLowerCase();
     const canEdit = role === "gm" || role === "player";
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? state?.snapshot?.pendingInstantAbilityActionId ?? null;
+    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? state?.snapshot?.pendingInstantAbilityActionId ?? state?.snapshot?.pendingDirectedAbilityActionId ?? null;
     return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId }) });
   }
   const slots = selectQuickSlots(state);
@@ -8414,6 +8422,16 @@ function mountCombatHudModule(options) {
           });
         }
         break;
+      case "execute-directed-ability":
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud",
+            feature: "quickbar",
+            type: "execute-directed-ability",
+            characterActionId: t.getAttribute("data-action-id")
+          });
+        }
+        break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "end-turn" });
@@ -8437,7 +8455,7 @@ function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
   function techniqueSlotFromTarget(target) {
-    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"]') : null;
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"]') : null;
     return t && el.contains(t) ? t : null;
   }
   function onSlotDetailOver(e) {
