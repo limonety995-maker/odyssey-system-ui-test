@@ -19,9 +19,10 @@
 // mechanism without disturbing it.
 
 import OBR from "@owlbear-rodeo/sdk";
-import { activateTool, activateToolMode, getActiveTool, getActiveToolMode } from "../../../bridge/obrBridge.js";
+import { activateTool, activateToolMode, getActiveTool, getActiveToolMode, getRoomSceneContext } from "../../../bridge/obrBridge.js";
 import { buildTargetCursorValue, buildTargetCursorToolIcon } from "../targetCursorSvg.js";
 import { logDebugEvent } from "../../debug/debugLogStore.js";
+import { serializeError } from "../../debug/errorSerialization.js";
 import {
   shouldShowSourceOutline,
   shouldShowTargetRing,
@@ -53,10 +54,16 @@ export function setupTargetingVisuals() {
   let previousModeId = "";
 
   let sourceTokenId = null;
+  let sourceCharacterId = null;
   let targetTokenId = null;
+  let targetCharacterId = null;
   let picking = false;
   let viewerRole = "player";
   let canView = false;
+  // Best-effort, fetched once — a diagnostic field only (never used for any
+  // gating decision), so a failure to resolve it must never block targeting.
+  let sceneId = null;
+  void getRoomSceneContext().then((ctx) => { sceneId = ctx?.sceneId ?? null; }).catch(() => {});
 
   let outlineVisible = false;
   let ringVisible = false;
@@ -127,6 +134,41 @@ export function setupTargetingVisuals() {
     }
   }
 
+  /**
+   * THE single failure-reporting path for every target-ring phase (Urgent
+   * Diagnostic Fix). Never throws, never blocks targeting — logging a
+   * failure here is itself best-effort. Structured details (never a bare
+   * `String(error)`, which is exactly what used to collapse to the useless
+   * "[object Object]") go to the Debug Console; the raw, unserialized error
+   * plus this same context object go to the real browser console for full
+   * devtools inspection.
+   * @param {string} phase one of: target-state-to-token-lookup,
+   *   scene-item-lookup, ring-creation, ring-anchor-update, ring-cleanup,
+   *   ring-animation-update, scene-change-handling
+   * @param {string} operation short, specific action name within the phase
+   * @param {unknown} error
+   */
+  function logRingFailure(phase, operation, error) {
+    const context = {
+      phase, operation,
+      tokenId: targetTokenId,
+      targetCharacterId,
+      sourceCharacterId,
+      sceneId,
+    };
+    try {
+      logDebugEvent("targeting", "target-ring-failed", { ...context, ...serializeError(error) }, false);
+    } catch (_e) { /* logging itself must never throw */ }
+    try {
+      // eslint-disable-next-line no-console
+      console.error("[Odyssey HUD] target ring failed", error, context);
+    } catch (_e) { /* never let console logging break targeting */ }
+  }
+
+  function logRingSuccess(operation) {
+    logDebugEvent("targeting", "target-ring-shown", { operation, tokenId: targetTokenId, targetCharacterId, sourceCharacterId, sceneId }, true);
+  }
+
   function stopRingTimer() {
     if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
   }
@@ -141,7 +183,11 @@ export function setupTargetingVisuals() {
       lastTick = now;
       ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
       ringTickInFlight = true;
-      try { await setTargetRingRotation(ringRotationDeg); } catch (_e) { /* cosmetic only */ }
+      try {
+        await setTargetRingRotation(ringRotationDeg);
+      } catch (error) {
+        logRingFailure("ring-animation-update", "setTargetRingRotation", error);
+      }
       ringTickInFlight = false;
     }, RING_TICK_MS);
   }
@@ -157,13 +203,25 @@ export function setupTargetingVisuals() {
   }
 
   async function reconcileRing() {
-    const wanted = shouldShowTargetRing({ targetTokenId });
+    // Phase: target-state-to-token-lookup — deciding what (if anything)
+    // should be shown, purely from the already-extracted targetTokenId.
+    let wanted;
+    try {
+      wanted = shouldShowTargetRing({ targetTokenId });
+    } catch (error) {
+      logRingFailure("target-state-to-token-lookup", "shouldShowTargetRing", error);
+      return;
+    }
     if (!wanted) {
       if (!ringVisible) return;
       ringVisible = false;
       ringTokenId = null;
       stopRingTimer();
-      try { await hideTargetRing(); } catch (_e) { /* best effort */ }
+      try {
+        await hideTargetRing();
+      } catch (error) {
+        logRingFailure("ring-cleanup", "hideTargetRing(clear)", error);
+      }
       return;
     }
     // Already showing on this EXACT token — a genuinely unrelated broadcast
@@ -175,7 +233,11 @@ export function setupTargetingVisuals() {
     // never leave the ring attached to a stale target.
     stopRingTimer();
     if (ringVisible) {
-      try { await hideTargetRing(); } catch (_e) { /* best effort */ }
+      try {
+        await hideTargetRing();
+      } catch (error) {
+        logRingFailure("ring-anchor-update", "hideTargetRing(retarget)", error);
+      }
     }
     ringVisible = false;
     ringTokenId = null;
@@ -185,16 +247,21 @@ export function setupTargetingVisuals() {
       ringVisible = true;
       ringTokenId = targetTokenId;
       startRingTimer();
-      logDebugEvent("targeting", "target-ring-shown", { tokenId: targetTokenId }, true);
+      logRingSuccess("showTargetRing");
     } catch (error) {
       ringVisible = false;
       ringTokenId = null;
       // Cosmetic-only (never breaks targeting itself) — but a silently
       // swallowed failure here is exactly what made a real "ring never
       // appears" bug indistinguishable from "everything is fine" in the
-      // past. Surface it to the Debug Console so a missing overlay is
-      // diagnosable instead of silent.
-      logDebugEvent("targeting", "target-ring-failed", { tokenId: targetTokenId, message: String(error?.message ?? error) }, false);
+      // past. logRingFailure() surfaces the REAL structured error to both
+      // the Debug Console and the browser console — never a bare
+      // String(error), which is exactly what used to collapse to
+      // "[object Object]". showTargetRing()'s own internal steps
+      // (bounds lookup vs. anchor/ring creation) tag the thrown error with
+      // a MORE specific error.phase/error.operation than this generic
+      // fallback — use those when present.
+      logRingFailure(error?.phase ?? "ring-creation", error?.operation ?? "showTargetRing", error);
     }
   }
 
@@ -203,21 +270,33 @@ export function setupTargetingVisuals() {
     else await restorePickingCursor();
   }
 
-  /** @param {{ mode?: string, source?: {tokenId?:string|null}, target?: {tokenId?:string|null} }} payload */
+  /** @param {{ mode?: string, source?: {tokenId?:string|null, characterId?:string|null}, target?: {tokenId?:string|null, characterId?:string|null} }} payload */
   function handleTargetingState(payload) {
     if (disposed) return;
-    const nextSource = payload?.source?.tokenId ?? null;
-    const nextTarget = payload?.target?.tokenId ?? null;
-    const nextPicking = isPickingActive(payload?.mode);
-    const sourceChanged = nextSource !== sourceTokenId;
-    const targetChanged = nextTarget !== targetTokenId;
-    const pickingChanged = nextPicking !== picking;
-    sourceTokenId = nextSource;
-    targetTokenId = nextTarget;
-    picking = nextPicking;
-    if (pickingChanged) void reconcileCursor();
-    if (sourceChanged) void reconcileOutline();
-    if (targetChanged) void reconcileRing();
+    // Phase: target-state-to-token-lookup — this whole function IS that
+    // lookup (extracting the token/character ids the rest of this module
+    // acts on from the broadcast payload). It only ever does plain property
+    // reads, so a try/catch here is defensive-only, but still reports
+    // through the same shared path if the payload is ever malformed enough
+    // to throw (e.g. a getter that throws).
+    try {
+      const nextSource = payload?.source?.tokenId ?? null;
+      const nextTarget = payload?.target?.tokenId ?? null;
+      const nextPicking = isPickingActive(payload?.mode);
+      const sourceChanged = nextSource !== sourceTokenId;
+      const targetChanged = nextTarget !== targetTokenId;
+      const pickingChanged = nextPicking !== picking;
+      sourceTokenId = nextSource;
+      sourceCharacterId = payload?.source?.characterId ?? null;
+      targetTokenId = nextTarget;
+      targetCharacterId = payload?.target?.characterId ?? null;
+      picking = nextPicking;
+      if (pickingChanged) void reconcileCursor();
+      if (sourceChanged) void reconcileOutline();
+      if (targetChanged) void reconcileRing();
+    } catch (error) {
+      logRingFailure("target-state-to-token-lookup", "handleTargetingState", error);
+    }
   }
 
   /** @param {{ viewer?: {role?:string}, access?: {canView?:boolean} }} payload */
@@ -238,12 +317,16 @@ export function setupTargetingVisuals() {
       // Scene is going away — local items don't survive a scene switch, and
       // there is nothing left worth writing to; just reset our own tracking
       // so a fresh scene starts from a clean "nothing shown" state.
-      stopRingTimer();
-      outlineVisible = false;
-      ringVisible = false;
-      ringTokenId = null;
-      picking = false;
-      toolActive = false;
+      try {
+        stopRingTimer();
+        outlineVisible = false;
+        ringVisible = false;
+        ringTokenId = null;
+        picking = false;
+        toolActive = false;
+      } catch (error) {
+        logRingFailure("scene-change-handling", "onReadyChange-reset", error);
+      }
     });
   });
 
@@ -256,7 +339,18 @@ export function setupTargetingVisuals() {
       stopRingTimer();
       unsubscribeSceneReady?.();
       await restorePickingCursor();
-      try { await hideAllTargetingVisuals(); } catch (_e) { /* best effort */ }
+      // No explicit token-deletion handler exists in this module — a
+      // deleted target token relies entirely on OBR's own attachment DELETE
+      // sync to remove the anchor/ring automatically; token-deletion-driven
+      // target CLEARING is targetSelectionController.js's responsibility,
+      // which re-routes through the normal targetChanged -> reconcileRing()
+      // path once it detects the link is gone (see
+      // docs/TARGET_RING_ANIMATION_AUDIT.md).
+      try {
+        await hideAllTargetingVisuals();
+      } catch (error) {
+        logRingFailure("ring-cleanup", "hideAllTargetingVisuals(teardown)", error);
+      }
       if (toolRegistered) {
         try { await OBR.tool.removeMode(TARGETING_CURSOR_MODE_ID); } catch (_e) { /* ignore */ }
         try { await OBR.tool.remove(TARGETING_CURSOR_TOOL_ID); } catch (_e) { /* ignore */ }

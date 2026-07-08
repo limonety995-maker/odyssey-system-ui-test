@@ -127,9 +127,30 @@ function buildTargetRingItem(anchorItemId, bounds, rotationDeg = 0) {
     .build();
 }
 
+/** Attach phase/operation to a thrown error (best-effort — never itself
+ *  throws) so the controller's catch block can report a MORE specific phase
+ *  than its own generic fallback. Mutates the error object directly when
+ *  possible (never wraps it — the caller must still see the REAL error for
+ *  serializeError() to work on); falls back to a plain object carrying the
+ *  same fields when the thrown value isn't itself an object. */
+function tagPhase(error, phase, operation) {
+  if (error && typeof error === "object") {
+    try {
+      error.phase = phase;
+      error.operation = operation;
+      return error;
+    } catch (_e) { /* frozen/sealed error object — fall through */ }
+  }
+  return { phase, operation, message: String(error), originalError: error };
+}
+
 async function getTokenBounds(tokenId) {
-  const box = await OBR.scene.items.getItemBounds([tokenId]);
-  return { width: box.width, height: box.height, center: box.center };
+  try {
+    const box = await OBR.scene.items.getItemBounds([tokenId]);
+    return { width: box.width, height: box.height, center: box.center };
+  } catch (error) {
+    throw tagPhase(error, "scene-item-lookup", "getItemBounds");
+  }
 }
 
 export async function showSourceOutline(tokenId) {
@@ -143,6 +164,19 @@ export async function hideSourceOutline() {
 
 export async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
+  // Self-healing: unconditionally clear any PRE-EXISTING item under these
+  // fixed ids before creating fresh ones. These ids are constants (not
+  // per-target-unique), so if a previous session ever left a ghost anchor/
+  // ring behind (e.g. a hard page reload that skipped cleanup()'s own
+  // best-effort hideAllTargetingVisuals()), a later addItems() call reusing
+  // the SAME id could collide with — or silently attach to — stale state
+  // instead of the fresh one just computed here. This does not depend on
+  // this module's own in-memory ringVisible tracking (which only reflects
+  // what THIS session believes, not what is actually already in the local
+  // scene store).
+  try {
+    await OBR.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
+  } catch (_e) { /* nothing to delete is the common, expected case */ }
   // Two SEQUENTIAL addItems calls, not one batched call: the ring's
   // .attachedTo(TARGET_RING_ANCHOR_ITEM_ID) must resolve against an anchor
   // that is already committed to the local scene store, never a same-call
@@ -152,8 +186,19 @@ export async function showTargetRing(tokenId) {
   // ever attaches one freshly-created local item to another in the same
   // operation), so it is deliberately the most conservative possible
   // sequencing rather than relying on unconfirmed same-batch behavior.
-  await OBR.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
-  await OBR.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
+  try {
+    await OBR.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
+  } catch (error) {
+    throw tagPhase(error, "ring-creation", "addItems(anchor)");
+  }
+  try {
+    await OBR.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
+  } catch (error) {
+    // The anchor now exists but the ring doesn't — never leave a half-shown,
+    // invisible-only overlay behind; clean up before surfacing the failure.
+    try { await OBR.scene.local.deleteItems([TARGET_RING_ANCHOR_ITEM_ID]); } catch (_e) { /* best effort */ }
+    throw tagPhase(error, "ring-creation", "addItems(ring)");
+  }
 }
 
 export async function hideTargetRing() {
