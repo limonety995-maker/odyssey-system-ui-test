@@ -96,3 +96,29 @@ export function deriveDirectAttackAvailability(action) {
   if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
   return SLOT_AVAILABILITY.ready;
 }
+
+// Phase 4.1B.1 — Instant / Self Ability Execution.
+//
+// A quick action is eligible for INSTANT/SELF execution (immediate, server-
+// authoritative, no external target — see
+// hud/scene/sceneSelectionController.js's "execute-instant-ability" handler)
+// when it is type "instant" — the server's own type derivation
+// (101_quickbar_execution_availability.sql) already only ever produces
+// "instant" for a non-attack ability whose target_type is NOT
+// "character"/"body_part" (those become "directed" instead; an attack
+// becomes "attack_technique"), so type==="instant" alone is a sufficient,
+// purely metadata-driven signal — see
+// docs/PHASE_4_1B_1_INSTANT_SELF_ABILITIES_AUDIT.md §4. The targeting.mode
+// check below is a defensive, currently-always-true belt-and-suspenders
+// check (never trust one field alone), not a second independent gate.
+//
+// Unlike Phase 4.1B.0's direct-attack abilities, an instant/self action's
+// state.available/state.executionAvailable are NOT tainted by any
+// arm-onto-weapon-attack concern — deriveSlotAvailability (above) is reused
+// UNCHANGED for these actions, no separate derivation function is needed.
+export function isInstantSelfAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  if (a.type !== "instant") return false;
+  const mode = a.targeting?.mode;
+  return mode !== "character" && mode !== "body_part";
+}

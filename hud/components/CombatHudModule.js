@@ -397,6 +397,18 @@ export function mountCombatHudModule(options) {
           });
         }
         break;
+      case "execute-instant-ability":
+        // Phase 4.1B.1: an instant/self ability — no target/body-zone
+        // concept at all (hud/abilities/abilityAvailabilityPolicy.js's
+        // isInstantSelfAbility). Same is-disabled guard covers both
+        // server-derived unavailability and an in-flight duplicate click.
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud", feature: "quickbar", type: "execute-instant-ability",
+            characterActionId: t.getAttribute("data-action-id"),
+          });
+        }
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the
@@ -449,8 +461,11 @@ export function mountCombatHudModule(options) {
     // isDirectAttackAbility), but it is still an attack_technique slot and
     // must still get the SAME hover/focus detail card — only the click
     // behavior differs between the two.
+    // Phase 4.1B.1: same reasoning for an instant/self-eligible action —
+    // its click is spoken for by "execute-instant-ability", but it still
+    // needs the honest hover/focus detail card.
     const t = target && target.closest
-      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"]')
+      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"]')
       : null;
     return t && el.contains(t) ? t : null;
   }

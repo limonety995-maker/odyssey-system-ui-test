@@ -14,8 +14,15 @@
 // direct-attack-eligible in the first place (see
 // abilityAvailabilityPolicy.js's isDirectAttackAbility/
 // deriveDirectAttackAvailability doc comments for why).
+//
+// Phase 4.1B.1: an instant/self-eligible action (isInstantSelfAbility) gets
+// its own "Execution: Instant (self)" line. Unlike direct-attack, its
+// Target/Status lines need NO override — targeting.mode ("self"/"none") and
+// state.executionReason/available/disabledReason already read honestly for
+// this action class (never tainted the way direct-attack's are), so the
+// existing generic lines below are reused verbatim.
 
-import { isDirectAttackAbility, deriveDirectAttackAvailability, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
+import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
 
 const TYPE_LABEL = {
   attack_technique: "Attack technique",
@@ -84,6 +91,7 @@ export function abilityTooltipModel(action) {
   const state = a.state ?? {};
 
   const directAttack = isDirectAttackAbility(a);
+  const instantSelf = !directAttack && isInstantSelfAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
@@ -91,6 +99,7 @@ export function abilityTooltipModel(action) {
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
 
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
+  else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
 
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);

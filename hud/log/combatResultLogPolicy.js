@@ -21,6 +21,7 @@ export const LOG_TYPE = Object.freeze({
   attack: "attack",
   reload: "reload",
   fireMode: "fire-mode",
+  abilityExecute: "ability-execute",
 });
 
 export const LOG_OUTCOME = Object.freeze({
@@ -76,6 +77,49 @@ export function buildReloadLogEntry({ sourceCharacterId, ok, message }) {
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Reload" : "Reload failed",
     details: [String(message || (ok ? "Reloaded." : "Reload denied."))],
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null,
+  };
+}
+
+/**
+ * Build a Phase 4.1B.1 instant/self ability-execution log entry from the
+ * instantAbilityPayload-shaped outcome (`{ ok, normalized, error, code }`) —
+ * only ever shows fields the server actually returned (never a fabricated
+ * cost/effect). `abilityName` is passed in separately: the client's own
+ * mapped quick-action list already has it (the same source the Skills Block
+ * tile itself renders), so it never needs to be re-derived from the
+ * server's own trimmed `ability.name` echo, which may be null on failure.
+ *
+ * @param {{
+ *   sourceCharacterId:(string|null), abilityName:(string|null),
+ *   outcome:{ok:boolean, normalized:object|null, error:(string|null)},
+ * }} input
+ */
+export function buildAbilityExecutionLogEntry({ sourceCharacterId, abilityName, outcome }) {
+  const ok = !!outcome?.ok;
+  const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  let details;
+  if (ok) {
+    const n = outcome?.normalized ?? {};
+    const costParts = [];
+    if (Number(n.actionCost) > 0) costParts.push("MAIN spent");
+    if (Number(n.resourceSpent) > 0) costParts.push(`Resource spent: ${n.resourceSpent}`);
+    const effectPart = n.narrativeOnly ? "No mechanical effect." : null;
+    details = [
+      `Used ${name}.`,
+      costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
+      ...(effectPart ? [effectPart] : []),
+    ];
+  } else {
+    details = [String(outcome?.error || `${name} denied.`)];
+  }
+  return {
+    timestamp: Date.now(),
+    type: LOG_TYPE.abilityExecute,
+    outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
+    title: ok ? "Ability used" : "Ability failed",
+    details,
     sourceCharacterId: sourceCharacterId ?? null,
     targetCharacterId: null,
   };

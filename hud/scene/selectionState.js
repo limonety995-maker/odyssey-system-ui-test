@@ -428,6 +428,13 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
     if (pendingDirectAbilityActionId) {
       hudSnapshot = { ...hudSnapshot, pendingDirectAbilityActionId };
     }
+    // Phase 4.1B.1: same treatment for the SEPARATE instant/self-ability
+    // in-flight request — a different ephemeral field (a different command
+    // handler owns it), same only-when-set convention.
+    const pendingInstantAbilityActionId = ephemeral.pendingInstantAbilityActionId ?? null;
+    if (pendingInstantAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingInstantAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle
     ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {

@@ -68,10 +68,15 @@ export function renderSkillBlock(state) {
     // — ephemeral UI state folded in by selectionState.js, never server data
     // by itself (the server re-validates everything at Attack time).
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    // Phase 4.1B.0: which direct-ability-attack request (if any) is currently
-    // in flight — ephemeral UI-only, folded in by selectionState.js exactly
-    // like armedActionId above.
-    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? null;
+    // Phase 4.1B.0/4.1B.1: which direct-ability-attack OR instant/self-
+    // ability request (if any) is currently in flight — ephemeral UI-only,
+    // folded in by selectionState.js exactly like armedActionId above. Each
+    // command handler owns its own field; a given action is only ever
+    // eligible for ONE of the two execution classes, so merging them into a
+    // single prop for QuickbarView is safe — at most one is ever non-null.
+    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId
+      ?? state?.snapshot?.pendingInstantAbilityActionId
+      ?? null;
     return panel({ key: "skills", bodyHtml: renderQuickbarStrip(quickbar, { canEdit, armedActionId, pendingActionId }) });
   }
 

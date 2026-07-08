@@ -23,20 +23,23 @@ import {
 import { loadRoomSupabaseSettings, hasSupabaseSettings } from "../../bridge/settingsBridge.js";
 import { getSceneTokenLinks, getCharacterRuntimeBundle } from "../../api/characterPlacementApi.js";
 import { loadWeaponProfileMagazine, getCharacterArmory, switchWeaponFireMode } from "../../api/weaponApi.js";
-import { performAttack } from "../../api/combatApi.js";
+import { performAttack, executeAction } from "../../api/combatApi.js";
 import { getCharacterInventory } from "../../api/inventoryApi.js";
 import { resolveReloadMagazineId, normalizeReloadRpcResult } from "./reloadPolicy.js";
 import { normalizeFireModeRpcResult } from "./fireModePolicy.js";
 import { evaluateBasicAttack, buildAttackRequestSignature, isAttackResultStale } from "../combat/basicAttackPolicy.js";
 import { buildBasicAttackCtx, buildDirectAbilityAttackCtx, resolveAttack } from "../combat/basicAttackPayload.js";
 import { evaluateDirectAbilityAttack, isDirectAbilityAttackResultStale } from "../combat/directAbilityAttackPolicy.js";
-import { isDirectAttackAbility } from "../abilities/abilityAvailabilityPolicy.js";
+import { evaluateInstantAbilityExecution, isInstantAbilityResultStale } from "../combat/instantAbilityPolicy.js";
+import { resolveInstantAbilityExecution } from "../combat/instantAbilityPayload.js";
+import { isDirectAttackAbility, isInstantSelfAbility } from "../abilities/abilityAvailabilityPolicy.js";
 import { buildAttackResolutionTrace, buildRollResolutionDetails } from "../combat/attackResolutionTrace.js";
 import { createSelectedWeaponMemory, resolveStoredWeaponId } from "./selectedWeaponMemory.js";
 import { createArmedTechniqueMemory } from "./armedTechniqueMemory.js";
 import {
   appendCombatLogEntry,
   buildAttackLogEntry,
+  buildAbilityExecutionLogEntry,
   buildReloadLogEntry,
   buildFireModeLogEntry,
 } from "../log/combatResultLogPolicy.js";
@@ -133,6 +136,10 @@ export function setupSceneSelection(hooks = {}) {
     // while one request resolves.
     pendingDirectAbilityActionId: null,
     directAbilityAttackResult: null,
+    // Phase 4.1B.1: same per-ability in-flight tracking, for the SEPARATE
+    // instant/self ability execution command (never touches target/zone).
+    pendingInstantAbilityActionId: null,
+    instantAbilityExecutionResult: null,
   };
   // ephemeral.debugEnabled gates the reload/fireMode/basicAttack debug sub-objects
   // in selectionState.js (an unrelated diagnostics feature) — kept independent of
@@ -338,6 +345,8 @@ export function setupSceneSelection(hooks = {}) {
         basicAttackResult: ephemeral.basicAttackResult,
         pendingDirectAbilityActionId: ephemeral.pendingDirectAbilityActionId,
         directAbilityAttackResult: ephemeral.directAbilityAttackResult,
+        pendingInstantAbilityActionId: ephemeral.pendingInstantAbilityActionId,
+        instantAbilityExecutionResult: ephemeral.instantAbilityExecutionResult,
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
@@ -653,6 +662,162 @@ export function setupSceneSelection(hooks = {}) {
           ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability attack failed." };
           await refetchCurrent();
           logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-failure" }, true);
+        }
+        return;
+      }
+
+      // Phase 4.1B.1: Instant / Self Ability Execution. A SEPARATE command
+      // from execute-direct-ability (above) and basic-attack (below) —
+      // clicking an instant/self-eligible ability executes it immediately
+      // server-side with NO target/body-zone concept at all. Uses
+      // combat_execute_action(kind:"ability") — a DIFFERENT RPC than
+      // perform_attack, since use_ability's own server body explicitly
+      // rejects attack-kind abilities and vice versa (see
+      // docs/PHASE_4_1B_1_INSTANT_SELF_ABILITIES_AUDIT.md §7). No
+      // weapon/ammo/magazine/fire-mode/target/body-part field is ever built
+      // into this payload — buildInstantAbilityExecutionPayload structurally
+      // has none.
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-instant-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "ability-execute-requested", { characterActionId: actionId });
+
+        // Double-submit guard: per-ability, not a whole-quickbar lock.
+        if (ephemeral.pendingInstantAbilityActionId) return;
+
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isInstantSelfAbility(action)) {
+          // Defensive only — QuickbarView.js never dispatches this command
+          // for anything else. Same rich, safe diagnostic shape the
+          // execute-direct-ability hotfix introduced — never the raw
+          // runtime bundle, never credentials/auth/GM-only data.
+          logDebugEvent("abilities", "ability-execute-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null,
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+
+        const sessionAtRequest = currentMappedSession();
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true,
+        };
+        const evalResult = evaluateInstantAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.instantAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "ability-execute-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        // Client-side session pre-gate (UX mirror only — the server
+        // re-checks turn/MAIN inside combat_execute_action regardless).
+        // sessionAttackGate is generic (turn + MAIN availability only, no
+        // attack-specific field) — reused as-is, no second gate function.
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.instantAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "ability-execute-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest),
+        };
+
+        ephemeral.pendingInstantAbilityActionId = actionId;
+        logDebugEvent("abilities", "ability-execute-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+        });
+        if (lastState) publishState(lastState); // slot shows pending immediately
+
+        let outcome;
+        try {
+          outcome = await resolveInstantAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+
+        ephemeral.pendingInstantAbilityActionId = null;
+        const currentCtx = { sourceCharacterId: ephemeral.characterId, abilityId: actionId };
+        const stale = isInstantAbilityResultStale(requestCtx, currentCtx);
+
+        ephemeral.instantAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildAbilityExecutionLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          abilityName: action.name,
+          outcome,
+        }));
+        logDebugEvent("abilities", "ability-execute-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          executionReason: action.state?.executionReason ?? null,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale,
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "ability-execute-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion,
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "instant-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability used." };
+          // No target/body-zone concept exists for this ability class —
+          // nothing to preserve/clear; the existing target/ring state is
+          // simply never referenced by this handler.
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-failure" }, true);
         }
         return;
       }
