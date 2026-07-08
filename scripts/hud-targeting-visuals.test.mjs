@@ -291,92 +291,70 @@ test("outline uses attachedTo so OBR itself keeps it synced to the source token'
   assert.ok(!block.includes("disableAttachmentBehavior"), "outline keeps ALL default sync (position/rotation/scale/delete)");
 });
 
-test("ring uses attachedTo for position/scale/delete but frees rotation for its own independent spin", () => {
+test("ring is a plain unattached local item — position/size/rotation set directly from freshly-computed geometry, no attachedTo of any kind", () => {
   const idx = rendererSrc.indexOf("function buildTargetRingItem");
-  const block = rendererSrc.slice(idx, rendererSrc.indexOf("async function getTokenBounds"));
-  assert.match(block, /\.attachedTo\(anchorItemId\)/);
-  assert.match(block, /disableAttachmentBehavior\(\["ROTATION"\]\)/);
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("function tagPhase"));
+  assert.ok(!block.includes("attachedTo"), "no attachedTo anywhere in the ring builder");
+  assert.match(block, /\.layer\("POINTER"\)/, "matches movement/combatMovementPreview.js's proven local-only overlay pattern");
   assert.match(block, /strokeDash:\s*\[/, "dashed stroke per spec");
   assert.match(block, /\.disableHit\(true\)/);
 });
 
-/* ── Fix #4: outer anchor / inner ring separation (Bugfix Pack) ────────── */
+/* ── Hotfix: single valid local item, no anchor OBR item, no addItems on
+ * every tick (ValidationError on addItems(anchor) — see
+ * target-ring-diagnostic.test.mjs for the full diagnostic-fix test suite) ── */
 
-test("Fix #4: the ring is attached to a separate ANCHOR item, never directly to the target token — the anchor is the ONLY thing attachedTo(tokenId)", () => {
-  const anchorIdx = rendererSrc.indexOf("function buildTargetRingAnchorItem");
-  const anchorBlock = rendererSrc.slice(anchorIdx, rendererSrc.indexOf("function buildTargetRingItem"));
-  assert.match(anchorBlock, /\.attachedTo\(tokenId\)/, "anchor tracks the token directly");
-  assert.ok(!anchorBlock.includes("disableAttachmentBehavior"), "anchor keeps full default sync (position/scale/rotation/delete)");
-
-  const ringIdx = rendererSrc.indexOf("function buildTargetRingItem");
-  const ringBlock = rendererSrc.slice(ringIdx, rendererSrc.indexOf("async function getTokenBounds"));
-  assert.ok(!ringBlock.includes(".attachedTo(tokenId)"), "ring is NEVER attached to the token directly");
-  assert.match(ringBlock, /\.attachedTo\(anchorItemId\)/);
+test("hotfix: there is no anchor OBR item at all — the outer 'anchor' is pure internal JS state, never a second local scene item", () => {
+  assert.ok(!rendererSrc.includes("TARGET_RING_ANCHOR_ITEM_ID"));
+  assert.ok(!rendererSrc.includes("buildTargetRingAnchorItem"));
+  assert.ok(!controllerSrc.includes("TARGET_RING_ANCHOR"));
 });
 
-test("Fix #4: the anchor is invisible (zero opacity) — a purely geometric tracker, never a second visible ring", () => {
-  const idx = rendererSrc.indexOf("function buildTargetRingAnchorItem");
-  const block = rendererSrc.slice(idx, rendererSrc.indexOf("function buildTargetRingItem"));
-  assert.match(block, /fillOpacity:\s*0/);
-  assert.match(block, /strokeOpacity:\s*0/);
-});
-
-test("Fix #4: showTargetRing() creates the anchor AND the ring, ring attached to the anchor's own item id", () => {
-  const idx = rendererSrc.indexOf("export async function showTargetRing");
-  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
-  assert.match(block, /buildTargetRingAnchorItem\(tokenId,\s*bounds\)/);
-  assert.match(block, /buildTargetRingItem\(TARGET_RING_ANCHOR_ITEM_ID,\s*bounds/);
-});
-
-test("Missing-overlay fix: showTargetRing() issues TWO SEPARATE, sequential addItems() calls (anchor committed before the ring references it) — never one batched call attaching a sibling created in the same call", () => {
+test("hotfix: showTargetRing() issues exactly ONE addItems() call for the single ring item — never a second addItems for an anchor", () => {
   const idx = rendererSrc.indexOf("export async function showTargetRing");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
   const addItemsCalls = block.match(/OBR\.scene\.local\.addItems\(/g) ?? [];
-  assert.equal(addItemsCalls.length, 2, "expected exactly two addItems() calls, one per item");
-  const anchorCallIdx = block.indexOf("addItems([buildTargetRingAnchorItem");
-  const ringCallIdx = block.indexOf("addItems([buildTargetRingItem");
-  assert.ok(anchorCallIdx > -1 && ringCallIdx > -1, "each item has its OWN addItems([...]) call");
-  assert.ok(anchorCallIdx < ringCallIdx, "the anchor's addItems call is awaited and completes BEFORE the ring's own call starts");
+  assert.equal(addItemsCalls.length, 1, "expected exactly one addItems() call");
+  assert.match(block, /addItems\(\[buildTargetRingItem\(bounds/);
 });
 
-test("Missing-overlay fix: showTargetRing() self-heals by deleting any PRE-EXISTING anchor/ring under these fixed ids before creating fresh ones — never assumes nothing is already there", () => {
+test("hotfix: showTargetRing() self-heals by deleting any PRE-EXISTING ring under its fixed id before creating a fresh one — never assumes nothing is already there", () => {
   const idx = rendererSrc.indexOf("export async function showTargetRing");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
-  const preCleanupIdx = block.indexOf("deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID])");
-  const anchorCreateIdx = block.indexOf("addItems([buildTargetRingAnchorItem");
+  const preCleanupIdx = block.indexOf("deleteItems([TARGET_RING_ITEM_ID])");
+  const ringCreateIdx = block.indexOf("addItems([buildTargetRingItem");
   assert.ok(preCleanupIdx > -1, "a defensive delete-by-id runs before creation");
-  assert.ok(preCleanupIdx < anchorCreateIdx, "the defensive delete happens BEFORE the anchor is (re)created");
+  assert.ok(preCleanupIdx < ringCreateIdx, "the defensive delete happens BEFORE the ring is (re)created");
 });
 
-test("Missing-overlay fix: each showTargetRing() step tags a thrown error with a specific phase/operation (scene-item-lookup vs ring-creation) so the controller's catch can report more than a generic fallback", () => {
+test("hotfix: showTargetRing() tags a thrown error with scene-item-lookup vs ring-creation phases so the controller's catch can report more than a generic fallback", () => {
   assert.match(rendererSrc, /function tagPhase\(error, phase, operation\)/);
   const boundsIdx = rendererSrc.indexOf("async function getTokenBounds");
   const boundsBlock = rendererSrc.slice(boundsIdx, rendererSrc.indexOf("export async function showSourceOutline"));
   assert.match(boundsBlock, /tagPhase\(error, "scene-item-lookup", "getItemBounds"\)/);
   const idx = rendererSrc.indexOf("export async function showTargetRing");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
-  assert.match(block, /tagPhase\(error, "ring-creation", "addItems\(anchor\)"\)/);
   assert.match(block, /tagPhase\(error, "ring-creation", "addItems\(ring\)"\)/);
 });
 
-test("Fix #4: hideTargetRing()/hideAllTargetingVisuals() always delete BOTH the ring and its anchor — no orphaned anchor left behind", () => {
+test("hotfix: hideTargetRing()/hideAllTargetingVisuals() only ever reference TARGET_RING_ITEM_ID — no anchor id, since none exists anymore", () => {
   const hideIdx = rendererSrc.indexOf("export async function hideTargetRing");
-  const hideBlock = rendererSrc.slice(hideIdx, rendererSrc.indexOf("export async function setTargetRingRotation"));
+  const hideBlock = rendererSrc.slice(hideIdx, rendererSrc.indexOf("/** Refreshes"));
   assert.match(hideBlock, /TARGET_RING_ITEM_ID/);
-  assert.match(hideBlock, /TARGET_RING_ANCHOR_ITEM_ID/);
+  assert.ok(!hideBlock.includes("ANCHOR"));
 
   const idx = rendererSrc.indexOf("export async function hideAllTargetingVisuals");
   const block = rendererSrc.slice(idx);
   assert.match(block, /TARGET_RING_ITEM_ID/);
-  assert.match(block, /TARGET_RING_ANCHOR_ITEM_ID/);
+  assert.ok(!block.includes("ANCHOR"));
 });
 
-test("Fix #4: setTargetRingRotation() touches ONLY the ring item — never the anchor, never re-adds/removes either item", () => {
-  const idx = rendererSrc.indexOf("export async function setTargetRingRotation");
+test("hotfix: geometry/rotation refresh (updateTargetRingGeometry) never calls addItems/deleteItems — it only ever updates the existing ring item's transform via a single updateItems() call", () => {
+  const idx = rendererSrc.indexOf("export async function updateTargetRingGeometry");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
   assert.match(block, /updateItems\(\[TARGET_RING_ITEM_ID\]/);
-  assert.ok(!block.includes("TARGET_RING_ANCHOR_ITEM_ID"), "never touches the anchor");
-  assert.ok(!block.includes("addItems") && !block.includes("deleteItems"), "rotation ticks never add/remove items");
+  assert.ok(!block.includes("addItems") && !block.includes("deleteItems"), "geometry ticks never add/remove items");
+  assert.ok(!controllerSrc.includes("setTargetRingRotation"), "the old rotation-only function is gone from the controller too");
 });
 
 test("Fix #4: the controller tracks WHICH token the ring is attached to, and reattaches (tears down + recreates) when the target switches to a DIFFERENT token — never just leaves it on the stale one", () => {

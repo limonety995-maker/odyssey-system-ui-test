@@ -179,8 +179,13 @@ test("5b. every reconcileRing()/handleTargetingState phase (token lookup, ring c
 
 test("6b. the renderer tags scene-item-lookup vs ring-creation distinctly, so a bounds-fetch failure is never misreported as a ring-creation failure", () => {
   assert.match(rendererSrc, /tagPhase\(error, "scene-item-lookup", "getItemBounds"\)/);
-  assert.match(rendererSrc, /tagPhase\(error, "ring-creation", "addItems\(anchor\)"\)/);
   assert.match(rendererSrc, /tagPhase\(error, "ring-creation", "addItems\(ring\)"\)/);
+  // The old two-step anchor+ring creation (and its distinct "addItems(anchor)"
+  // operation label passed to tagPhase) is gone entirely — there is exactly
+  // one addItems call for ring creation now. (The string may still appear in
+  // a header comment describing the historical bug — check the actual
+  // tagPhase call site, not the whole file.)
+  assert.ok(!rendererSrc.includes('tagPhase(error, "ring-creation", "addItems(anchor)")'));
 });
 
 /* ── 7. Debug Console displays a useful error message ────────────────────── */
@@ -225,18 +230,108 @@ test("8. logRingFailure() logs the RAW, unserialized error object (plus the same
 
 /* ── self-healing: the actual ring creation/update fix ───────────────────── */
 
-test("self-heal: showTargetRing() defensively deletes any pre-existing anchor/ring by id BEFORE creating fresh ones — never assumes this module's own in-memory tracking is the only source of truth for what's already in the local scene store", () => {
+test("self-heal: showTargetRing() defensively deletes any pre-existing ring by id BEFORE creating a fresh one — never assumes this module's own in-memory tracking is the only source of truth for what's already in the local scene store", () => {
   const idx = rendererSrc.indexOf("export async function showTargetRing");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
-  assert.match(block, /await OBR\.scene\.local\.deleteItems\(\[TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID\]\)/);
+  assert.match(block, /await OBR\.scene\.local\.deleteItems\(\[TARGET_RING_ITEM_ID\]\)/);
 });
 
-test("self-heal: a failure creating the ring itself (after the anchor already succeeded) cleans up the orphaned anchor rather than leaving a half-shown invisible-only overlay", () => {
+/* ── Hotfix: ValidationError on addItems(anchor) — single valid local item ── */
+
+test("hotfix 1/2: showTargetRing() never passes anchorState (or any TARGET_RING_ANCHOR-shaped object) into OBR.scene.local.addItems — the anchor OBR item concept is removed entirely", () => {
+  assert.ok(!rendererSrc.includes("TARGET_RING_ANCHOR_ITEM_ID"));
+  assert.ok(!rendererSrc.includes("buildTargetRingAnchorItem"));
   const idx = rendererSrc.indexOf("export async function showTargetRing");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideTargetRing"));
-  const ringCatchIdx = block.indexOf('tagPhase(error, "ring-creation", "addItems(ring)")');
-  const cleanupIdx = block.lastIndexOf("deleteItems([TARGET_RING_ANCHOR_ITEM_ID])", ringCatchIdx);
-  assert.ok(cleanupIdx > -1 && cleanupIdx < ringCatchIdx, "orphaned anchor is deleted before the ring-creation failure is thrown");
+  // The ring-creation path itself must never use attachedTo — that scoped
+  // check matters more than a whole-file ban, since buildSourceOutlineItem
+  // (a separate, not-yet-reported-broken overlay) still legitimately uses
+  // attachedTo(tokenId) and is out of scope for this hotfix.
+  assert.ok(!block.includes(".attachedTo("));
+  const addItemsCalls = block.match(/OBR\.scene\.local\.addItems/g) ?? [];
+  assert.equal(addItemsCalls.length, 1, "showTargetRing() must call addItems exactly once");
+});
+
+test("hotfix 2: the ring item built for addItems is a valid Owlbear local item shape — a buildShape() SHAPE item, same builder family as the project's proven local-overlay precedent (movement/combatMovementPreview.js), positioned via layer(\"POINTER\") with no attachedTo", () => {
+  const idx = rendererSrc.indexOf("function buildTargetRingItem");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("function tagPhase"));
+  assert.match(block, /buildShape\(\)/);
+  assert.match(block, /\.shapeType\("CIRCLE"\)/);
+  assert.match(block, /\.layer\("POINTER"\)/);
+  assert.ok(!block.includes("attachedTo"));
+  assert.ok(!block.includes('layer("ATTACHMENT")'));
+});
+
+test("hotfix 3/4: geometry/rotation updates go through a single updateItems() call (updateTargetRingGeometry), never a fresh addItems — addItems appears ONLY inside showTargetRing in the whole renderer file", () => {
+  assert.match(rendererSrc, /export async function updateTargetRingGeometry\(tokenId, rotationDeg\)/);
+  const geomIdx = rendererSrc.indexOf("export async function updateTargetRingGeometry");
+  const geomBlock = rendererSrc.slice(geomIdx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
+  assert.match(geomBlock, /OBR\.scene\.local\.updateItems\(\[TARGET_RING_ITEM_ID\]/);
+  assert.match(geomBlock, /item\.position = geo\.position/);
+  assert.match(geomBlock, /item\.width = geo\.width/);
+  assert.match(geomBlock, /item\.height = geo\.height/);
+  assert.match(geomBlock, /item\.rotation = rotationDeg/);
+  assert.ok(!geomBlock.includes("addItems"));
+  const allAddItems = rendererSrc.match(/\.addItems\(/g) ?? [];
+  assert.equal(allAddItems.length, 2, "addItems should appear exactly twice in the file: once for the source outline, once for the ring");
+});
+
+test("hotfix: the controller's animation tick calls updateTargetRingGeometry (not the old setTargetRingRotation), so every tick refreshes geometry+rotation together via updateItems, never addItems", () => {
+  assert.ok(!controllerSrc.includes("setTargetRingRotation"));
+  assert.match(controllerSrc, /await updateTargetRingGeometry\(ringTokenId, ringRotationDeg\)/);
+});
+
+test("hotfix 8: target clear removes the valid local ring item(s) — hideTargetRing/hideAllTargetingVisuals only ever reference TARGET_RING_ITEM_ID, never an anchor id", () => {
+  assert.match(rendererSrc, /export async function hideTargetRing\(\) \{\n\s*await OBR\.scene\.local\.deleteItems\(\[TARGET_RING_ITEM_ID\]\);/);
+  const idx = rendererSrc.indexOf("export async function hideAllTargetingVisuals");
+  const block = rendererSrc.slice(idx);
+  assert.match(block, /deleteItems\(\[SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID\]\)/);
+});
+
+test("hotfix 6/7: reconcileRing() only recreates the ring when the target token actually changes (ringTokenId !== targetTokenId) — a same-target HUD/Tactical-Move refresh re-running handleTargetingState with an unchanged target never re-enters showTargetRing", () => {
+  assert.match(controllerSrc, /if \(ringVisible && ringTokenId === targetTokenId\) return;/);
+});
+
+test("hotfix 9: DebugConsolePanel's detailLines() no longer collapses a nested array of objects (e.g. ValidationError.details) into '[object Object]' — each object element expands onto its own indented line", () => {
+  const details = {
+    phase: "ring-creation",
+    operation: "addItems(ring)",
+    error: {
+      name: "ValidationError",
+      message: '"items[0]" does not match any of the allowed types',
+      details: [
+        { path: ["items", 0], message: "expected SHAPE", expected: "SHAPE", received: "unknown" },
+      ],
+    },
+  };
+  const lines = detailLines(details);
+  const rendered = lines.join("\n");
+  assert.ok(!rendered.includes("[object Object]"));
+  assert.ok(rendered.includes("path:"));
+  assert.ok(rendered.includes("expected: SHAPE"));
+  assert.ok(rendered.includes("received: unknown"));
+});
+
+test("hotfix 9b: truncateValue() itself never returns the literal '[object Object]' for an object/array input", () => {
+  const truncateValueDirect = detailLines({ x: [{ a: 1 }] }).join("\n");
+  assert.ok(!truncateValueDirect.includes("[object Object]"));
+});
+
+test("hotfix 10: the Debug Console still shows phase, operation, tokenId, targetCharacterId, sourceCharacterId, and sceneId for a target-ring-failed entry, unchanged by the nested-details fix", () => {
+  const details = {
+    phase: "ring-creation", operation: "addItems(ring)",
+    tokenId: "aae8a1ab-b111-2222-3333-444455554d06",
+    targetCharacterId: "char-1", sourceCharacterId: "char-2", sceneId: "scene-1",
+    name: "ValidationError", message: '"items[0]" does not match any of the allowed types',
+    details: [{ path: ["items", 0], message: "bad type" }],
+  };
+  const rendered = detailLines(details).join("\n");
+  for (const expected of [
+    "phase: ring-creation", "operation: addItems(ring)", "tokenId: aae8a1ab-b…4d06",
+    "targetCharacterId: char-1", "sourceCharacterId: char-2", "sceneId: scene-1",
+  ]) {
+    assert.ok(rendered.includes(expected), `missing "${expected}" in rendered details`);
+  }
 });
 
 setTimeout(() => {
