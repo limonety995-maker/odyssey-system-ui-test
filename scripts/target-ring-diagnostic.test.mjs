@@ -162,12 +162,12 @@ test("5/6. logRingFailure() always includes tokenId, phase, and operation in the
   assert.match(block, /sceneId,/);
 });
 
-test("5b. every reconcileRing()/handleTargetingState phase (token lookup, ring creation, ring anchor update, ring animation, ring cleanup, scene change) calls logRingFailure with an explicit phase label — never a bare catch that drops the error", () => {
+test("5b. every reconcileRing()/handleTargetingState phase (token lookup, ring creation, ring anchor update, ring geometry sync, ring cleanup, scene change) calls logRingFailure with an explicit phase label — never a bare catch that drops the error", () => {
   for (const phase of [
     "target-state-to-token-lookup",
     "ring-cleanup",
     "ring-anchor-update",
-    "ring-animation-update",
+    "ring-geometry-sync",
     "scene-change-handling",
   ]) {
     assert.ok(controllerSrc.includes(`"${phase}"`), `missing phase label: ${phase}`);
@@ -262,23 +262,23 @@ test("hotfix 2: the ring item built for addItems is a valid Owlbear local item s
   assert.ok(!block.includes('layer("ATTACHMENT")'));
 });
 
-test("hotfix 3/4: geometry/rotation updates go through a single updateItems() call (updateTargetRingGeometry), never a fresh addItems — addItems appears ONLY inside showTargetRing in the whole renderer file", () => {
-  assert.match(rendererSrc, /export async function updateTargetRingGeometry\(tokenId, rotationDeg\)/);
+test("hotfix 3/4: geometry updates go through a single updateItems() call (updateTargetRingGeometry), never a fresh addItems — addItems appears ONLY inside showTargetRing in the whole renderer file", () => {
+  assert.match(rendererSrc, /export async function updateTargetRingGeometry\(tokenId, lastBounds\)/);
   const geomIdx = rendererSrc.indexOf("export async function updateTargetRingGeometry");
   const geomBlock = rendererSrc.slice(geomIdx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
   assert.match(geomBlock, /OBR\.scene\.local\.updateItems\(\[TARGET_RING_ITEM_ID\]/);
   assert.match(geomBlock, /item\.position = geo\.position/);
   assert.match(geomBlock, /item\.width = geo\.width/);
   assert.match(geomBlock, /item\.height = geo\.height/);
-  assert.match(geomBlock, /item\.rotation = rotationDeg/);
   assert.ok(!geomBlock.includes("addItems"));
   const allAddItems = rendererSrc.match(/\.addItems\(/g) ?? [];
   assert.equal(allAddItems.length, 2, "addItems should appear exactly twice in the file: once for the source outline, once for the ring");
 });
 
-test("hotfix: the controller's animation tick calls updateTargetRingGeometry (not the old setTargetRingRotation), so every tick refreshes geometry+rotation together via updateItems, never addItems", () => {
+test("hotfix (superseded by the animation-stutter fix): the controller has no fixed-interval rotation tick at all — updateTargetRingGeometry is called only from the OBR.scene.items.onChange handler", () => {
   assert.ok(!controllerSrc.includes("setTargetRingRotation"));
-  assert.match(controllerSrc, /await updateTargetRingGeometry\(ringTokenId, ringRotationDeg\)/);
+  assert.ok(!controllerSrc.includes("setInterval"), "no fixed-interval animation timer survives");
+  assert.match(controllerSrc, /await updateTargetRingGeometry\(ringTokenId, lastRingBounds\)/);
 });
 
 test("hotfix 8: target clear removes the valid local ring item(s) — hideTargetRing/hideAllTargetingVisuals only ever reference TARGET_RING_ITEM_ID, never an anchor id", () => {
@@ -332,6 +332,96 @@ test("hotfix 10: the Debug Console still shows phase, operation, tokenId, target
   ]) {
     assert.ok(rendered.includes(expected), `missing "${expected}" in rendered details`);
   }
+});
+
+/* ── Video regression (2026-07-08): target ring stutter — see
+ * docs/TARGET_RING_ANIMATION_AUDIT.md's "Video regression: 2026-07-08"
+ * section for the full write-up. The ring used to "spin" via a 150ms
+ * setInterval pushing a fresh rotation through updateItems — each write is a
+ * real round trip, so what should have read as continuous motion instead
+ * read as a visible step every tick. Fix: drop rotation entirely (nothing
+ * left to step), and drive geometry-only sync off a real
+ * OBR.scene.items.onChange event instead of a fixed-interval poll. ────────── */
+
+test("1. the ring is created exactly once per target pick — reconcileRing() calls showTargetRing() from its target-changed branch, which itself issues exactly one addItems()", () => {
+  const idx = controllerSrc.indexOf("async function reconcileRing");
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("async function reconcileCursor"));
+  const showCalls = block.match(/showTargetRing\(targetTokenId\)/g) ?? [];
+  assert.equal(showCalls.length, 1, "showTargetRing is called from exactly one place in reconcileRing");
+});
+
+test("2. a same-target refresh does not recreate the ring — reconcileRing() no-ops when ringVisible and ringTokenId already match targetTokenId, before ever reaching showTargetRing/hideTargetRing", () => {
+  const idx = controllerSrc.indexOf("async function reconcileRing");
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("async function reconcileCursor"));
+  const guardIdx = block.indexOf("if (ringVisible && ringTokenId === targetTokenId) return;");
+  const showIdx = block.indexOf("showTargetRing(targetTokenId)");
+  assert.ok(guardIdx > -1 && guardIdx < showIdx, "the no-op guard runs BEFORE any (re)creation call");
+});
+
+test("3/4/5. HUD refresh / Tactical Move runtime refresh / attack-result refresh cannot 'restart the animation' because there is no animation loop left to restart — no setInterval/RING_TICK_MS/nextRingRotation survives anywhere in the controller or policy files", () => {
+  const policySrc = fs.readFileSync(path.join(repoRoot, "hud", "targeting", "visuals", "targetingVisualPolicy.js"), "utf8");
+  for (const src of [controllerSrc, rendererSrc, policySrc]) {
+    // Checks actual CALL syntax, not prose — the renderer's header comment
+    // legitimately mentions "150ms setInterval" as history/context for why
+    // the fix was needed, which must not itself fail this check.
+    assert.ok(!src.includes("setInterval("), "no fixed-interval timer call anywhere in the targeting-visuals module");
+    assert.ok(!src.includes("RING_TICK_MS"));
+    assert.ok(!/\bnextRingRotation\(/.test(src));
+    assert.ok(!src.includes("RING_ROTATION_PERIOD_MS"));
+  }
+  // The only remaining trigger for any ring write is the real scene event
+  // subscribed once in OBR.onReady — never a HUD/Tactical-Move/attack-result
+  // refresh call site (those all flow through handleTargetingState, which
+  // only reconciles on an actual targetChanged — see test 2 above, and
+  // hud-targeting-visuals.test.mjs's own body-zone-refresh/Tactical-Move
+  // tests for the broadcast-level guarantee that a routine refresh never
+  // changes target.tokenId in the first place).
+  assert.match(controllerSrc, /OBR\.scene\.items\.onChange\(/);
+});
+
+test("6/7/9/10. token geometry updates never call addItems/deleteItems again — updateTargetRingGeometry only ever calls updateItems, and it is the ONLY function the onChange handler invokes", () => {
+  const geomIdx = rendererSrc.indexOf("export async function updateTargetRingGeometry");
+  const geomBlock = rendererSrc.slice(geomIdx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
+  assert.ok(!geomBlock.includes("addItems"), "geometry sync never re-adds the ring");
+  assert.ok(!geomBlock.includes("deleteItems"), "geometry sync never deletes/recreates the ring");
+  assert.match(geomBlock, /OBR\.scene\.local\.updateItems\(\[TARGET_RING_ITEM_ID\]/);
+  const handlerIdx = controllerSrc.indexOf("async function handleSceneItemsChanged");
+  const handlerBlock = controllerSrc.slice(handlerIdx, controllerSrc.indexOf("async function reconcileOutline"));
+  assert.ok(!handlerBlock.includes("addItems") && !handlerBlock.includes("deleteItems") && !handlerBlock.includes("showTargetRing") && !handlerBlock.includes("hideTargetRing"), "the geometry-change handler only ever calls updateTargetRingGeometry, never add/delete/show/hide");
+});
+
+test("8/9/10. no per-frame animation loop exists at all — the ring's only writer is the event-driven handleSceneItemsChanged, gated on the change batch actually including the current target token", () => {
+  assert.match(controllerSrc, /async function handleSceneItemsChanged\(items\)/);
+  const idx = controllerSrc.indexOf("async function handleSceneItemsChanged");
+  const block = controllerSrc.slice(idx, controllerSrc.indexOf("async function reconcileOutline"));
+  assert.match(block, /items\.some\(\(item\) => item\?\.id === ringTokenId\)/, "only reacts when the change batch actually names our target token");
+  assert.match(block, /ringGeometrySyncInFlight/, "reentrancy guard: an in-flight sync is never piled on by a rapid burst of onChange events");
+});
+
+test("11/12. ring geometry (position AND size) is re-derived from the token's own CURRENT bounds on every real sync — computeOverlayGeometry centers on bounds.center and scales bounds.width/height by the ring's gap ratio, so a moved OR resized token yields correct new geometry", () => {
+  const idx = rendererSrc.indexOf("export async function updateTargetRingGeometry");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
+  assert.match(block, /const bounds = await getTokenBounds\(tokenId\)/, "bounds are re-read fresh, never reused from a stale cache");
+  assert.match(block, /computeOverlayGeometry\(bounds, RING_GAP_RATIO\)/);
+  assert.match(block, /item\.position = geo\.position/, "moved token -> new centered position");
+  assert.match(block, /item\.width = geo\.width/, "resized token -> new width");
+  assert.match(block, /item\.height = geo\.height/, "resized token -> new height");
+});
+
+test("13. the ring stays local-only even with the new event subscription — OBR.scene.items.onChange is a READ-only subscription (never itself an add/update/delete call), and every actual WRITE still goes through OBR.scene.local only", () => {
+  assert.ok(!/OBR\.scene\.items\.(addItems|updateItems|deleteItems)/.test(controllerSrc), "controller never writes to the shared/synced scene");
+  assert.ok(!/OBR\.scene\.items\.(addItems|updateItems|deleteItems)/.test(rendererSrc), "renderer never writes to the shared/synced scene");
+  assert.match(controllerSrc, /OBR\.scene\.items\.onChange\(/, "the only shared-scene touch is a read-only change subscription");
+});
+
+test("14. nested error details still don't render as [object Object] after the animation-stutter fix — same coverage as the earlier hotfix, re-asserted here since this pass also touched logRingFailure's phase list", () => {
+  const details = {
+    phase: "ring-geometry-sync", operation: "updateTargetRingGeometry",
+    error: { name: "ValidationError", details: [{ path: ["rotation"], message: "not allowed" }] },
+  };
+  const rendered = detailLines(details).join("\n");
+  assert.ok(!rendered.includes("[object Object]"));
+  assert.ok(rendered.includes("path:"));
 });
 
 setTimeout(() => {

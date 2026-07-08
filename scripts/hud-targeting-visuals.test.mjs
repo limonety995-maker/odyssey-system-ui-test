@@ -24,10 +24,8 @@ import {
   shouldShowTargetRing,
   isPickingActive,
   computeOverlayGeometry,
-  nextRingRotation,
   OUTLINE_GAP_RATIO,
   RING_GAP_RATIO,
-  RING_ROTATION_PERIOD_MS,
 } from "../hud/targeting/visuals/targetingVisualPolicy.js";
 import { TARGET_CROSSHAIR_ICON, buildTargetCursorValue, buildTargetCursorToolIcon } from "../hud/targeting/targetCursorSvg.js";
 import { renderTargetBlock } from "../hud/components/TargetBlock.js";
@@ -124,11 +122,6 @@ test("computeOverlayGeometry: never smaller than the token itself (gap ratio can
 
 test("outline and ring use DIFFERENT gap ratios per spec (~3-6px vs ~6-10px — ring's gap is the larger one)", () => {
   assert.ok(RING_GAP_RATIO > OUTLINE_GAP_RATIO);
-});
-
-test("nextRingRotation: advances proportionally to elapsed time over the rotation period, and wraps at 360", () => {
-  assert.equal(nextRingRotation(0, 1750, 3500), 180); // half a period → half a turn
-  assert.equal(Math.round(nextRingRotation(350, 175, 3500) * 100) / 100, 8.00); // wraps past 360
 });
 
 /* ── Crosshair SVG: original, no bitmap, HUD-accent colored ───────────── */
@@ -270,17 +263,17 @@ test("cleanup tears down the tool, the local items, and the scene-ready subscrip
   assert.match(cleanupBlock, /OBR\.tool\.removeMode/);
   assert.match(cleanupBlock, /OBR\.tool\.remove\(/);
   assert.match(cleanupBlock, /unsubscribeSceneReady/);
-  assert.match(cleanupBlock, /stopRingTimer/);
+  assert.match(cleanupBlock, /unsubscribeSceneItems/);
 });
 
 test("scene onReadyChange(false) resets local tracking so a scene switch never leaves stale visuals", () => {
   const idx = controllerSrc.indexOf("OBR.scene.onReadyChange");
   assert.ok(idx > -1);
   const block = controllerSrc.slice(idx, controllerSrc.indexOf("});", idx));
-  assert.match(block, /stopRingTimer/);
   assert.match(block, /outlineVisible = false/);
   assert.match(block, /ringVisible = false/);
   assert.match(block, /ringTokenId = null/, "Fix #4: which-token tracking is reset too, not just the visibility flag");
+  assert.match(block, /lastRingBounds = null/, "the anchor's own last-known geometry is reset too, not just the visibility flags");
 });
 
 test("outline uses attachedTo so OBR itself keeps it synced to the source token's move/resize/rotation — no manual re-positioning code", () => {
@@ -349,11 +342,11 @@ test("hotfix: hideTargetRing()/hideAllTargetingVisuals() only ever reference TAR
   assert.ok(!block.includes("ANCHOR"));
 });
 
-test("hotfix: geometry/rotation refresh (updateTargetRingGeometry) never calls addItems/deleteItems — it only ever updates the existing ring item's transform via a single updateItems() call", () => {
+test("hotfix: geometry refresh (updateTargetRingGeometry) never calls addItems/deleteItems — it only ever updates the existing ring item's transform via a single updateItems() call", () => {
   const idx = rendererSrc.indexOf("export async function updateTargetRingGeometry");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("export async function hideAllTargetingVisuals"));
   assert.match(block, /updateItems\(\[TARGET_RING_ITEM_ID\]/);
-  assert.ok(!block.includes("addItems") && !block.includes("deleteItems"), "geometry ticks never add/remove items");
+  assert.ok(!block.includes("addItems") && !block.includes("deleteItems"), "geometry syncs never add/remove items");
   assert.ok(!controllerSrc.includes("setTargetRingRotation"), "the old rotation-only function is gone from the controller too");
 });
 
@@ -372,16 +365,17 @@ test("Fix #4: reconcileRing() only runs when the TARGET token id itself changes 
   assert.match(block, /if \(targetChanged\) void reconcileRing\(\);/);
 });
 
-test("Fix #4: rotation animation is linear and completes one full turn in 3-4 seconds", () => {
-  assert.ok(RING_ROTATION_PERIOD_MS >= 3000 && RING_ROTATION_PERIOD_MS <= 4000);
+test("animation-stutter hotfix: the ring no longer animates rotation at all — buildTargetRingItem never calls .rotation(), so there is nothing for a scene-item write to visibly step through", () => {
+  const idx = rendererSrc.indexOf("function buildTargetRingItem");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("function tagPhase"));
+  assert.ok(!block.includes(".rotation("), "no rotation is ever set on the ring item — see docs/TARGET_RING_ANIMATION_AUDIT.md's video-regression section for why");
 });
 
-test("Fix #4: rotation origin stays centered — the ring is a CIRCLE shape whose .position() IS its own center (OBR circles have no separate top-left anchor), never an offset/top-left transform-origin", () => {
+test("ring position stays centered — the ring is a CIRCLE shape whose .position() IS its own center (OBR circles have no separate top-left anchor), never an offset/top-left transform-origin", () => {
   const idx = rendererSrc.indexOf("function buildTargetRingItem");
   const block = rendererSrc.slice(idx, rendererSrc.indexOf("async function getTokenBounds"));
   assert.match(block, /\.shapeType\("CIRCLE"\)/, "a CIRCLE shape's position is its geometric center by construction");
   assert.match(block, /\.position\(geo\.position\)/, "position is the SAME center computeOverlayGeometry derived from the token's own center, not a top-left offset");
-  assert.match(block, /\.rotation\(rotationDeg\)/, "rotation is set on this same centered item — never a separately-offset child");
 });
 
 test("Fix #4: computeOverlayGeometry's position IS the token's own center (never top-left), which is what both the anchor and the ring inherit", () => {
