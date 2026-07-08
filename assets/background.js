@@ -9404,10 +9404,8 @@ async function hideSourceOutline() {
 }
 async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
-  await lib_default.scene.local.addItems([
-    buildTargetRingAnchorItem(tokenId, bounds),
-    buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)
-  ]);
+  await lib_default.scene.local.addItems([buildTargetRingAnchorItem(tokenId, bounds)]);
+  await lib_default.scene.local.addItems([buildTargetRingItem(TARGET_RING_ANCHOR_ITEM_ID, bounds, 0)]);
 }
 async function hideTargetRing() {
   await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID, TARGET_RING_ANCHOR_ITEM_ID]);
@@ -9568,9 +9566,11 @@ function setupTargetingVisuals() {
       ringVisible = true;
       ringTokenId = targetTokenId;
       startRingTimer();
-    } catch (_e) {
+      logDebugEvent("targeting", "target-ring-shown", { tokenId: targetTokenId }, true);
+    } catch (error) {
       ringVisible = false;
       ringTokenId = null;
+      logDebugEvent("targeting", "target-ring-failed", { tokenId: targetTokenId, message: String(error?.message ?? error) }, false);
     }
   }
   async function reconcileCursor() {
