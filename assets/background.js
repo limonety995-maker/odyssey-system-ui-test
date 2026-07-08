@@ -9377,8 +9377,6 @@ function serializeError(error) {
 // hud/targeting/visuals/targetingVisualPolicy.js
 var OUTLINE_GAP_RATIO = 0.1;
 var RING_GAP_RATIO = 0.18;
-var RING_ROTATION_PERIOD_MS = 3500;
-var RING_TICK_MS = 150;
 function shouldShowSourceOutline({ viewerRole, canView, sourceTokenId } = {}) {
   if (!sourceTokenId) return false;
   if (String(viewerRole ?? "").toLowerCase() === "gm") return false;
@@ -9405,12 +9403,6 @@ function computeOverlayGeometry(bounds, gapRatio) {
     position: center
   };
 }
-function nextRingRotation(currentDeg, elapsedMs, periodMs = RING_ROTATION_PERIOD_MS) {
-  const period = Math.max(1, num6(periodMs, RING_ROTATION_PERIOD_MS));
-  const deltaDeg = num6(elapsedMs, 0) / period * 360;
-  const next = (num6(currentDeg, 0) + deltaDeg) % 360;
-  return next < 0 ? next + 360 : next;
-}
 
 // hud/targeting/visuals/targetingVisualRenderer.js
 var SOURCE_OUTLINE_ITEM_ID = "com.odyssey-system/targeting-source-outline";
@@ -9428,9 +9420,9 @@ function buildSourceOutlineItem(tokenId, bounds) {
     strokeDash: []
   }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
 }
-function buildTargetRingItem(bounds, rotationDeg = 0) {
+function buildTargetRingItem(bounds) {
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
-  return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).rotation(rotationDeg).style({
+  return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).style({
     fillColor: TARGET_RING_COLOR,
     fillOpacity: 0,
     strokeColor: TARGET_RING_COLOR,
@@ -9472,25 +9464,31 @@ async function showTargetRing(tokenId) {
   } catch (_e) {
   }
   try {
-    await lib_default.scene.local.addItems([buildTargetRingItem(bounds, 0)]);
+    await lib_default.scene.local.addItems([buildTargetRingItem(bounds)]);
   } catch (error) {
     throw tagPhase(error, "ring-creation", "addItems(ring)");
   }
+  return bounds;
 }
 async function hideTargetRing() {
   await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
 }
-async function updateTargetRingGeometry(tokenId, rotationDeg) {
+function boundsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.width === b.width && a.height === b.height && a.center?.x === b.center?.x && a.center?.y === b.center?.y;
+}
+async function updateTargetRingGeometry(tokenId, lastBounds) {
   const bounds = await getTokenBounds(tokenId);
+  if (boundsEqual(bounds, lastBounds)) return { bounds, changed: false };
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   await lib_default.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
     for (const item of items) {
       item.position = geo.position;
       item.width = geo.width;
       item.height = geo.height;
-      item.rotation = rotationDeg;
     }
   });
+  return { bounds, changed: true };
 }
 async function hideAllTargetingVisuals() {
   await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID]);
@@ -9526,10 +9524,10 @@ function setupTargetingVisuals() {
   let outlineVisible = false;
   let ringVisible = false;
   let ringTokenId = null;
-  let ringRotationDeg = 0;
-  let ringTimer = null;
-  let ringTickInFlight = false;
+  let lastRingBounds = null;
+  let ringGeometrySyncInFlight = false;
   let unsubscribeSceneReady = null;
+  let unsubscribeSceneItems = null;
   async function registerToolOnce() {
     if (toolRegistered) return;
     try {
@@ -9608,29 +9606,18 @@ function setupTargetingVisuals() {
   function logRingSuccess(operation) {
     logDebugEvent("targeting", "target-ring-shown", { operation, tokenId: targetTokenId, targetCharacterId, sourceCharacterId, sceneId }, true);
   }
-  function stopRingTimer() {
-    if (ringTimer) {
-      clearInterval(ringTimer);
-      ringTimer = null;
+  async function handleSceneItemsChanged(items) {
+    if (disposed || !ringVisible || !ringTokenId || ringGeometrySyncInFlight) return;
+    if (!Array.isArray(items) || !items.some((item) => item?.id === ringTokenId)) return;
+    ringGeometrySyncInFlight = true;
+    try {
+      const result = await updateTargetRingGeometry(ringTokenId, lastRingBounds);
+      lastRingBounds = result.bounds;
+    } catch (error) {
+      logRingFailure("ring-geometry-sync", "updateTargetRingGeometry", error);
+    } finally {
+      ringGeometrySyncInFlight = false;
     }
-  }
-  function startRingTimer() {
-    if (ringTimer) return;
-    let lastTick = Date.now();
-    ringTimer = setInterval(async () => {
-      if (disposed || !ringVisible || ringTickInFlight) return;
-      const now = Date.now();
-      const elapsed = now - lastTick;
-      lastTick = now;
-      ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
-      ringTickInFlight = true;
-      try {
-        await updateTargetRingGeometry(ringTokenId, ringRotationDeg);
-      } catch (error) {
-        logRingFailure("ring-animation-update", "updateTargetRingGeometry", error);
-      }
-      ringTickInFlight = false;
-    }, RING_TICK_MS);
   }
   async function reconcileOutline() {
     const wanted = shouldShowSourceOutline({ viewerRole, canView, sourceTokenId });
@@ -9655,7 +9642,7 @@ function setupTargetingVisuals() {
       if (!ringVisible) return;
       ringVisible = false;
       ringTokenId = null;
-      stopRingTimer();
+      lastRingBounds = null;
       try {
         await hideTargetRing();
       } catch (error) {
@@ -9664,7 +9651,6 @@ function setupTargetingVisuals() {
       return;
     }
     if (ringVisible && ringTokenId === targetTokenId) return;
-    stopRingTimer();
     if (ringVisible) {
       try {
         await hideTargetRing();
@@ -9674,12 +9660,12 @@ function setupTargetingVisuals() {
     }
     ringVisible = false;
     ringTokenId = null;
-    ringRotationDeg = 0;
+    lastRingBounds = null;
     try {
-      await showTargetRing(targetTokenId);
+      const bounds = await showTargetRing(targetTokenId);
       ringVisible = true;
       ringTokenId = targetTokenId;
-      startRingTimer();
+      lastRingBounds = bounds;
       logRingSuccess("showTargetRing");
     } catch (error) {
       ringVisible = false;
@@ -9726,15 +9712,19 @@ function setupTargetingVisuals() {
     unsubscribeSceneReady = lib_default.scene.onReadyChange((ready) => {
       if (disposed || ready) return;
       try {
-        stopRingTimer();
         outlineVisible = false;
         ringVisible = false;
         ringTokenId = null;
+        lastRingBounds = null;
         picking = false;
         toolActive = false;
       } catch (error) {
         logRingFailure("scene-change-handling", "onReadyChange-reset", error);
       }
+    });
+    unsubscribeSceneItems = lib_default.scene.items.onChange((items) => {
+      if (disposed) return;
+      void handleSceneItemsChanged(items);
     });
   });
   return {
@@ -9743,8 +9733,8 @@ function setupTargetingVisuals() {
     async cleanup() {
       if (disposed) return;
       disposed = true;
-      stopRingTimer();
       unsubscribeSceneReady?.();
+      unsubscribeSceneItems?.();
       await restorePickingCursor();
       try {
         await hideAllTargetingVisuals();
