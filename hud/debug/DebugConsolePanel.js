@@ -43,8 +43,21 @@ function visibleEntries(entries, filter) {
  *  whitespace — e.g. the "Not returned by server" sentinel): only long
  *  id-shaped tokens are truncated. Used for BOTH the on-screen row/detail
  *  rendering and the Copy text, so copied text never contains more than
- *  what's displayed. */
+ *  what's displayed. Object/array values (e.g. one element of a nested
+ *  ValidationError.details array) are JSON-stringified rather than passed to
+ *  String(), which would otherwise collapse them to the useless
+ *  "[object Object]" — detailLines() below still prefers to expand such
+ *  values onto their own indented lines; this fallback only matters when a
+ *  caller passes an object/array straight into truncateValue() itself. */
 export function truncateValue(value) {
+  if (value && typeof value === "object") {
+    try {
+      const s = JSON.stringify(value);
+      return s.length <= 80 ? s : `${s.slice(0, 76)}…`;
+    } catch {
+      return "[unserializable]";
+    }
+  }
   const s = String(value);
   if (s.length <= 20 || /\s/.test(s)) return s;
   return `${s.slice(0, 10)}…${s.slice(-4)}`;
@@ -82,7 +95,13 @@ function formatDetailsCompact(details) {
  *  string per field, values truncated the same way as the row (so Copy never
  *  contains more than what's already visible on screen). Nested objects
  *  (e.g. a roll-resolution trace's accuracy/damage/ammo sections) expand
- *  recursively with two-space indentation. */
+ *  recursively with two-space indentation. Array elements that are
+ *  themselves objects (e.g. a ValidationError.details array of
+ *  {path, message, expected, received} issues) also expand onto their own
+ *  indented "[i]:" lines instead of being joined through truncateValue —
+ *  that join used to produce the useless "details: [object Object]" once an
+ *  array held object entries. Arrays of plain scalars keep the old
+ *  single-line join. */
 export function detailLines(details, indent = "") {
   if (!details || typeof details !== "object") return [];
   const lines = [];
@@ -92,7 +111,20 @@ export function detailLines(details, indent = "") {
       lines.push(`${indent}${k}:`);
       lines.push(...detailLines(v, `${indent}  `));
     } else if (Array.isArray(v)) {
-      lines.push(`${indent}${k}: ${v.map((item) => truncateValue(item)).join(", ")}`);
+      const hasObjectItem = v.some((item) => item && typeof item === "object");
+      if (hasObjectItem) {
+        lines.push(`${indent}${k}:`);
+        v.forEach((item, i) => {
+          if (item && typeof item === "object") {
+            lines.push(`${indent}  [${i}]:`);
+            lines.push(...detailLines(item, `${indent}    `));
+          } else {
+            lines.push(`${indent}  [${i}]: ${truncateValue(item)}`);
+          }
+        });
+      } else {
+        lines.push(`${indent}${k}: ${v.map((item) => truncateValue(item)).join(", ")}`);
+      }
     } else {
       lines.push(`${indent}${k}: ${truncateValue(v)}`);
     }
