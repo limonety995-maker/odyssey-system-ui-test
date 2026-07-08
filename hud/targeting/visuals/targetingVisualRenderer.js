@@ -23,12 +23,26 @@
 // absolute position/size from the token's own bounds and uses
 // layer("POINTER"). The ring now follows that exact proven pattern instead:
 //   - anchorState: pure internal JS bookkeeping (which token, last-known
-//     bounds/rotation) — never an OBR item, never passed to addItems.
+//     bounds) — never an OBR item, never passed to addItems.
 //   - TARGET_RING: the one real local item, created ONCE via addItems, then
 //     kept in sync by re-fetching the token's bounds and writing
-//     position/width/height/rotation together in a single updateItems() call
-//     every animation tick (updateTargetRingGeometry) — addItems is never
-//     called again after the initial creation.
+//     position/width/height via a single updateItems() call — addItems is
+//     never called again after the initial creation.
+//
+// Hotfix (video regression: stepped/stuttering rotation — see
+// docs/TARGET_RING_ANIMATION_AUDIT.md's "Video regression: 2026-07-08" for
+// the full write-up): the ring previously "spun" by having the controller's
+// own 150ms setInterval push a fresh `rotation` value through updateItems on
+// every tick. Each write is a real round-trip through the local scene store,
+// so what should have read as continuous motion instead read as a visible
+// step every ~150ms — exactly the stutter shown in the video. There is no
+// mechanism in this SDK for OBR to animate a local item's transform on its
+// own between our writes, so ANY animation driven by repeated scene-item
+// writes will show the same stepping, no matter how the tick is tuned. The
+// ring is therefore now STATIC (no rotation) and geometry-only updates are
+// driven by real scene-item-change EVENTS (OBR.scene.items.onChange), not a
+// fixed-interval poll — see updateTargetRingGeometry() below and the
+// controller's handleSceneItemsChanged().
 //
 // Every local item ADD/UPDATE/DELETE call is wrapped in try/catch: a failure
 // here is a lost cosmetic effect, never a reason to break targeting itself.
@@ -74,8 +88,10 @@ function buildSourceOutlineItem(tokenId, bounds) {
  *  geometry is refreshed by re-calling this same computation on a fresh
  *  bounds read (see updateTargetRingGeometry), never by OBR's own attachment
  *  sync. Centered on itself (position IS its own center — CIRCLE shapes have
- *  no top-left anchor concept), so its spin is a pure rotation-in-place. */
-function buildTargetRingItem(bounds, rotationDeg = 0) {
+ *  no top-left anchor concept). STATIC — no rotation: see the header comment
+ *  for why an OBR.scene.local item cannot be spun smoothly by repeated
+ *  scene-item writes, which is what produced the reported stutter. */
+function buildTargetRingItem(bounds) {
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   return buildShape()
     .id(TARGET_RING_ITEM_ID)
@@ -84,7 +100,6 @@ function buildTargetRingItem(bounds, rotationDeg = 0) {
     .width(geo.width)
     .height(geo.height)
     .position(geo.position)
-    .rotation(rotationDeg)
     .style({
       fillColor: TARGET_RING_COLOR,
       fillOpacity: 0,
@@ -152,36 +167,49 @@ export async function showTargetRing(tokenId) {
   } catch (_e) { /* nothing to delete is the common, expected case */ }
   // ONE addItems call for a single, plain, unattached local item — matching
   // movement/combatMovementPreview.js's proven pattern. addItems is never
-  // called again after this for the same target; geometry/rotation updates
-  // go through updateTargetRingGeometry()'s updateItems call instead.
+  // called again after this for the same target; geometry updates go
+  // through updateTargetRingGeometry()'s updateItems call instead, fired only
+  // by real token-geometry-change events (see the controller's
+  // handleSceneItemsChanged), never on a fixed interval.
   try {
-    await OBR.scene.local.addItems([buildTargetRingItem(bounds, 0)]);
+    await OBR.scene.local.addItems([buildTargetRingItem(bounds)]);
   } catch (error) {
     throw tagPhase(error, "ring-creation", "addItems(ring)");
   }
+  return bounds;
 }
 
 export async function hideTargetRing() {
   await OBR.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
 }
 
-/** Refreshes the ring's position/width/height (re-derived from the target
- *  token's CURRENT bounds) together with its rotation in a single
- *  updateItems() call. Called every animation tick in place of the old
- *  rotation-only setTargetRingRotation — this is the "outer anchor" role now:
- *  a piece of logic that re-reads token geometry and folds it into the one
- *  real local item's transform, never a second OBR item of its own. */
-export async function updateTargetRingGeometry(tokenId, rotationDeg) {
+function boundsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.width === b.width && a.height === b.height
+    && a.center?.x === b.center?.x && a.center?.y === b.center?.y;
+}
+
+/** Refreshes the ring's position/width/height from the target token's
+ *  CURRENT bounds — but ONLY writes to the local scene item when those
+ *  bounds actually differ from `lastBounds` (the anchor layer's own
+ *  last-known geometry, kept in the controller's plain JS state). Called
+ *  from the controller's OBR.scene.items.onChange handler, i.e. reactively
+ *  when the scene reports a real change, never on a fixed-interval poll —
+ *  this is what "update only when token geometry/state changes" means in
+ *  practice. Returns the freshly-read bounds either way so the caller can
+ *  update its own `lastBounds` bookkeeping. */
+export async function updateTargetRingGeometry(tokenId, lastBounds) {
   const bounds = await getTokenBounds(tokenId);
+  if (boundsEqual(bounds, lastBounds)) return { bounds, changed: false };
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   await OBR.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
     for (const item of items) {
       item.position = geo.position;
       item.width = geo.width;
       item.height = geo.height;
-      item.rotation = rotationDeg;
     }
   });
+  return { bounds, changed: true };
 }
 
 export async function hideAllTargetingVisuals() {

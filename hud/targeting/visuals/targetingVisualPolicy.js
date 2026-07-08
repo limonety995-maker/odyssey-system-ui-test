@@ -16,9 +16,6 @@
 export const OUTLINE_GAP_RATIO = 0.10;   // ~3-6px equivalent at typical zoom
 export const RING_GAP_RATIO = 0.18;      // ~6-10px equivalent at typical zoom
 
-export const RING_ROTATION_PERIOD_MS = 3500; // one full revolution (spec §D)
-export const RING_TICK_MS = 150;             // animation update cadence
-
 /**
  * Source outline shows ONLY for a player who OWNS the selected source
  * character — never for a GM merely inspecting (spec §C: "не добавлять новые
@@ -76,14 +73,4 @@ export function computeOverlayGeometry(bounds, gapRatio) {
     height: height * (1 + ratio),
     position: center,
   };
-}
-
-/** Next rotation angle (degrees, wrapped to [0,360)) for the target ring's
- *  slow linear spin — a pure stepping function so the animation cadence is
- *  unit-testable without a real timer or OBR connection. */
-export function nextRingRotation(currentDeg, elapsedMs, periodMs = RING_ROTATION_PERIOD_MS) {
-  const period = Math.max(1, num(periodMs, RING_ROTATION_PERIOD_MS));
-  const deltaDeg = (num(elapsedMs, 0) / period) * 360;
-  const next = (num(currentDeg, 0) + deltaDeg) % 360;
-  return next < 0 ? next + 360 : next;
 }

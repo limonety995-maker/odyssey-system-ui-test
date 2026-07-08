@@ -27,8 +27,6 @@ import {
   shouldShowSourceOutline,
   shouldShowTargetRing,
   isPickingActive,
-  nextRingRotation,
-  RING_TICK_MS,
 } from "./targetingVisualPolicy.js";
 import {
   showSourceOutline,
@@ -68,15 +66,17 @@ export function setupTargetingVisuals() {
   let outlineVisible = false;
   let ringVisible = false;
   // anchorState: pure internal JS bookkeeping only — never an OBR item, never
-  // passed to addItems. Tracks which token the ring is CURRENTLY following;
-  // updateTargetRingGeometry() re-reads that token's bounds every tick and
-  // folds the result into the one real local ring item's transform.
+  // passed to addItems. ringTokenId tracks which token the ring is CURRENTLY
+  // following; lastRingBounds is the last geometry (width/height/center) we
+  // actually wrote to the ring item — updateTargetRingGeometry() diffs a
+  // freshly-read bounds against this before writing anything, so a scene
+  // event that doesn't actually change OUR token's geometry is a no-op.
   let ringTokenId = null;
-  let ringRotationDeg = 0;
-  let ringTimer = null;
-  let ringTickInFlight = false;
+  let lastRingBounds = null;
+  let ringGeometrySyncInFlight = false;
 
   let unsubscribeSceneReady = null;
+  let unsubscribeSceneItems = null;
 
   async function registerToolOnce() {
     if (toolRegistered) return;
@@ -148,7 +148,7 @@ export function setupTargetingVisuals() {
    * devtools inspection.
    * @param {string} phase one of: target-state-to-token-lookup,
    *   scene-item-lookup, ring-creation, ring-anchor-update, ring-cleanup,
-   *   ring-animation-update, scene-change-handling
+   *   ring-geometry-sync, scene-change-handling
    * @param {string} operation short, specific action name within the phase
    * @param {unknown} error
    */
@@ -173,27 +173,34 @@ export function setupTargetingVisuals() {
     logDebugEvent("targeting", "target-ring-shown", { operation, tokenId: targetTokenId, targetCharacterId, sourceCharacterId, sceneId }, true);
   }
 
-  function stopRingTimer() {
-    if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
-  }
-
-  function startRingTimer() {
-    if (ringTimer) return;
-    let lastTick = Date.now();
-    ringTimer = setInterval(async () => {
-      if (disposed || !ringVisible || ringTickInFlight) return;
-      const now = Date.now();
-      const elapsed = now - lastTick;
-      lastTick = now;
-      ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
-      ringTickInFlight = true;
-      try {
-        await updateTargetRingGeometry(ringTokenId, ringRotationDeg);
-      } catch (error) {
-        logRingFailure("ring-animation-update", "updateTargetRingGeometry", error);
-      }
-      ringTickInFlight = false;
-    }, RING_TICK_MS);
+  /**
+   * The anchor/geometry layer's ONLY trigger: a real OBR.scene.items.onChange
+   * event (registered once below), never a fixed-interval poll. Video
+   * regression fix — see docs/TARGET_RING_ANIMATION_AUDIT.md's "Video
+   * regression: 2026-07-08" section: the ring previously animated by pushing
+   * a fresh rotation value through updateItems every 150ms, and each write is
+   * a real round-trip through the local scene store — what should have been
+   * continuous motion instead showed a visible step on every tick. The ring
+   * is now static (no rotation), so this handler's only job is keeping its
+   * position/width/height honest when the TARGET TOKEN itself actually moves,
+   * resizes, or rotates — never on every frame, never unconditionally.
+   * @param {Array<{id?:string}>} items whatever OBR.scene.items.onChange just
+   *   reported changed — used only as a cheap "something happened, worth
+   *   checking" signal; updateTargetRingGeometry() does its own bounds diff
+   *   before writing anything.
+   */
+  async function handleSceneItemsChanged(items) {
+    if (disposed || !ringVisible || !ringTokenId || ringGeometrySyncInFlight) return;
+    if (!Array.isArray(items) || !items.some((item) => item?.id === ringTokenId)) return;
+    ringGeometrySyncInFlight = true;
+    try {
+      const result = await updateTargetRingGeometry(ringTokenId, lastRingBounds);
+      lastRingBounds = result.bounds;
+    } catch (error) {
+      logRingFailure("ring-geometry-sync", "updateTargetRingGeometry", error);
+    } finally {
+      ringGeometrySyncInFlight = false;
+    }
   }
 
   async function reconcileOutline() {
@@ -220,7 +227,7 @@ export function setupTargetingVisuals() {
       if (!ringVisible) return;
       ringVisible = false;
       ringTokenId = null;
-      stopRingTimer();
+      lastRingBounds = null;
       try {
         await hideTargetRing();
       } catch (error) {
@@ -233,9 +240,8 @@ export function setupTargetingVisuals() {
     // anyway) must never tear down/restart an already-correct ring.
     if (ringVisible && ringTokenId === targetTokenId) return;
     // Either a fresh pick, or the target switched to a DIFFERENT token: tear
-    // down the old ring/anchor pair (if any) before attaching the new one —
-    // never leave the ring attached to a stale target.
-    stopRingTimer();
+    // down the old ring (if any) before attaching the new one — never leave
+    // the ring attached to a stale target.
     if (ringVisible) {
       try {
         await hideTargetRing();
@@ -245,12 +251,12 @@ export function setupTargetingVisuals() {
     }
     ringVisible = false;
     ringTokenId = null;
-    ringRotationDeg = 0;
+    lastRingBounds = null;
     try {
-      await showTargetRing(targetTokenId);
+      const bounds = await showTargetRing(targetTokenId);
       ringVisible = true;
       ringTokenId = targetTokenId;
-      startRingTimer();
+      lastRingBounds = bounds;
       logRingSuccess("showTargetRing");
     } catch (error) {
       ringVisible = false;
@@ -322,15 +328,25 @@ export function setupTargetingVisuals() {
       // there is nothing left worth writing to; just reset our own tracking
       // so a fresh scene starts from a clean "nothing shown" state.
       try {
-        stopRingTimer();
         outlineVisible = false;
         ringVisible = false;
         ringTokenId = null;
+        lastRingBounds = null;
         picking = false;
         toolActive = false;
       } catch (error) {
         logRingFailure("scene-change-handling", "onReadyChange-reset", error);
       }
+    });
+    // The anchor/geometry layer's event source — fires whenever the SHARED
+    // scene reports any item change; handleSceneItemsChanged() itself checks
+    // whether the change is actually relevant (our current ring's target
+    // token) before doing anything. This replaces the old fixed-interval
+    // timer entirely: no scene write happens unless a real geometry change
+    // was just reported.
+    unsubscribeSceneItems = OBR.scene.items.onChange((items) => {
+      if (disposed) return;
+      void handleSceneItemsChanged(items);
     });
   });
 
@@ -340,8 +356,8 @@ export function setupTargetingVisuals() {
     async cleanup() {
       if (disposed) return;
       disposed = true;
-      stopRingTimer();
       unsubscribeSceneReady?.();
+      unsubscribeSceneItems?.();
       await restorePickingCursor();
       // No explicit token-deletion handler exists in this module — a
       // deleted target token relies entirely on OBR's own attachment DELETE
