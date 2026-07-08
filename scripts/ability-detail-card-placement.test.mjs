@@ -218,12 +218,14 @@ test("closing/reopening the Skills character (companion cleanup) also closes the
 
 /* ── 8. Ethric-Strike-shaped runtime: unsupported, unarmable, human reason ── */
 
-test("8. an executionAvailable:false runtime action maps to 'unsupported', is never armable, and the card shows the human-readable canonical reason (never the raw code)", () => {
+test("8. an executionAvailable:false attack_technique still maps to 'unsupported' via deriveSlotAvailability (the OLD, arm-onto-weapon-attack axis, unchanged) — but Phase 4.1B.0 recognizes this EXACT shape as direct-attack-eligible, so the card shows the direct-execution status instead of the old 'not supported' text", () => {
   const ethricStrike = action({
     name: "Ethric Strike",
     costs: { main: 1, move: 0, psi: 1, charges: 0 },
     state: { available: false, active: false, disabledReason: "Attack effect is not supported yet", selectable: false, executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true },
   });
+  // deriveSlotAvailability itself (the arm/disarm axis) is UNCHANGED by
+  // Phase 4.1B.0 — still "unsupported", still never armable.
   assert.equal(deriveSlotAvailability(ethricStrike, false), SLOT_AVAILABILITY.unsupported);
   assert.equal(ethricStrike.state.available, false, "not armable — available is false");
 
@@ -234,7 +236,14 @@ test("8. an executionAvailable:false runtime action maps to 'unsupported', is ne
   assert.match(html, /MAIN.1/);
   assert.match(html, /PSI 1/);
   assert.match(html, /body zone|One character/i);
-  assert.match(html, />Status: Attack effect is not supported yet\.</);
+  // Phase 4.1B.0: this exact shape (attack_technique +
+  // ACTION_EFFECT_NOT_IMPLEMENTED) is now direct-attack-eligible — the card
+  // shows the honest direct-execution status (Ready, since cooldown=0 and
+  // resourceSufficient=true here), never the old "not supported" text, which
+  // described a DIFFERENT execution path (arming onto a weapon attack).
+  assert.match(html, /ohud-qbe-desc-pill-label">Execution<\/span>Direct ability attack/);
+  assert.match(html, />Status: Ready</);
+  assert.ok(!html.includes("Attack effect is not supported yet"), "the old arm-onto-weapon-attack message no longer applies to this now-executable path");
 });
 
 /* ── 9. No raw server error code anywhere in player UI ──────────────────── */

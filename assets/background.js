@@ -5370,6 +5370,322 @@ function buildBasicAttackCtx(input = {}) {
     expectedEncounterVersion: input.expectedEncounterVersion ?? null
   };
 }
+function buildDirectAbilityAttackCtx(input = {}) {
+  const room = input.roomContext ?? {};
+  return {
+    mode: "skill",
+    attackerCharacterId: input.sourceCharacterId,
+    targetCharacterId: input.targetCharacterId,
+    targetBodyPartId: input.bodyPartId,
+    distanceM: input.distance ?? 0,
+    abilityId: input.abilityId,
+    // No manual-modifier UI exists for direct ability attacks (same as basic
+    // weapon attacks) — an empty list matches "no manual modifier", never a
+    // fabricated bonus/penalty.
+    modifiers: [],
+    roomId: room.roomId,
+    campaignId: room.campaignId,
+    sceneId: room.sceneId,
+    encounterId: room.encounterId,
+    actorTokenId: room.actorTokenId,
+    targetTokenId: room.targetTokenId,
+    // Phase 3E.0 session gate (now also enforced for ability attacks server-
+    // side — see migration 102) — only ever set while an active combat
+    // session exists (never fabricated).
+    expectedEncounterVersion: input.expectedEncounterVersion ?? null
+  };
+}
+
+// hud/combat/directAbilityAttackPolicy.js
+var DIRECT_ABILITY_ATTACK_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  noAbility: "No ability selected.",
+  inFlight: "Ability attack is resolving.",
+  // Phase 4.1B.0 spec §D, verbatim required wording.
+  noTarget: "Select a target first.",
+  targetNotLinked: "Target has no linked character.",
+  selfTarget: "Cannot target yourself.",
+  noZone: "Select a body zone.",
+  zoneUnresolved: "Target body zone data unavailable."
+});
+function blocked2(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED2 = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateDirectAbilityAttack(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    abilityId = null,
+    targetTokenId = null,
+    targetCharacterId = null,
+    bodyZoneId = null,
+    resolvedBodyPartId = null,
+    inFlight = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noCharacter);
+  if (!abilityId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noAbility);
+  if (inFlight) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.inFlight);
+  if (!targetTokenId && !targetCharacterId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noTarget);
+  if (!targetCharacterId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.targetNotLinked);
+  if (String(targetCharacterId) === String(sourceCharacterId)) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.selfTarget);
+  if (!bodyZoneId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.noZone);
+  if (!resolvedBodyPartId) return blocked2(DIRECT_ABILITY_ATTACK_BLOCK_REASON.zoneUnresolved);
+  return ALLOWED2;
+}
+function buildDirectAbilityAttackRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.abilityId ?? ""}|${ctx.targetCharacterId ?? ""}`;
+}
+function isDirectAbilityAttackResultStale(requestCtx, currentCtx) {
+  return buildDirectAbilityAttackRequestSignature(requestCtx) !== buildDirectAbilityAttackRequestSignature(currentCtx);
+}
+
+// hud/combat/instantAbilityPolicy.js
+var INSTANT_ABILITY_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  noAbility: "No ability selected.",
+  inFlight: "Ability is resolving.",
+  noActiveEncounter: "Not in an active encounter."
+});
+function blocked3(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED3 = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateInstantAbilityExecution(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    abilityId = null,
+    inFlight = false,
+    sessionExists = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked3(INSTANT_ABILITY_BLOCK_REASON.noCharacter);
+  if (!abilityId) return blocked3(INSTANT_ABILITY_BLOCK_REASON.noAbility);
+  if (inFlight) return blocked3(INSTANT_ABILITY_BLOCK_REASON.inFlight);
+  if (!sessionExists) return blocked3(INSTANT_ABILITY_BLOCK_REASON.noActiveEncounter);
+  return ALLOWED3;
+}
+function buildInstantAbilityRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.abilityId ?? ""}`;
+}
+function isInstantAbilityResultStale(requestCtx, currentCtx) {
+  return buildInstantAbilityRequestSignature(requestCtx) !== buildInstantAbilityRequestSignature(currentCtx);
+}
+
+// hud/combat/instantAbilityPayload.js
+function buildInstantAbilityExecutionPayload(input = {}) {
+  const payload = {
+    kind: "ability",
+    character_id: String(input.sourceCharacterId ?? "").trim(),
+    encounter_id: String(input.encounterId ?? "").trim(),
+    actor_player_id: String(input.actorPlayerId ?? "").trim(),
+    actor_is_gm: !!input.actorIsGm,
+    intent: {
+      character_ability_id: String(input.abilityId ?? "").trim()
+    }
+  };
+  if (input.expectedEncounterVersion !== null && input.expectedEncounterVersion !== void 0 && Number.isFinite(Number(input.expectedEncounterVersion))) {
+    payload.expected_encounter_version = Number(input.expectedEncounterVersion);
+  }
+  return payload;
+}
+function asObject(v) {
+  return v && typeof v === "object" ? v : {};
+}
+function normalizeInstantAbilityResult(raw) {
+  const r = asObject(raw);
+  const spent = asObject(r.spent);
+  const result = asObject(r.result);
+  const ability = asObject(result.ability);
+  const resource = asObject(result.resource);
+  return {
+    ok: r.ok !== false,
+    actionCost: spent.action_cost ?? null,
+    moveCost: spent.move_cost ?? null,
+    usedReaction: spent.used_reaction ?? null,
+    abilityCode: ability.code ?? null,
+    abilityName: ability.name ?? null,
+    effectMode: ability.effect_mode ?? null,
+    resourceSpent: resource.spent ?? resource.cost ?? resource.amount_spent ?? null,
+    resourceRemaining: resource.remaining ?? resource.current_value ?? null,
+    narrativeOnly: result.result?.narrative_only === true,
+    encounterStateVersion: r.encounter_state_version ?? null,
+    characterStateVersion: r.character_state_version ?? null
+  };
+}
+async function resolveInstantAbilityExecution(ctx, deps) {
+  const payload = buildInstantAbilityExecutionPayload(ctx);
+  let raw;
+  try {
+    raw = await deps.executeAction(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      payload,
+      raw: error?.details ?? null,
+      normalized: null,
+      code: error?.code ?? null,
+      error: error?.message || "Network or RPC error."
+    };
+  }
+  if (!raw || raw.ok === false) {
+    const code = raw?.error ?? null;
+    return {
+      ok: false,
+      payload,
+      raw: raw ?? null,
+      normalized: raw ? normalizeInstantAbilityResult(raw) : null,
+      code,
+      error: raw?.message || describeError(code, "The ability could not be executed.")
+    };
+  }
+  return { ok: true, payload, raw, normalized: normalizeInstantAbilityResult(raw), code: null, error: null };
+}
+
+// hud/combat/directedAbilityPolicy.js
+var DIRECTED_ABILITY_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  noAbility: "No ability selected.",
+  inFlight: "Ability is resolving.",
+  // Phase 4.1B.2 spec, verbatim required wording — SAME text Phase 4.1B.0's
+  // direct-ability-attack uses, since the missing-target situation reads
+  // identically to the player regardless of which ability class it is.
+  noTarget: "Select a target first.",
+  targetNotLinked: "Target has no linked character.",
+  noActiveEncounter: "Not in an active encounter."
+});
+function blocked4(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED4 = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateDirectedAbilityExecution(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    abilityId = null,
+    targetTokenId = null,
+    targetCharacterId = null,
+    inFlight = false,
+    sessionExists = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked4(DIRECTED_ABILITY_BLOCK_REASON.noCharacter);
+  if (!abilityId) return blocked4(DIRECTED_ABILITY_BLOCK_REASON.noAbility);
+  if (inFlight) return blocked4(DIRECTED_ABILITY_BLOCK_REASON.inFlight);
+  if (!targetTokenId && !targetCharacterId) return blocked4(DIRECTED_ABILITY_BLOCK_REASON.noTarget);
+  if (!targetCharacterId) return blocked4(DIRECTED_ABILITY_BLOCK_REASON.targetNotLinked);
+  if (!sessionExists) return blocked4(DIRECTED_ABILITY_BLOCK_REASON.noActiveEncounter);
+  return ALLOWED4;
+}
+function buildDirectedAbilityRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.abilityId ?? ""}|${ctx.targetCharacterId ?? ""}`;
+}
+function isDirectedAbilityResultStale(requestCtx, currentCtx) {
+  return buildDirectedAbilityRequestSignature(requestCtx) !== buildDirectedAbilityRequestSignature(currentCtx);
+}
+
+// hud/combat/directedAbilityPayload.js
+function buildDirectedAbilityExecutionPayload(input = {}) {
+  const payload = {
+    kind: "ability",
+    character_id: String(input.sourceCharacterId ?? "").trim(),
+    encounter_id: String(input.encounterId ?? "").trim(),
+    actor_player_id: String(input.actorPlayerId ?? "").trim(),
+    actor_is_gm: !!input.actorIsGm,
+    intent: {
+      character_ability_id: String(input.abilityId ?? "").trim(),
+      target_character_id: String(input.targetCharacterId ?? "").trim()
+    }
+  };
+  if (input.expectedEncounterVersion !== null && input.expectedEncounterVersion !== void 0 && Number.isFinite(Number(input.expectedEncounterVersion))) {
+    payload.expected_encounter_version = Number(input.expectedEncounterVersion);
+  }
+  return payload;
+}
+function asObject2(v) {
+  return v && typeof v === "object" ? v : {};
+}
+function normalizeDirectedAbilityResult(raw) {
+  const r = asObject2(raw);
+  const spent = asObject2(r.spent);
+  const result = asObject2(r.result);
+  const ability = asObject2(result.ability);
+  const resource = asObject2(result.resource);
+  return {
+    ok: r.ok !== false,
+    actionCost: spent.action_cost ?? null,
+    moveCost: spent.move_cost ?? null,
+    usedReaction: spent.used_reaction ?? null,
+    abilityCode: ability.code ?? null,
+    abilityName: ability.name ?? null,
+    effectMode: ability.effect_mode ?? null,
+    targetCharacterId: result.target_character_id ?? null,
+    resourceSpent: resource.spent ?? resource.cost ?? resource.amount_spent ?? null,
+    resourceRemaining: resource.remaining ?? resource.current_value ?? null,
+    narrativeOnly: result.result?.narrative_only === true,
+    encounterStateVersion: r.encounter_state_version ?? null,
+    characterStateVersion: r.character_state_version ?? null
+  };
+}
+async function resolveDirectedAbilityExecution(ctx, deps) {
+  const payload = buildDirectedAbilityExecutionPayload(ctx);
+  let raw;
+  try {
+    raw = await deps.executeAction(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      payload,
+      raw: error?.details ?? null,
+      normalized: null,
+      code: error?.code ?? null,
+      error: error?.message || "Network or RPC error."
+    };
+  }
+  if (!raw || raw.ok === false) {
+    const code = raw?.error ?? null;
+    return {
+      ok: false,
+      payload,
+      raw: raw ?? null,
+      normalized: raw ? normalizeDirectedAbilityResult(raw) : null,
+      code,
+      error: raw?.message || describeError(code, "The ability could not be executed.")
+    };
+  }
+  return { ok: true, payload, raw, normalized: normalizeDirectedAbilityResult(raw), code: null, error: null };
+}
+
+// hud/abilities/abilityAvailabilityPolicy.js
+var SLOT_AVAILABILITY = Object.freeze({
+  ready: "ready",
+  armed: "armed",
+  cooldown: "cooldown",
+  insufficientResource: "insufficient_resource",
+  unsupported: "unsupported",
+  unavailable: "unavailable"
+});
+function isDirectAttackAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "attack_technique" && a.state?.executionReason === "ACTION_EFFECT_NOT_IMPLEMENTED";
+}
+function deriveDirectAttackAvailability(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (state.available === false && state.executionReason !== "ACTION_EFFECT_NOT_IMPLEMENTED") {
+    return SLOT_AVAILABILITY.unavailable;
+  }
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  return SLOT_AVAILABILITY.ready;
+}
+function isInstantSelfAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  if (a.type !== "instant") return false;
+  const mode2 = a.targeting?.mode;
+  return mode2 !== "character" && mode2 !== "body_part";
+}
+function isDirectedTargetAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
+}
 
 // hud/combat/attackResolutionTrace.js
 var NOT_RETURNED = "Not returned by server";
@@ -5515,10 +5831,63 @@ function buildCombatLogLines(trace, bodyZoneLabel) {
   if (isReturnedNumber(ammo.remaining)) details2.push(`Ammo left: ${ammo.remaining}`);
   return details2;
 }
+function fmtModifier(v) {
+  if (!isReturnedNumber(v)) return null;
+  if (v === 0) return "0";
+  return v > 0 ? `+${v}` : `${v}`;
+}
+function modifierList(entries3) {
+  const parts = [];
+  for (const [label, value] of entries3) {
+    const f = fmtModifier(value);
+    if (f !== null) parts.push(`${label} ${f}`);
+  }
+  return parts.length ? parts.join(", ") : "None";
+}
+function rollLine(base, final, modifierEntries) {
+  if (!isReturnedNumber(base) && !isReturnedNumber(final)) return null;
+  return {
+    Roll: isReturnedNumber(base) ? base : NOT_RETURNED,
+    "With modifiers": isReturnedNumber(final) ? final : NOT_RETURNED,
+    Modifiers: modifierList(modifierEntries)
+  };
+}
+function buildRollBreakdown(trace) {
+  const t = trace && typeof trace === "object" ? trace : {};
+  const acc = section(t.accuracy);
+  const dmg = section(t.damage);
+  const out = {};
+  const attackRoll = rollLine(acc.attackRoll, acc.attackTotal, [
+    ["Skill", acc.attackSkillBonus],
+    ["Manual", acc.attackManualBonus],
+    ["Penalty", isReturnedNumber(acc.attackManualPenalty) ? -Math.abs(acc.attackManualPenalty) : acc.attackManualPenalty],
+    ["Weapon", acc.weaponAccuracyBonus],
+    ["Fire mode", acc.fireModeAccuracyModifier],
+    ["Ammo", acc.ammoAccuracyModifier]
+  ]);
+  if (attackRoll) out["ATTACK ROLL"] = attackRoll;
+  const defenseRoll = rollLine(acc.defenseRoll, acc.defenseTotal, [
+    ["Manual", acc.defenseManualBonus],
+    ["Penalty", isReturnedNumber(acc.defenseManualPenalty) ? -Math.abs(acc.defenseManualPenalty) : acc.defenseManualPenalty]
+  ]);
+  if (defenseRoll) out["DEFENSE ROLL"] = defenseRoll;
+  const damageRoll = rollLine(dmg.bulletDamage, dmg.attackTotalUsed, [
+    ["Ammo", dmg.ammoDamageModifier],
+    ["Melee", dmg.meleeStrengthBonus]
+  ]);
+  if (damageRoll) out["DAMAGE ROLL"] = damageRoll;
+  const damageDefense = rollLine(dmg.armorValueUsed, dmg.defenseTotalUsed, [
+    ["Armor pierce", isReturnedNumber(dmg.armorPierceUsed) ? -Math.abs(dmg.armorPierceUsed) : dmg.armorPierceUsed]
+  ]);
+  if (damageDefense) out["DAMAGE DEFENSE"] = damageDefense;
+  return out;
+}
 function buildRollResolutionDetails(trace) {
   const t = trace && typeof trace === "object" ? trace : buildAttackResolutionTrace(null);
+  const rollBreakdown = buildRollBreakdown(t);
   return {
     summary: t.summary,
+    ...Object.keys(rollBreakdown).length ? { rollBreakdown } : {},
     source: t.context?.sourceCharacterId,
     target: t.context?.targetCharacterId,
     weapon: t.context?.weapon,
@@ -5594,7 +5963,9 @@ function createArmedTechniqueMemory() {
 var LOG_TYPE = Object.freeze({
   attack: "attack",
   reload: "reload",
-  fireMode: "fire-mode"
+  fireMode: "fire-mode",
+  abilityExecute: "ability-execute",
+  directedAbility: "directed-ability"
 });
 var LOG_OUTCOME = Object.freeze({
   success: "success",
@@ -5627,6 +5998,63 @@ function buildReloadLogEntry({ sourceCharacterId, ok, message }) {
     details: [String(message || (ok ? "Reloaded." : "Reload denied."))],
     sourceCharacterId: sourceCharacterId ?? null,
     targetCharacterId: null
+  };
+}
+function buildAbilityExecutionLogEntry({ sourceCharacterId, abilityName, outcome }) {
+  const ok = !!outcome?.ok;
+  const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  let details2;
+  if (ok) {
+    const n = outcome?.normalized ?? {};
+    const costParts = [];
+    if (Number(n.actionCost) > 0) costParts.push("MAIN spent");
+    if (Number(n.resourceSpent) > 0) costParts.push(`Resource spent: ${n.resourceSpent}`);
+    const effectPart = n.narrativeOnly ? "No mechanical effect." : null;
+    details2 = [
+      `Used ${name}.`,
+      costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
+      ...effectPart ? [effectPart] : []
+    ];
+  } else {
+    details2 = [String(outcome?.error || `${name} denied.`)];
+  }
+  return {
+    timestamp: Date.now(),
+    type: LOG_TYPE.abilityExecute,
+    outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
+    title: ok ? "Ability used" : "Ability failed",
+    details: details2,
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null
+  };
+}
+function buildDirectedAbilityLogEntry({ sourceCharacterId, targetCharacterId, abilityName, targetName, outcome }) {
+  const ok = !!outcome?.ok;
+  const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  const target = String(targetName || "the target");
+  let details2;
+  if (ok) {
+    const n = outcome?.normalized ?? {};
+    const costParts = [];
+    if (Number(n.actionCost) > 0) costParts.push("MAIN spent");
+    if (Number(n.resourceSpent) > 0) costParts.push(`Resource spent: ${n.resourceSpent}`);
+    const effectPart = n.narrativeOnly ? "No mechanical effect." : null;
+    details2 = [
+      `Used ${name} on ${target}.`,
+      costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
+      ...effectPart ? [effectPart] : []
+    ];
+  } else {
+    details2 = [String(outcome?.error || `${name} denied.`)];
+  }
+  return {
+    timestamp: Date.now(),
+    type: LOG_TYPE.directedAbility,
+    outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
+    title: ok ? "Ability used" : "Ability failed",
+    details: details2,
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: targetCharacterId ?? null
   };
 }
 function buildFireModeLogEntry({ sourceCharacterId, ok, message }) {
@@ -5806,6 +6234,18 @@ function createInactiveCombatSession() {
 }
 
 // hud/session/combatSessionMapper.js
+function isRuntimeApplicable(next, prev) {
+  const nextEncounter = next?.encounter && typeof next.encounter === "object" ? next.encounter : null;
+  const prevEncounter = prev?.encounter && typeof prev.encounter === "object" ? prev.encounter : null;
+  if (!nextEncounter) return true;
+  const nextVersion = Number(nextEncounter.state_version);
+  if (!Number.isFinite(nextVersion)) return false;
+  if (!prevEncounter) return true;
+  if (String(nextEncounter.id ?? "") !== String(prevEncounter.id ?? "")) return false;
+  const prevVersion = Number(prevEncounter.state_version);
+  if (!Number.isFinite(prevVersion)) return true;
+  return nextVersion >= prevVersion;
+}
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -5909,6 +6349,19 @@ function sessionReloadGate(session) {
   if (!session.isSelectedCharacterTurn) return { blocked: true, reason: SESSION_BLOCK_REASONS.waitingForTurn };
   if (!session.moveAvailable) return { blocked: true, reason: SESSION_BLOCK_REASONS.moveSpent };
   return { blocked: false, reason: null };
+}
+var MOVE_TILE_STATE = Object.freeze({
+  full: "full",
+  partial: "partial",
+  empty: "empty"
+});
+function deriveMoveState(moveCurrent, moveMax) {
+  const max = Number(moveMax);
+  const cur = Number(moveCurrent);
+  if (!Number.isFinite(max) || max <= 0) return MOVE_TILE_STATE.empty;
+  if (!Number.isFinite(cur) || cur <= 0) return MOVE_TILE_STATE.empty;
+  if (cur >= max) return MOVE_TILE_STATE.full;
+  return MOVE_TILE_STATE.partial;
 }
 function canSeeGmTracker(viewerRole) {
   return String(viewerRole ?? "").toLowerCase() === "gm";
@@ -6294,7 +6747,9 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   let mutationInFlight = false;
   let prevActiveEntryId = null;
   let prevSessionId = null;
+  let reconciliationTimer = null;
   const cleanups3 = [];
+  const RECONCILIATION_DELAY_MS = 1800;
   const viewer = () => (typeof getViewer === "function" ? getViewer() : {}) ?? {};
   const isGm2 = () => String(viewer()?.role ?? "").toUpperCase() === "GM";
   function encounterOf(runtime) {
@@ -6315,6 +6770,10 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   }
   function applyRuntime(runtime, { origin }) {
     const next = runtime && typeof runtime === "object" ? runtime : null;
+    if (!isRuntimeApplicable(next, lastRuntime)) {
+      logDebugEvent("session", "stale-runtime-ignored", { origin }, false);
+      return false;
+    }
     const nextEncounter = encounterOf(next);
     const nextSessionId = nextEncounter?.status === "active" ? nextEncounter.id ?? null : null;
     const nextEntryId = nextEncounter?.active_entry_id ?? null;
@@ -6339,6 +6798,7 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
       }
     }
     broadcastSessionState();
+    return true;
   }
   function hasReadyTacticalRuntime2(runtime) {
     if (!normalizeTacticalGridSettings(runtime?.tactical_grid)) {
@@ -6406,6 +6866,24 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
       if (disposed) return;
       logDebugEvent("session", "refresh-result", { origin, message: String(error?.message ?? error) }, false);
     }
+  }
+  function scheduleReconciliation(origin) {
+    if (reconciliationTimer || disposed) return;
+    reconciliationTimer = setTimeout(() => {
+      reconciliationTimer = null;
+      if (disposed) return;
+      void refresh(`${origin}-reconciliation`);
+    }, RECONCILIATION_DELAY_MS);
+  }
+  function applyExternalRuntime(runtime, origin) {
+    const next = runtime && typeof runtime === "object" ? runtime : null;
+    if (!next?.encounter || typeof next.encounter !== "object") {
+      logDebugEvent("session", "external-runtime-rejected", { origin, reason: "missing-encounter" }, false);
+      return false;
+    }
+    const applied = applyRuntime(next, { origin });
+    if (applied) scheduleReconciliation(origin);
+    return applied;
   }
   function currentSessionRef() {
     const encounter = encounterOf(lastRuntime);
@@ -6511,8 +6989,13 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
   return {
     refresh: () => refresh("external"),
     getSessionRuntime: () => lastRuntime,
+    applyExternalRuntime,
     cleanup() {
       disposed = true;
+      if (reconciliationTimer) {
+        clearTimeout(reconciliationTimer);
+        reconciliationTimer = null;
+      }
       for (const fn of cleanups3.splice(0)) {
         try {
           fn();
@@ -6520,6 +7003,48 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
         }
       }
     }
+  };
+}
+
+// movement/moveToolBridge.js
+var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
+var TACTICAL_MOVE_TOOL_ID = "com.odyssey-system/tactical-move";
+var TACTICAL_MOVE_MODE_ID = "com.odyssey-system/tactical-move/move-character";
+var MOVE_TOOL_COMMANDS = Object.freeze({
+  ActivateSelected: "ACTIVATE_SELECTED",
+  Cancel: "CANCEL",
+  RequestStatus: "REQUEST_STATUS"
+});
+var MOVE_TOOL_EVENTS = Object.freeze({
+  Status: "STATUS",
+  Activated: "ACTIVATED",
+  Cancelled: "CANCELLED",
+  Applied: "APPLIED",
+  Error: "ERROR"
+});
+async function publishMoveToolEvent(type, payload = {}, destination = "LOCAL") {
+  await waitForObrReady();
+  await lib_default.broadcast.sendMessage(
+    MOVE_TOOL_CHANNEL,
+    { type, payload },
+    { destination }
+  );
+}
+async function subscribeMoveToolMessages(listener) {
+  await waitForObrReady();
+  let active = true;
+  const unsubscribe = lib_default.broadcast.onMessage(MOVE_TOOL_CHANNEL, (event) => {
+    if (!active) return;
+    const data = event?.data ?? {};
+    listener({
+      type: String(data?.type ?? "").trim(),
+      payload: data?.payload ?? {},
+      connectionId: event?.connectionId ?? ""
+    });
+  });
+  return () => {
+    active = false;
+    unsubscribe?.();
   };
 }
 
@@ -6968,8 +7493,15 @@ function evaluateBodyCondition(bp) {
   if (!bp || typeof bp !== "object") {
     return build(BODY_CONDITION_STATE.unknown);
   }
-  if (bp.destroyed || bp.disabled) return build(BODY_CONDITION_STATE.disabled);
-  if (num4(bp.critical) > 0) return build(BODY_CONDITION_STATE.critical);
+  const critical = num4(bp.critical);
+  const maxCritical = Number(bp.max_critical);
+  const hasThreshold = Number.isFinite(maxCritical) && maxCritical > 0;
+  if (hasThreshold) {
+    if (critical >= maxCritical) return build(BODY_CONDITION_STATE.disabled);
+  } else if (bp.destroyed) {
+    return build(BODY_CONDITION_STATE.disabled);
+  }
+  if (critical > 0) return build(BODY_CONDITION_STATE.critical);
   if (num4(bp.serious) > 0) return build(BODY_CONDITION_STATE.serious);
   if (num4(bp.minor) > 0) return build(BODY_CONDITION_STATE.minor);
   return build(BODY_CONDITION_STATE.healthy);
@@ -6980,8 +7512,9 @@ function build(state) {
 function bodyConditionDetailLines(bp) {
   if (!bp || typeof bp !== "object") return [];
   const lines = [];
-  if (bp.destroyed) lines.push("Destroyed");
-  else if (bp.disabled) lines.push("Disabled");
+  if (evaluateBodyCondition(bp).state === BODY_CONDITION_STATE.disabled) {
+    lines.push(bp.destroyed ? "Destroyed" : "Disabled");
+  }
   if (num4(bp.critical) > 0) lines.push(`Critical damage: ${num4(bp.critical)}`);
   if (num4(bp.serious) > 0) lines.push(`Serious wounds: ${num4(bp.serious)}`);
   if (num4(bp.minor) > 0) lines.push(`Minor wounds: ${num4(bp.minor)}`);
@@ -7788,7 +8321,18 @@ function buildBroadcastPayload(state, ephemeral = {}) {
         ...hudSnapshot,
         entity: {
           ...hudSnapshot.entity,
-          actions: { main: combatSession.mainAvailable, move: combatSession.moveAvailable }
+          actions: {
+            main: combatSession.mainAvailable,
+            move: combatSession.moveAvailable,
+            // Bugfix pack: the MOVE tile's color is the character's real
+            // remaining tactical movement (selectedMoveCurrent/Max), NOT
+            // gated by whose turn it is — `move` above stays turn-gated
+            // (existing gating consumers: selectCanAct/selectDisabledReason
+            // in combatHudSelectors.js are untouched), this is a SEPARATE,
+            // display-only field so a WAITING participant still shows their
+            // genuine full/partial/empty state, only visually dimmed.
+            moveState: deriveMoveState(combatSession.selectedMoveCurrent, combatSession.selectedMoveMax)
+          }
         }
       };
     }
@@ -7821,6 +8365,18 @@ function buildBroadcastPayload(state, ephemeral = {}) {
           }
         };
       }
+    }
+    const pendingDirectAbilityActionId = ephemeral.pendingDirectAbilityActionId ?? null;
+    if (pendingDirectAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectAbilityActionId };
+    }
+    const pendingInstantAbilityActionId = ephemeral.pendingInstantAbilityActionId ?? null;
+    if (pendingInstantAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingInstantAbilityActionId };
+    }
+    const pendingDirectedAbilityActionId = ephemeral.pendingDirectedAbilityActionId ?? null;
+    if (pendingDirectedAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectedAbilityActionId };
     }
   }
   const debug = ready && s.runtimeBundle ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
@@ -8038,7 +8594,22 @@ function setupSceneSelection(hooks = {}) {
     // Last outcome for ?debug=1 / the commandStatus toast — never a
     // fabricated hit/miss/damage, only what buildBasicAttackDebugInfo()
     // forwards from the real server response or exception.
-    basicAttackResult: null
+    basicAttackResult: null,
+    // Phase 4.1B.0: which direct-ability-attack request (characterActionId,
+    // never a boolean) is currently in flight — per-ability, not a whole-
+    // quickbar lock, so an unrelated ability/weapon attack stays interactive
+    // while one request resolves.
+    pendingDirectAbilityActionId: null,
+    directAbilityAttackResult: null,
+    // Phase 4.1B.1: same per-ability in-flight tracking, for the SEPARATE
+    // instant/self ability execution command (never touches target/zone).
+    pendingInstantAbilityActionId: null,
+    instantAbilityExecutionResult: null,
+    // Phase 4.1B.2: same per-ability in-flight tracking, for the SEPARATE
+    // directed-target ability execution command — requires a selected
+    // target, never a body zone.
+    pendingDirectedAbilityActionId: null,
+    directedAbilityExecutionResult: null
   };
   let debugEnabled = false;
   try {
@@ -8073,6 +8644,19 @@ function setupSceneSelection(hooks = {}) {
       }
     }) : null;
     if (sessionController) cleanups3.push(() => sessionController.cleanup());
+    if (sessionController) {
+      const unsubscribeMoveTool = await subscribeMoveToolMessages((event) => {
+        if (event.type !== MOVE_TOOL_EVENTS.Applied) return;
+        const payload = event.payload ?? {};
+        if (payload.source !== "combat-movement" || !payload.runtime) return;
+        sessionController.applyExternalRuntime(payload.runtime, "tactical-move");
+      });
+      if (disposed) {
+        unsubscribeMoveTool?.();
+      } else {
+        cleanups3.push(unsubscribeMoveTool);
+      }
+    }
     let abilitiesRuntime = null;
     const quickbarController = configured ? setupQuickbarController({
       settings,
@@ -8084,6 +8668,11 @@ function setupSceneSelection(hooks = {}) {
       }
     }) : null;
     if (quickbarController) cleanups3.push(() => quickbarController.cleanup());
+    function findQuickActionByCharacterActionId(characterActionId) {
+      const id = String(characterActionId ?? "").trim();
+      if (!id) return null;
+      return (abilitiesRuntime?.quickActions ?? []).find((action) => String(action?.characterActionId ?? "") === id) ?? null;
+    }
     function currentMappedSession() {
       return mapCombatRuntimeToSession(sessionRuntime, {
         viewerPlayerId: viewer?.playerId ?? null,
@@ -8164,6 +8753,12 @@ function setupSceneSelection(hooks = {}) {
         fireModeRpcResult: ephemeral.fireModeRpcResult,
         basicAttackInFlight: ephemeral.basicAttackInFlight,
         basicAttackResult: ephemeral.basicAttackResult,
+        pendingDirectAbilityActionId: ephemeral.pendingDirectAbilityActionId,
+        directAbilityAttackResult: ephemeral.directAbilityAttackResult,
+        pendingInstantAbilityActionId: ephemeral.pendingInstantAbilityActionId,
+        instantAbilityExecutionResult: ephemeral.instantAbilityExecutionResult,
+        pendingDirectedAbilityActionId: ephemeral.pendingDirectedAbilityActionId,
+        directedAbilityExecutionResult: ephemeral.directedAbilityExecutionResult,
         combatLog,
         sessionRuntime,
         abilitiesRuntime,
@@ -8261,6 +8856,401 @@ function setupSceneSelection(hooks = {}) {
             previousCharacterActionId: previousId ?? null
           });
           if (lastState) publishState(lastState);
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-direct-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "direct-attack-requested", { characterActionId: actionId });
+        if (ephemeral.pendingDirectAbilityActionId) return;
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isDirectAttackAbility(action)) {
+          logDebugEvent("abilities", "direct-attack-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          bodyZoneId: targeting.selectedBodyPartId ?? null,
+          resolvedBodyPartId: targeting.resolvedBodyPartId ?? null,
+          inFlight: false
+        };
+        const evalResult = evaluateDirectAbilityAttack(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.directAbilityAttackResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const sessionAtRequest = currentMappedSession();
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.directAbilityAttackResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "direct-attack-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId, targetCharacterId: evalCtx.targetCharacterId };
+        const bodyZoneLabel = getZoneLabel(DEFAULT_PROFILE_ID, evalCtx.bodyZoneId) || evalCtx.bodyZoneId;
+        const ctx = buildDirectAbilityAttackCtx({
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          bodyPartId: evalCtx.resolvedBodyPartId,
+          distance: targeting.distance ?? 0,
+          roomContext: sessionAtRequest.exists ? { encounterId: sessionAtRequest.id ?? void 0 } : {},
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+        });
+        ephemeral.pendingDirectAbilityActionId = actionId;
+        logDebugEvent("abilities", "direct-attack-payload-prepared", { characterActionId: actionId, targetCharacterId: ctx.targetCharacterId, bodyZone: evalCtx.bodyZoneId });
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveAttack(ctx, { performAttack: (payload) => performAttack(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability attack failed.") };
+        }
+        ephemeral.pendingDirectAbilityActionId = null;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null
+        };
+        const stale = isDirectAbilityAttackResultStale(requestCtx, currentCtx);
+        ephemeral.directAbilityAttackResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildAttackLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          bodyZoneLabel,
+          outcome
+        }));
+        logDebugEvent("abilities", "direct-attack-result", { characterActionId: actionId, ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
+        if (outcome.ok) {
+          logDebugEvent(
+            "abilities",
+            "direct-attack-roll-resolution",
+            buildRollResolutionDetails(buildAttackResolutionTrace(outcome)),
+            true
+          );
+        }
+        const sessionCost = outcome.raw?.combat_session ?? null;
+        if (sessionCost && typeof sessionCost === "object") {
+          logDebugEvent("abilities", "direct-attack-action-cost-consumed", {
+            sessionId: sessionCost.encounter_id ?? null,
+            round: sessionCost.round ?? null,
+            participant: sessionCost.participant_entry_id ?? null,
+            versionBefore: sessionCost.state_version_before ?? null,
+            versionAfter: sessionCost.state_version_after ?? null,
+            mainAfter: sessionCost.main_available_after ?? null,
+            moveAfter: sessionCost.move_available_after ?? null,
+            usedReaction: sessionCost.used_reaction ?? null
+          });
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "direct-ability-attack" }, true);
+        }
+        if ((sessionCost || outcome.code === "STATE_VERSION_CONFLICT") && sessionController) {
+          void sessionController.refresh();
+        }
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability attack resolved." };
+          try {
+            lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "refreshBodyZones" }, { destination: "LOCAL" });
+          } catch (_e) {
+          }
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability attack failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "direct-ability-attack-failure" }, true);
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-instant-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "ability-execute-requested", { characterActionId: actionId });
+        if (ephemeral.pendingInstantAbilityActionId) return;
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isInstantSelfAbility(action)) {
+          logDebugEvent("abilities", "ability-execute-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+        const sessionAtRequest = currentMappedSession();
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true
+        };
+        const evalResult = evaluateInstantAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.instantAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "ability-execute-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.instantAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "ability-execute-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+        };
+        ephemeral.pendingInstantAbilityActionId = actionId;
+        logDebugEvent("abilities", "ability-execute-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind
+        });
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveInstantAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+        ephemeral.pendingInstantAbilityActionId = null;
+        const currentCtx = { sourceCharacterId: ephemeral.characterId, abilityId: actionId };
+        const stale = isInstantAbilityResultStale(requestCtx, currentCtx);
+        ephemeral.instantAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildAbilityExecutionLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          abilityName: action.name,
+          outcome
+        }));
+        logDebugEvent("abilities", "ability-execute-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          executionReason: action.state?.executionReason ?? null,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "ability-execute-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "instant-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability used." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "instant-ability-failure" }, true);
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-directed-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "directed-ability-requested", { characterActionId: actionId });
+        if (ephemeral.pendingDirectedAbilityActionId) return;
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isDirectedTargetAbility(action)) {
+          logDebugEvent("abilities", "directed-ability-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+            matchingExecutionReason: action?.state?.executionReason ?? null,
+            matchingExecutionAvailable: action?.state?.executionAvailable ?? null
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+        const sessionAtRequest = currentMappedSession();
+        const targeting = ephemeral.targeting ?? {};
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetTokenId: targeting.selectedTargetIds?.[0] ?? null,
+          targetCharacterId: targeting.selectedTargetCharacterId ?? null,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true
+        };
+        const evalResult = evaluateDirectedAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.directedAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "directed-ability-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.directedAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "directed-ability-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId, targetCharacterId: evalCtx.targetCharacterId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          targetCharacterId: evalCtx.targetCharacterId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+        };
+        ephemeral.pendingDirectedAbilityActionId = actionId;
+        logDebugEvent("abilities", "directed-ability-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          sourceCharacterId: ctx.sourceCharacterId,
+          targetCharacterId: ctx.targetCharacterId,
+          targetTokenId: evalCtx.targetTokenId
+        });
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveDirectedAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+        ephemeral.pendingDirectedAbilityActionId = null;
+        const currentCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          targetCharacterId: ephemeral.targeting?.selectedTargetCharacterId ?? null
+        };
+        const stale = isDirectedAbilityResultStale(requestCtx, currentCtx);
+        ephemeral.directedAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildDirectedAbilityLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          abilityName: action.name,
+          targetName: targeting.selectedTargetName ?? null,
+          outcome
+        }));
+        logDebugEvent("abilities", "directed-ability-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          executionReason: action.state?.executionReason ?? null,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          targetCharacterId: requestCtx.targetCharacterId,
+          targetTokenId: evalCtx.targetTokenId,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "directed-ability-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "directed-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: "Ability used." };
+          try {
+            lib_default.broadcast.sendMessage(BC_HUD_TARGETING_COMMAND, { type: "refreshBodyZones" }, { destination: "LOCAL" });
+            logDebugEvent("refresh", "target-refresh-result", { reason: "directed-ability-success", targetCharacterId: requestCtx.targetCharacterId }, true);
+          } catch (_e) {
+          }
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "directed-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "directed-ability-failure" }, true);
         }
         return;
       }
@@ -9139,11 +10129,62 @@ function buildTargetCursorToolIcon() {
   return `data:image/svg+xml,${svg}`;
 }
 
+// hud/debug/errorSerialization.js
+var SENSITIVE_KEY_PATTERN = /token|auth|password|secret|credential|api[-_]?key|session|cookie|bearer/i;
+var REDACTED = "[redacted]";
+var MAX_STACK_CHARS = 2e3;
+function isPlainObject2(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function redact(value, depth = 0) {
+  if (depth > 6) return "[max-depth]";
+  if (Array.isArray(value)) return value.slice(0, 50).map((v) => redact(v, depth + 1));
+  if (isPlainObject2(value)) {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SENSITIVE_KEY_PATTERN.test(k) ? REDACTED : redact(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+function serializeError(error) {
+  if (error instanceof Error) {
+    const out = {
+      name: error.name,
+      message: error.message,
+      stack: typeof error.stack === "string" ? error.stack.slice(0, MAX_STACK_CHARS) : void 0
+    };
+    if (error.cause !== void 0) out.cause = serializeError(error.cause);
+    for (const key of Object.keys(error)) {
+      if (key in out) continue;
+      out[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redact(error[key]);
+    }
+    return out;
+  }
+  if (error && typeof error === "object") {
+    try {
+      return redact(JSON.parse(JSON.stringify(error)));
+    } catch {
+      let keys = [];
+      try {
+        keys = Object.keys(error);
+      } catch {
+        keys = [];
+      }
+      return {
+        type: Object.prototype.toString.call(error),
+        keys,
+        message: error.message !== void 0 ? String(error.message) : void 0
+      };
+    }
+  }
+  return { message: String(error) };
+}
+
 // hud/targeting/visuals/targetingVisualPolicy.js
 var OUTLINE_GAP_RATIO = 0.1;
 var RING_GAP_RATIO = 0.18;
-var RING_ROTATION_PERIOD_MS = 3500;
-var RING_TICK_MS = 150;
 function shouldShowSourceOutline({ viewerRole, canView, sourceTokenId } = {}) {
   if (!sourceTokenId) return false;
   if (String(viewerRole ?? "").toLowerCase() === "gm") return false;
@@ -9170,12 +10211,6 @@ function computeOverlayGeometry(bounds, gapRatio) {
     position: center
   };
 }
-function nextRingRotation(currentDeg, elapsedMs, periodMs = RING_ROTATION_PERIOD_MS) {
-  const period = Math.max(1, num6(periodMs, RING_ROTATION_PERIOD_MS));
-  const deltaDeg = num6(elapsedMs, 0) / period * 360;
-  const next = (num6(currentDeg, 0) + deltaDeg) % 360;
-  return next < 0 ? next + 360 : next;
-}
 
 // hud/targeting/visuals/targetingVisualRenderer.js
 var SOURCE_OUTLINE_ITEM_ID = "com.odyssey-system/targeting-source-outline";
@@ -9193,20 +10228,35 @@ function buildSourceOutlineItem(tokenId, bounds) {
     strokeDash: []
   }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).visible(true).build();
 }
-function buildTargetRingItem(tokenId, bounds, rotationDeg = 0) {
+function buildTargetRingItem(bounds) {
   const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
-  return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).rotation(rotationDeg).style({
+  return buildShape().id(TARGET_RING_ITEM_ID).name("Odyssey Target Ring (local only)").shapeType("CIRCLE").width(geo.width).height(geo.height).position(geo.position).style({
     fillColor: TARGET_RING_COLOR,
     fillOpacity: 0,
     strokeColor: TARGET_RING_COLOR,
     strokeOpacity: 0.95,
     strokeWidth: 5,
     strokeDash: [14, 10]
-  }).layer("ATTACHMENT").locked(true).disableHit(true).disableAutoZIndex(true).attachedTo(tokenId).disableAttachmentBehavior(["ROTATION"]).visible(true).build();
+  }).layer("POINTER").locked(true).disableHit(true).disableAutoZIndex(true).visible(true).build();
+}
+function tagPhase(error, phase, operation) {
+  if (error && typeof error === "object") {
+    try {
+      error.phase = phase;
+      error.operation = operation;
+      return error;
+    } catch (_e) {
+    }
+  }
+  return { phase, operation, message: String(error), originalError: error };
 }
 async function getTokenBounds(tokenId) {
-  const box = await lib_default.scene.items.getItemBounds([tokenId]);
-  return { width: box.width, height: box.height, center: box.center };
+  try {
+    const box = await lib_default.scene.items.getItemBounds([tokenId]);
+    return { width: box.width, height: box.height, center: box.center };
+  } catch (error) {
+    throw tagPhase(error, "scene-item-lookup", "getItemBounds");
+  }
 }
 async function showSourceOutline(tokenId) {
   const bounds = await getTokenBounds(tokenId);
@@ -9217,15 +10267,36 @@ async function hideSourceOutline() {
 }
 async function showTargetRing(tokenId) {
   const bounds = await getTokenBounds(tokenId);
-  await lib_default.scene.local.addItems([buildTargetRingItem(tokenId, bounds, 0)]);
+  try {
+    await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
+  } catch (_e) {
+  }
+  try {
+    await lib_default.scene.local.addItems([buildTargetRingItem(bounds)]);
+  } catch (error) {
+    throw tagPhase(error, "ring-creation", "addItems(ring)");
+  }
+  return bounds;
 }
 async function hideTargetRing() {
   await lib_default.scene.local.deleteItems([TARGET_RING_ITEM_ID]);
 }
-async function setTargetRingRotation(rotationDeg) {
+function boundsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.width === b.width && a.height === b.height && a.center?.x === b.center?.x && a.center?.y === b.center?.y;
+}
+async function updateTargetRingGeometry(tokenId, lastBounds) {
+  const bounds = await getTokenBounds(tokenId);
+  if (boundsEqual(bounds, lastBounds)) return { bounds, changed: false };
+  const geo = computeOverlayGeometry(bounds, RING_GAP_RATIO);
   await lib_default.scene.local.updateItems([TARGET_RING_ITEM_ID], (items) => {
-    for (const item of items) item.rotation = rotationDeg;
+    for (const item of items) {
+      item.position = geo.position;
+      item.width = geo.width;
+      item.height = geo.height;
+    }
   });
+  return { bounds, changed: true };
 }
 async function hideAllTargetingVisuals() {
   await lib_default.scene.local.deleteItems([SOURCE_OUTLINE_ITEM_ID, TARGET_RING_ITEM_ID]);
@@ -9247,16 +10318,24 @@ function setupTargetingVisuals() {
   let previousToolId = "";
   let previousModeId = "";
   let sourceTokenId = null;
+  let sourceCharacterId = null;
   let targetTokenId = null;
+  let targetCharacterId = null;
   let picking = false;
   let viewerRole = "player";
   let canView = false;
+  let sceneId = null;
+  void getRoomSceneContext().then((ctx) => {
+    sceneId = ctx?.sceneId ?? null;
+  }).catch(() => {
+  });
   let outlineVisible = false;
   let ringVisible = false;
-  let ringRotationDeg = 0;
-  let ringTimer = null;
-  let ringTickInFlight = false;
+  let ringTokenId = null;
+  let lastRingBounds = null;
+  let ringGeometrySyncInFlight = false;
   let unsubscribeSceneReady = null;
+  let unsubscribeSceneItems = null;
   async function registerToolOnce() {
     if (toolRegistered) return;
     try {
@@ -9314,28 +10393,39 @@ function setupTargetingVisuals() {
       previousModeId = "";
     }
   }
-  function stopRingTimer() {
-    if (ringTimer) {
-      clearInterval(ringTimer);
-      ringTimer = null;
+  function logRingFailure(phase, operation, error) {
+    const context = {
+      phase,
+      operation,
+      tokenId: targetTokenId,
+      targetCharacterId,
+      sourceCharacterId,
+      sceneId
+    };
+    try {
+      logDebugEvent("targeting", "target-ring-failed", { ...context, ...serializeError(error) }, false);
+    } catch (_e) {
+    }
+    try {
+      console.error("[Odyssey HUD] target ring failed", error, context);
+    } catch (_e) {
     }
   }
-  function startRingTimer() {
-    if (ringTimer) return;
-    let lastTick = Date.now();
-    ringTimer = setInterval(async () => {
-      if (disposed || !ringVisible || ringTickInFlight) return;
-      const now = Date.now();
-      const elapsed = now - lastTick;
-      lastTick = now;
-      ringRotationDeg = nextRingRotation(ringRotationDeg, elapsed);
-      ringTickInFlight = true;
-      try {
-        await setTargetRingRotation(ringRotationDeg);
-      } catch (_e) {
-      }
-      ringTickInFlight = false;
-    }, RING_TICK_MS);
+  function logRingSuccess(operation) {
+    logDebugEvent("targeting", "target-ring-shown", { operation, tokenId: targetTokenId, targetCharacterId, sourceCharacterId, sceneId }, true);
+  }
+  async function handleSceneItemsChanged(items) {
+    if (disposed || !ringVisible || !ringTokenId || ringGeometrySyncInFlight) return;
+    if (!Array.isArray(items) || !items.some((item) => item?.id === ringTokenId)) return;
+    ringGeometrySyncInFlight = true;
+    try {
+      const result = await updateTargetRingGeometry(ringTokenId, lastRingBounds);
+      lastRingBounds = result.bounds;
+    } catch (error) {
+      logRingFailure("ring-geometry-sync", "updateTargetRingGeometry", error);
+    } finally {
+      ringGeometrySyncInFlight = false;
+    }
   }
   async function reconcileOutline() {
     const wanted = shouldShowSourceOutline({ viewerRole, canView, sourceTokenId });
@@ -9349,23 +10439,46 @@ function setupTargetingVisuals() {
     }
   }
   async function reconcileRing() {
-    const wanted = shouldShowTargetRing({ targetTokenId });
-    if (wanted === ringVisible) return;
-    ringVisible = wanted;
-    if (wanted) {
-      ringRotationDeg = 0;
-      try {
-        await showTargetRing(targetTokenId);
-        startRingTimer();
-      } catch (_e) {
-        ringVisible = false;
-      }
-    } else {
-      stopRingTimer();
+    let wanted;
+    try {
+      wanted = shouldShowTargetRing({ targetTokenId });
+    } catch (error) {
+      logRingFailure("target-state-to-token-lookup", "shouldShowTargetRing", error);
+      return;
+    }
+    if (!wanted) {
+      if (!ringVisible) return;
+      ringVisible = false;
+      ringTokenId = null;
+      lastRingBounds = null;
       try {
         await hideTargetRing();
-      } catch (_e) {
+      } catch (error) {
+        logRingFailure("ring-cleanup", "hideTargetRing(clear)", error);
       }
+      return;
+    }
+    if (ringVisible && ringTokenId === targetTokenId) return;
+    if (ringVisible) {
+      try {
+        await hideTargetRing();
+      } catch (error) {
+        logRingFailure("ring-anchor-update", "hideTargetRing(retarget)", error);
+      }
+    }
+    ringVisible = false;
+    ringTokenId = null;
+    lastRingBounds = null;
+    try {
+      const bounds = await showTargetRing(targetTokenId);
+      ringVisible = true;
+      ringTokenId = targetTokenId;
+      lastRingBounds = bounds;
+      logRingSuccess("showTargetRing");
+    } catch (error) {
+      ringVisible = false;
+      ringTokenId = null;
+      logRingFailure(error?.phase ?? "ring-creation", error?.operation ?? "showTargetRing", error);
     }
   }
   async function reconcileCursor() {
@@ -9374,18 +10487,24 @@ function setupTargetingVisuals() {
   }
   function handleTargetingState(payload) {
     if (disposed) return;
-    const nextSource = payload?.source?.tokenId ?? null;
-    const nextTarget = payload?.target?.tokenId ?? null;
-    const nextPicking = isPickingActive(payload?.mode);
-    const sourceChanged = nextSource !== sourceTokenId;
-    const targetChanged = nextTarget !== targetTokenId;
-    const pickingChanged = nextPicking !== picking;
-    sourceTokenId = nextSource;
-    targetTokenId = nextTarget;
-    picking = nextPicking;
-    if (pickingChanged) void reconcileCursor();
-    if (sourceChanged) void reconcileOutline();
-    if (targetChanged) void reconcileRing();
+    try {
+      const nextSource = payload?.source?.tokenId ?? null;
+      const nextTarget = payload?.target?.tokenId ?? null;
+      const nextPicking = isPickingActive(payload?.mode);
+      const sourceChanged = nextSource !== sourceTokenId;
+      const targetChanged = nextTarget !== targetTokenId;
+      const pickingChanged = nextPicking !== picking;
+      sourceTokenId = nextSource;
+      sourceCharacterId = payload?.source?.characterId ?? null;
+      targetTokenId = nextTarget;
+      targetCharacterId = payload?.target?.characterId ?? null;
+      picking = nextPicking;
+      if (pickingChanged) void reconcileCursor();
+      if (sourceChanged) void reconcileOutline();
+      if (targetChanged) void reconcileRing();
+    } catch (error) {
+      logRingFailure("target-state-to-token-lookup", "handleTargetingState", error);
+    }
   }
   function handleSelectionState(payload) {
     if (disposed) return;
@@ -9400,11 +10519,20 @@ function setupTargetingVisuals() {
     if (disposed) return;
     unsubscribeSceneReady = lib_default.scene.onReadyChange((ready) => {
       if (disposed || ready) return;
-      stopRingTimer();
-      outlineVisible = false;
-      ringVisible = false;
-      picking = false;
-      toolActive = false;
+      try {
+        outlineVisible = false;
+        ringVisible = false;
+        ringTokenId = null;
+        lastRingBounds = null;
+        picking = false;
+        toolActive = false;
+      } catch (error) {
+        logRingFailure("scene-change-handling", "onReadyChange-reset", error);
+      }
+    });
+    unsubscribeSceneItems = lib_default.scene.items.onChange((items) => {
+      if (disposed) return;
+      void handleSceneItemsChanged(items);
     });
   });
   return {
@@ -9413,12 +10541,13 @@ function setupTargetingVisuals() {
     async cleanup() {
       if (disposed) return;
       disposed = true;
-      stopRingTimer();
       unsubscribeSceneReady?.();
+      unsubscribeSceneItems?.();
       await restorePickingCursor();
       try {
         await hideAllTargetingVisuals();
-      } catch (_e) {
+      } catch (error) {
+        logRingFailure("ring-cleanup", "hideAllTargetingVisuals(teardown)", error);
       }
       if (toolRegistered) {
         try {
@@ -9641,6 +10770,12 @@ var TARGET_LABEL = {
 var EXECUTION_REASON_LABEL = {
   ACTION_EFFECT_NOT_IMPLEMENTED: "Attack effect is not supported yet."
 };
+var DIRECT_ATTACK_STATUS_LABEL = {
+  [SLOT_AVAILABILITY.ready]: "Ready",
+  [SLOT_AVAILABILITY.cooldown]: "On cooldown",
+  [SLOT_AVAILABILITY.insufficientResource]: "Insufficient resource",
+  [SLOT_AVAILABILITY.unavailable]: "Unavailable"
+};
 function costText(costs) {
   const c = costs ?? {};
   const parts = [];
@@ -9663,10 +10798,16 @@ function abilityTooltipModel(action) {
   const targeting = a.targeting ?? {};
   const requirements = a.requirements ?? {};
   const state = a.state ?? {};
+  const directAttack = isDirectAttackAbility(a);
+  const instantSelf = !directAttack && isInstantSelfAbility(a);
+  const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
+  if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
+  else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
+  else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
@@ -9677,12 +10818,19 @@ function abilityTooltipModel(action) {
       value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
     });
   }
-  lines.push({ label: "Target", value: TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014") });
+  lines.push({
+    label: "Target",
+    value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
+  });
+  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
+  else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
   const reqParts = [];
   if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
   if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
   if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
-  if (state.executionReason) {
+  if (directAttack) {
+    lines.push({ label: "Status", value: DIRECT_ATTACK_STATUS_LABEL[deriveDirectAttackAvailability(a)] ?? "Unavailable" });
+  } else if (state.executionReason) {
     lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
   } else if (state.available === false && state.disabledReason) {
     lines.push({ label: "Unavailable", value: String(state.disabledReason) });
@@ -11323,50 +12471,8 @@ function resolveCombatMovementPermission({
   };
 }
 
-// movement/moveToolBridge.js
-var MOVE_TOOL_CHANNEL = "odyssey:tactical-move";
-var TACTICAL_MOVE_TOOL_ID = "com.odyssey-system/tactical-move";
-var TACTICAL_MOVE_MODE_ID = "com.odyssey-system/tactical-move/move-character";
-var MOVE_TOOL_COMMANDS = Object.freeze({
-  ActivateSelected: "ACTIVATE_SELECTED",
-  Cancel: "CANCEL",
-  RequestStatus: "REQUEST_STATUS"
-});
-var MOVE_TOOL_EVENTS = Object.freeze({
-  Status: "STATUS",
-  Activated: "ACTIVATED",
-  Cancelled: "CANCELLED",
-  Applied: "APPLIED",
-  Error: "ERROR"
-});
-async function publishMoveToolEvent(type, payload = {}, destination = "LOCAL") {
-  await waitForObrReady();
-  await lib_default.broadcast.sendMessage(
-    MOVE_TOOL_CHANNEL,
-    { type, payload },
-    { destination }
-  );
-}
-async function subscribeMoveToolMessages(listener) {
-  await waitForObrReady();
-  let active = true;
-  const unsubscribe = lib_default.broadcast.onMessage(MOVE_TOOL_CHANNEL, (event) => {
-    if (!active) return;
-    const data = event?.data ?? {};
-    listener({
-      type: String(data?.type ?? "").trim(),
-      payload: data?.payload ?? {},
-      connectionId: event?.connectionId ?? ""
-    });
-  });
-  return () => {
-    active = false;
-    unsubscribe?.();
-  };
-}
-
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.60";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.62";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;

@@ -186,17 +186,31 @@ test("cooldown/insufficient-resource/unsupported slots render is-disabled + the 
   assert.match(res, /data-slot-state="insufficient_resource"/);
   assert.match(res, /ohud-qb-state--resource">PSI 3/);
 
-  const unsup = renderQuickbarStrip(runtime([action({ state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } })]));
+  // Phase 4.1B.0: an attack_technique with executionReason:
+  // ACTION_EFFECT_NOT_IMPLEMENTED is now direct-attack-eligible (see
+  // scripts/direct-ability-attack.test.mjs test 5) — it no longer renders
+  // through this "locked/unsupported" path in the quickbar. This scenario
+  // uses a non-technique type instead, to keep exercising the ORIGINAL,
+  // still-fully-valid "unsupported" lock-icon rendering for actions that
+  // stay on the show-ability-detail (never execute/arm) click path.
+  const unsup = renderQuickbarStrip(runtime([action({ type: "directed", state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } })]));
   assert.match(unsup, /data-slot-state="unsupported"/);
   assert.match(unsup, /ohud-qb-state--lock/);
-  // Click wiring is untouched regardless of state — still the SAME data-action.
-  for (const html of [cd, res, unsup]) assert.match(html, /data-action="toggle-armed-technique"/);
+  assert.match(unsup, /data-action="show-ability-detail"/);
+  // Click wiring for the two still-armable technique slots is untouched.
+  for (const html of [cd, res]) assert.match(html, /data-action="toggle-armed-technique"/);
 });
 
 /* ── 9/10. Detail card content: human-readable, no raw ids/JSON/internal data ── */
 
 test("9. the detail card shows the canonical executionReason as human-readable text, never the raw code", () => {
-  const a = action({ state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } });
+  // Phase 4.1B.0: an attack_technique with this exact executionReason is now
+  // direct-attack-eligible (see scripts/direct-ability-attack.test.mjs test
+  // 8/deriveDirectAttackAvailability) and shows its OWN status text instead —
+  // this test uses a non-technique type to keep exercising the ORIGINAL,
+  // still-fully-valid "unsupported executionReason" text mapping for actions
+  // that are not direct-attack-eligible.
+  const a = action({ type: "directed", state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } });
   const html = renderAbilityDetailCard(a);
   assert.match(html, /Attack effect is not supported yet\./);
   assert.ok(!html.includes("ACTION_EFFECT_NOT_IMPLEMENTED"), "the raw code itself is never shown");
@@ -289,16 +303,16 @@ test("17. slot state markers (.ohud-qb-cd/.ohud-qb-active/.ohud-qb-state) use --
     const idx = layoutCss.indexOf(selector);
     assert.ok(idx > -1, `${selector} exists`);
     const rule = layoutCss.slice(idx, layoutCss.indexOf("}", idx));
-    assert.match(rule, /font-size:\s*calc\(10px \* var\(--ohud-slot-marker-ratio, 1\)\)/);
+    assert.match(rule, /font-size:\s*calc\(var\(--ohud-font-10\) \* var\(--ohud-slot-marker-ratio, 1\)\)/);
   }
   assert.match(moduleSrc, /computeCriticalTextRatio\(scale,\s*1\.5\)/, "the slot-marker ratio uses a tighter cap than the default (3x)");
 });
 
-test("17b. the Ability Detail Card's name/body text meet the section-G floors (14px name, 12px body) via a scoped override — the Quickbar Editor's own (unscoped) rule is untouched", () => {
-  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-name \{ font-size: 14px; \}/);
-  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-text,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-pill,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-status \{ font-size: 12px; \}/);
+test("17b. the Ability Detail Card's name/body text meet the section-G floors (16px name, 14px body — the original 14px/12px floors +2px typography pass) via a scoped override — the Quickbar Editor's own (unscoped) rule is untouched", () => {
+  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-name \{ font-size: var\(--ohud-font-14\); \}/);
+  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-text,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-pill,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-status \{ font-size: var\(--ohud-font-12\); \}/);
   // The base (editor) rule is unchanged — still its original, smaller size.
-  assert.match(layoutCss, /^\.ohud-qbe-desc-name \{ font-size: 13px/m);
+  assert.match(layoutCss, /^\.ohud-qbe-desc-name \{ font-size: var\(--ohud-font-13\)/m);
 });
 
 test("the detail card is its own companion popover (bug fix) — it never reads the module-canvas typography ratio variables, since it isn't wrapped in that transform at all; see ability-detail-card-placement.test.mjs for the full architecture coverage", () => {

@@ -187,15 +187,95 @@ export function buildCombatLogLines(trace, bodyZoneLabel) {
   return details;
 }
 
+/** Signed display string for a returned numeric modifier, e.g. 20 -> "+20",
+ *  -5 -> "-5", 0 -> "0" (a real returned zero is shown honestly, never
+ *  hidden). A field the server didn't return contributes nothing. */
+function fmtModifier(v) {
+  if (!isReturnedNumber(v)) return null;
+  if (v === 0) return "0";
+  return v > 0 ? `+${v}` : `${v}`;
+}
+
+function modifierList(entries) {
+  const parts = [];
+  for (const [label, value] of entries) {
+    const f = fmtModifier(value);
+    if (f !== null) parts.push(`${label} ${f}`);
+  }
+  return parts.length ? parts.join(", ") : "None";
+}
+
+/** One raw-vs-final breakdown line, or null when neither the raw nor the
+ *  final value was ever returned (nothing honest to show for this category
+ *  on this outcome — e.g. a failed attack). */
+function rollLine(base, final, modifierEntries) {
+  if (!isReturnedNumber(base) && !isReturnedNumber(final)) return null;
+  return {
+    Roll: isReturnedNumber(base) ? base : NOT_RETURNED,
+    "With modifiers": isReturnedNumber(final) ? final : NOT_RETURNED,
+    Modifiers: modifierList(modifierEntries),
+  };
+}
+
+/**
+ * Priority Bugfix Pack Fix #3 — the Debug Console must clearly separate the
+ * initial raw/base roll from the final, fully-modified result for: attack
+ * accuracy, target defense/evasion, attack damage, and damage defense/armor
+ * comparison. Every number here is copied straight from the SAME verbatim
+ * server-returned trace fields already assembled above (accuracy/damage) —
+ * this function only regroups and labels them for display. It computes no
+ * combat math, reconstructs no missing raw value, and never fabricates a
+ * modifier the server didn't return (a genuinely-zero modifier the server DID
+ * return is still shown, honestly, as "0").
+ */
+export function buildRollBreakdown(trace) {
+  const t = trace && typeof trace === "object" ? trace : {};
+  const acc = section(t.accuracy);
+  const dmg = section(t.damage);
+  const out = {};
+
+  const attackRoll = rollLine(acc.attackRoll, acc.attackTotal, [
+    ["Skill", acc.attackSkillBonus],
+    ["Manual", acc.attackManualBonus],
+    ["Penalty", isReturnedNumber(acc.attackManualPenalty) ? -Math.abs(acc.attackManualPenalty) : acc.attackManualPenalty],
+    ["Weapon", acc.weaponAccuracyBonus],
+    ["Fire mode", acc.fireModeAccuracyModifier],
+    ["Ammo", acc.ammoAccuracyModifier],
+  ]);
+  if (attackRoll) out["ATTACK ROLL"] = attackRoll;
+
+  const defenseRoll = rollLine(acc.defenseRoll, acc.defenseTotal, [
+    ["Manual", acc.defenseManualBonus],
+    ["Penalty", isReturnedNumber(acc.defenseManualPenalty) ? -Math.abs(acc.defenseManualPenalty) : acc.defenseManualPenalty],
+  ]);
+  if (defenseRoll) out["DEFENSE ROLL"] = defenseRoll;
+
+  const damageRoll = rollLine(dmg.bulletDamage, dmg.attackTotalUsed, [
+    ["Ammo", dmg.ammoDamageModifier],
+    ["Melee", dmg.meleeStrengthBonus],
+  ]);
+  if (damageRoll) out["DAMAGE ROLL"] = damageRoll;
+
+  const damageDefense = rollLine(dmg.armorValueUsed, dmg.defenseTotalUsed, [
+    ["Armor pierce", isReturnedNumber(dmg.armorPierceUsed) ? -Math.abs(dmg.armorPierceUsed) : dmg.armorPierceUsed],
+  ]);
+  if (damageDefense) out["DAMAGE DEFENSE"] = damageDefense;
+
+  return out;
+}
+
 /**
  * Details object for the `attack / roll-resolution` Debug Console event —
  * `summary` first (the Console renders it as the compact row text), then the
- * full nested safe trace for the detail area / Copy event.
+ * Fix #3 raw-vs-final breakdown, then the full nested safe trace for the
+ * detail area / Copy event.
  */
 export function buildRollResolutionDetails(trace) {
   const t = trace && typeof trace === "object" ? trace : buildAttackResolutionTrace(null);
+  const rollBreakdown = buildRollBreakdown(t);
   return {
     summary: t.summary,
+    ...(Object.keys(rollBreakdown).length ? { rollBreakdown } : {}),
     source: t.context?.sourceCharacterId,
     target: t.context?.targetCharacterId,
     weapon: t.context?.weapon,

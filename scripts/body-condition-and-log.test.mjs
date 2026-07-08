@@ -53,8 +53,11 @@ test("8. real severity fields map to the correct silhouette state", () => {
   assert.equal(evaluateBodyCondition({ minor: 1 }).state, BODY_CONDITION_STATE.minor);
   assert.equal(evaluateBodyCondition({ minor: 1, serious: 1 }).state, BODY_CONDITION_STATE.serious);
   assert.equal(evaluateBodyCondition({ critical: 1 }).state, BODY_CONDITION_STATE.critical);
-  assert.equal(evaluateBodyCondition({ disabled: true }).state, BODY_CONDITION_STATE.disabled);
   assert.equal(evaluateBodyCondition({ destroyed: true }).state, BODY_CONDITION_STATE.disabled);
+  // Bugfix pack: a bare `disabled` flag with no threshold data and no real
+  // `destroyed` is NOT trusted on its own (audited: the server sets it the
+  // moment any critical wound lands, before the real threshold is reached).
+  assert.notEqual(evaluateBodyCondition({ disabled: true, critical: 0 }).state, BODY_CONDITION_STATE.disabled);
   // Its zoneState feeds directly into the existing CSS pipeline.
   assert.equal(zoneStateClass(evaluateBodyCondition({ minor: 1 }).zoneState), "wounded");
   assert.equal(zoneStateClass(evaluateBodyCondition({ critical: 1 }).zoneState), "critical");

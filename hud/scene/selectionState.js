@@ -13,7 +13,7 @@ import { resolveFireModeUpdatePath } from "./fireModePolicy.js";
 import { evaluateBasicAttack } from "../combat/basicAttackPolicy.js";
 import { buildBasicAttackCtx, buildAttackPayload } from "../combat/basicAttackPayload.js";
 import { mapCombatRuntimeToSession } from "../session/combatSessionMapper.js";
-import { sessionAttackGate } from "../session/combatSessionPolicy.js";
+import { sessionAttackGate, deriveMoveState } from "../session/combatSessionPolicy.js";
 
 /** Canonical selection statuses (string values are part of the wire contract). */
 export const SELECTION_STATUS = Object.freeze({
@@ -361,7 +361,18 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
         ...hudSnapshot,
         entity: {
           ...hudSnapshot.entity,
-          actions: { main: combatSession.mainAvailable, move: combatSession.moveAvailable },
+          actions: {
+            main: combatSession.mainAvailable,
+            move: combatSession.moveAvailable,
+            // Bugfix pack: the MOVE tile's color is the character's real
+            // remaining tactical movement (selectedMoveCurrent/Max), NOT
+            // gated by whose turn it is — `move` above stays turn-gated
+            // (existing gating consumers: selectCanAct/selectDisabledReason
+            // in combatHudSelectors.js are untouched), this is a SEPARATE,
+            // display-only field so a WAITING participant still shows their
+            // genuine full/partial/empty state, only visually dimmed.
+            moveState: deriveMoveState(combatSession.selectedMoveCurrent, combatSession.selectedMoveMax),
+          },
         },
       };
     }
@@ -408,6 +419,27 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
           },
         };
       }
+    }
+    // Phase 4.1B.0: which direct-ability-attack request (if any) is currently
+    // in flight — ephemeral UI-only, same treatment as armedActionId above.
+    // Absent (null) simply omits the key, matching armedActionId's own
+    // only-when-set convention.
+    const pendingDirectAbilityActionId = ephemeral.pendingDirectAbilityActionId ?? null;
+    if (pendingDirectAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectAbilityActionId };
+    }
+    // Phase 4.1B.1: same treatment for the SEPARATE instant/self-ability
+    // in-flight request — a different ephemeral field (a different command
+    // handler owns it), same only-when-set convention.
+    const pendingInstantAbilityActionId = ephemeral.pendingInstantAbilityActionId ?? null;
+    if (pendingInstantAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingInstantAbilityActionId };
+    }
+    // Phase 4.1B.2: same treatment for the SEPARATE directed-target-ability
+    // in-flight request.
+    const pendingDirectedAbilityActionId = ephemeral.pendingDirectedAbilityActionId ?? null;
+    if (pendingDirectedAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingDirectedAbilityActionId };
     }
   }
   const debug = ready && s.runtimeBundle

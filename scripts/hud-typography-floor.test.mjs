@@ -54,20 +54,23 @@ const VIEWPORTS = [
  * (1920×1080-reference, pre-this-amendment) font-size — the value each one
  * must never render smaller than on screen, per computeCriticalTextRatio's
  * contract. Context matters for two of them (player-module overrides). */
+// Bugfix pack: canonicalPx values below reflect the +2px typography-scale
+// increase (each is the OLD canonical size + 2 — see combatHudTokens.css's
+// --ohud-font-* tokens, e.g. old 12px is now --ohud-font-12: 14px).
 const CRITICAL_TOKENS = [
-  { label: "character name (base)", css: layoutCss, selector: ".ohud-player-name {", canonicalPx: 12 },
-  { label: "character name (player module override)", css: moduleCss, selector: '.ohud-player-name { font-size: calc(16px', canonicalPx: 16, literal: true },
-  { label: "weapon name", css: layoutCss, selector: ".ohud-gun-name {", canonicalPx: 9 },
-  { label: "target name", css: layoutCss, selector: ".ohud-target-name {", canonicalPx: 11 },
-  { label: "PSI/Shield current value (base)", css: layoutCss, selector: ".ohud-res-num {", canonicalPx: 10 },
-  { label: "PSI/Shield current value (player module override)", css: moduleCss, selector: '.ohud-res-num { font-size: calc(12px', canonicalPx: 12, literal: true },
-  { label: "ammo current", css: layoutCss, selector: ".ohud-ammo-cur {", canonicalPx: 24 },
-  { label: "ammo max", css: layoutCss, selector: ".ohud-ammo-max {", canonicalPx: 11 },
-  { label: "MAIN/MOVE pip (player module)", css: moduleCss, selector: '.ohud-pip { font-size: calc(9px', canonicalPx: 9, literal: true },
-  { label: "ATTACK/END TURN", css: moduleCss, selector: ".ohud-cc-abtn {", canonicalPx: 11 },
-  { label: "armed technique name", css: layoutCss, selector: ".ohud-mod--armed .ohud-mod-name {", canonicalPx: 9 },
-  { label: "combat log event", css: layoutCss, selector: ".ohud-log-row {", canonicalPx: 10 },
-  { label: "status/error toast", css: layoutCss, selector: ".ohud-toast {", canonicalPx: 11 },
+  { label: "character name (base)", css: layoutCss, selector: ".ohud-player-name {", canonicalPx: 14 },
+  { label: "character name (player module override)", css: moduleCss, selector: '.ohud-player-name { font-size: calc(var(--ohud-font-16)', canonicalPx: 18, literal: true },
+  { label: "weapon name", css: layoutCss, selector: ".ohud-gun-name {", canonicalPx: 11 },
+  { label: "target name", css: layoutCss, selector: ".ohud-target-name {", canonicalPx: 13 },
+  { label: "PSI/Shield current value (base)", css: layoutCss, selector: ".ohud-res-num {", canonicalPx: 12 },
+  { label: "PSI/Shield current value (player module override)", css: moduleCss, selector: '.ohud-res-num { font-size: calc(var(--ohud-font-12)', canonicalPx: 14, literal: true },
+  { label: "ammo current", css: layoutCss, selector: ".ohud-ammo-cur {", canonicalPx: 26 },
+  { label: "ammo max", css: layoutCss, selector: ".ohud-ammo-max {", canonicalPx: 13 },
+  { label: "MAIN/MOVE pip (player module)", css: moduleCss, selector: '.ohud-pip { font-size: calc(var(--ohud-font-9)', canonicalPx: 11, literal: true },
+  { label: "ATTACK/END TURN", css: moduleCss, selector: ".ohud-cc-abtn {", canonicalPx: 13 },
+  { label: "armed technique name", css: layoutCss, selector: ".ohud-mod--armed .ohud-mod-name {", canonicalPx: 11 },
+  { label: "combat log event", css: layoutCss, selector: ".ohud-log-row {", canonicalPx: 12 },
+  { label: "status/error toast", css: layoutCss, selector: ".ohud-toast {", canonicalPx: 13 },
 ];
 
 function cssRule(css, selector) {
@@ -113,7 +116,7 @@ test("4b. ATTACK/END TURN's fixed-height parent (34px) comfortably fits the crit
   const actionbarHeight = Number(/height:\s*(\d+(?:\.\d+)?)px/.exec(actionbarRule)[1]);
   for (const { name, w, h } of VIEWPORTS) {
     const ratio = computeCriticalTextRatio(computeLayoutScale(w, h));
-    const fontPx = 11 * ratio; // .ohud-cc-abtn's own pre-transform font-size at this ratio
+    const fontPx = 13 * ratio; // .ohud-cc-abtn's own pre-transform font-size at this ratio (was 11px, +2px typography pass)
     assert.ok(fontPx < actionbarHeight * 0.8, `${name}: ATTACK/END TURN font (${fontPx.toFixed(1)}px) must comfortably fit the ${actionbarHeight}px action bar`);
   }
 });
@@ -151,7 +154,7 @@ test("6. Quickbar Editor and tooltip text never reference --ohud-critical-text-r
  * transform — no separate click-coordinate math is introduced. ── */
 
 test("7. the typography floor is implemented as a font-size multiplier, never a nested transform/zoom — existing click-hit-testing (already verified against the outer canvas transform) needs no extra alignment work", () => {
-  assert.match(moduleCss, /font-size:\s*calc\(11px \* var\(--ohud-critical-text-ratio, 1\)\)/, "ATTACK/END TURN uses calc()-driven font-size");
+  assert.match(moduleCss, /font-size:\s*calc\(var\(--ohud-font-11\) \* var\(--ohud-critical-text-ratio, 1\)\)/, "ATTACK/END TURN uses calc()-driven font-size");
   const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
   const codeOnly = stripComments(moduleCss) + stripComments(layoutCss);
   assert.ok(!/--ohud-critical-text-ratio[^;]*transform/.test(codeOnly), "the ratio never drives a transform anywhere in actual CSS rules (comments aside)");

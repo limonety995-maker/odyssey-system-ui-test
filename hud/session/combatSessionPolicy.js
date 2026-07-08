@@ -41,6 +41,27 @@ export function sessionReloadGate(session) {
   return { blocked: false, reason: null };
 }
 
+/** Semantic MOVE tile state — color only, never a number (bugfix pack). Reads
+ *  the authoritative combat runtime's move_current/move_max (already mapped
+ *  to moveCurrent/moveMax by combatSessionMapper.js) — never MAIN, never the
+ *  current turn, never a client-side estimate. Missing/invalid data (no
+ *  active session, no tactical-move runtime yet) is honestly "empty", never
+ *  a fabricated "full". */
+export const MOVE_TILE_STATE = Object.freeze({
+  full: "full",
+  partial: "partial",
+  empty: "empty",
+});
+
+export function deriveMoveState(moveCurrent, moveMax) {
+  const max = Number(moveMax);
+  const cur = Number(moveCurrent);
+  if (!Number.isFinite(max) || max <= 0) return MOVE_TILE_STATE.empty;
+  if (!Number.isFinite(cur) || cur <= 0) return MOVE_TILE_STATE.empty;
+  if (cur >= max) return MOVE_TILE_STATE.full;
+  return MOVE_TILE_STATE.partial;
+}
+
 /**
  * Whether the END TURN control applies for this viewer right now: the current
  * participant's owner, or the GM inspecting the current participant (the

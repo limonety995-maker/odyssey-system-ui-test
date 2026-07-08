@@ -89,4 +89,36 @@
   --odyssey-hud-radius: 14px;       /* outer panels */
   --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */
   --odyssey-hud-radius-chip: 9px;
+
+  /* ---- Typography scale (Priority UI Fix: +2px readability pass) ----
+   * One token per distinct pre-existing font-size, named after the OLD
+   * (pre-increase) value so the mapping stays traceable; every value here
+   * is that old size + 2px. Every font-size in combatHudLayout.css /
+   * combatHudModule.css / combatHudOverlay.css reads from one of these —
+   * component CSS never hard-codes a px value directly, so the whole HUD's
+   * type scale is tuned from this one place. The --ohud-critical-text-ratio
+   * / --ohud-slot-marker-ratio multipliers (hud/overlay/hudLayout.js) still
+   * apply on top of these, unchanged — this is a floor bump, not a new
+   * scaling mechanism. */
+  --ohud-font-5-5: 7.5px;
+  --ohud-font-6: 8px;
+  --ohud-font-6-5: 8.5px;
+  --ohud-font-7: 9px;
+  --ohud-font-7-5: 9.5px;
+  --ohud-font-8: 10px;
+  --ohud-font-8-5: 10.5px;
+  --ohud-font-9: 11px;
+  --ohud-font-9-5: 11.5px;
+  --ohud-font-10: 12px;
+  --ohud-font-10-5: 12.5px;
+  --ohud-font-11: 13px;
+  --ohud-font-11-5: 13.5px;
+  --ohud-font-12: 14px;
+  --ohud-font-13: 15px;
+  --ohud-font-14: 16px;
+  --ohud-font-15: 17px;
+  --ohud-font-16: 18px;
+  --ohud-font-17: 19px;
+  --ohud-font-20: 22px;
+  --ohud-font-24: 26px;
 }

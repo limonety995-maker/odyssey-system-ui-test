@@ -52,10 +52,30 @@ function resourceBar(kind, label, res) {
   </div>`;
 }
 
+// Bugfix pack: MOVE communicates remaining tactical movement through COLOR
+// only — never a number, meter, percentage, or fill bar (movement is tracked
+// in meters server-side, but the Player block must never show that). MAIN
+// stays the existing binary on/off pip, unchanged.
+const MOVE_TIP = {
+  full: "Movement available",
+  partial: "Movement partially spent",
+  empty: "Movement exhausted",
+  unknown: "Movement unavailable",
+};
+
 function actionPips(actions) {
-  const pip = (on, name) =>
-    `<span class="${cls("ohud-pip", on ? "is-on" : "is-off")}"${tipAttr(`${name} action`, [on ? "Available" : "Spent"])}>${name}</span>`;
-  return `<div class="ohud-pips">${pip(Boolean(actions?.main), "MAIN")}${pip(Boolean(actions?.move), "MOVE")}</div>`;
+  const mainOn = Boolean(actions?.main);
+  const rawMoveState = actions?.moveState;
+  const isKnownMoveState = rawMoveState === "full" || rawMoveState === "partial" || rawMoveState === "empty";
+  // data-move-state distinguishes "no combat runtime available at all" (never
+  // falsely green) from a real server-confirmed "empty" — both render the
+  // SAME neutral/gray color (see combatHudLayout.css), only the semantic
+  // marker differs.
+  const moveState = isKnownMoveState ? rawMoveState : "unknown";
+  const moveCssState = isKnownMoveState ? rawMoveState : "empty";
+  const mainPip = `<span class="${cls("ohud-pip", mainOn ? "is-on" : "is-off")}"${tipAttr("MAIN action", [mainOn ? "Available" : "Spent"])}>MAIN</span>`;
+  const movePip = `<span class="${cls("ohud-pip", `ohud-pip--move-${moveCssState}`)}" data-move-state="${moveState}"${tipAttr("MOVE action", [MOVE_TIP[moveState]])}>MOVE</span>`;
+  return `<div class="ohud-pips">${mainPip}${movePip}</div>`;
 }
 
 function pilotStrip(pilot) {

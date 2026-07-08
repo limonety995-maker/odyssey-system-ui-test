@@ -394,6 +394,7 @@ function createEmptyAbilityLinkDraft() {
     abilityDefId: "",
     grantMode: "activated",
     profileId: "",
+    profileCode: "",
     enabledByDefault: true,
     durationRoundsMode: "none",
     durationRounds: "",
@@ -1187,24 +1188,28 @@ function normalizeWeaponDraft(bundle) {
     description: String(weapon.description ?? ""),
     profiles,
     abilityLinks: Array.isArray(bundle?.ability_links)
-      ? bundle.ability_links.map((entry) => ({
-          abilityDefId: String(entry?.ability_def_id ?? ""),
-          grantMode: String(entry?.grant_mode ?? "available"),
-          profileId: String(entry?.profile_id ?? entry?.data?.profile_id ?? ""),
-          enabledByDefault: Boolean(
-            entry?.is_enabled_by_default
-            ?? entry?.is_enabled
-            ?? true
-          ),
-          durationRoundsMode: "none",
-          durationRounds: "",
-          chargesMode: "none",
-          charges: "",
-          cooldownRoundsMode: "none",
-          cooldownRounds: "",
-          reloadMode: "",
-          reloadItemCode: "",
-        }))
+      ? bundle.ability_links.map((entry) => {
+          const data = toPlainObject(entry?.data);
+          return {
+            abilityDefId: String(entry?.ability_def_id ?? ""),
+            grantMode: String(entry?.grant_mode ?? "available"),
+            profileId: String(entry?.profile_id ?? data.profile_id ?? ""),
+            profileCode: String(entry?.profile_code ?? data.profile_code ?? ""),
+            enabledByDefault: Boolean(
+              entry?.is_enabled_by_default
+              ?? entry?.is_enabled
+              ?? String(entry?.grant_mode ?? "available").trim() === "passive"
+            ),
+            durationRoundsMode: data.duration_rounds !== undefined && data.duration_rounds !== null ? "set" : "none",
+            durationRounds: data.duration_rounds !== undefined && data.duration_rounds !== null ? String(data.duration_rounds) : "",
+            chargesMode: data.default_max_charges !== undefined && data.default_max_charges !== null ? "set" : "none",
+            charges: data.default_max_charges !== undefined && data.default_max_charges !== null ? String(data.default_max_charges) : "",
+            cooldownRoundsMode: data.cooldown_rounds !== undefined && data.cooldown_rounds !== null ? "set" : "none",
+            cooldownRounds: data.cooldown_rounds !== undefined && data.cooldown_rounds !== null ? String(data.cooldown_rounds) : "",
+            reloadMode: String(toPlainObject(data.reload).mode ?? ""),
+            reloadItemCode: String(toPlainObject(data.reload).item_code ?? ""),
+          };
+        })
       : [],
   };
 }
@@ -1833,23 +1838,75 @@ function buildAbilityLinkPayload(link, index) {
   };
 }
 
+function resolveWeaponProfileDraftCode(profile, index, profiles = []) {
+  const attackType = String(profile?.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
+  const profileCodeBase = slugifyName(profile?.name) || `${attackType}_profile_${index + 1}`;
+  const priorProfileCodes = profiles
+    .slice(0, index)
+    .map((entry, earlierIndex) => {
+      const earlierType = String(entry?.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
+      return slugifyName(entry?.name) || `${earlierType}_profile_${earlierIndex + 1}`;
+    });
+  return uniqueGeneratedCode(profileCodeBase, priorProfileCodes);
+}
+
+function getWeaponProfileReferenceOptions(draft) {
+  const profiles = Array.isArray(draft?.profiles) ? draft.profiles : [];
+  return profiles.map((profile, index) => {
+    const profileId = String(profile?.id ?? "").trim();
+    const profileCode = resolveWeaponProfileDraftCode(profile, index, profiles);
+    return {
+      value: profileId ? `id:${profileId}` : `code:${profileCode}`,
+      profileId,
+      profileCode,
+      name: String(profile?.name ?? "").trim(),
+      attackType: String(profile?.attackType ?? "").trim(),
+    };
+  });
+}
+
+function resolveWeaponAbilityProfileSelectValue(link) {
+  const profileId = String(link?.profileId ?? "").trim();
+  if (profileId) {
+    return `id:${profileId}`;
+  }
+  const profileCode = String(link?.profileCode ?? "").trim();
+  if (profileCode) {
+    return `code:${profileCode}`;
+  }
+  return "";
+}
+
 function buildWeaponAbilityLinkPayload(link, index) {
   const abilityDefId = String(link?.abilityDefId ?? "").trim();
   const profileId = String(link?.profileId ?? "").trim();
+  const profileCode = String(link?.profileCode ?? "").trim();
   if (!abilityDefId) {
     return null;
   }
+  const payload = buildAbilityLinkPayload(
+    {
+      ...link,
+      grantMode: String(link?.grantMode ?? "available").trim() || "available",
+    },
+    index,
+  );
+  const data = toPlainObject(cloneJson(payload?.data));
+  if (profileId) {
+    data.profile_id = profileId;
+  } else {
+    delete data.profile_id;
+  }
+  if (profileCode) {
+    data.profile_code = profileCode;
+  } else {
+    delete data.profile_code;
+  }
   return {
-    ability_def_id: abilityDefId,
+    ...payload,
     profile_id: profileId || null,
-    grant_mode: "available",
-    is_enabled: Boolean(link?.enabledByDefault ?? true),
-    sort_order: index,
-    data: profileId
-      ? {
-          profile_id: profileId,
-        }
-      : {},
+    profile_code: profileCode || null,
+    data,
   };
 }
 
@@ -1907,13 +1964,9 @@ function buildWeaponPayload(draft, auto, references) {
       ? Array.from(new Set((Array.isArray(profile.magazineDefIds) ? profile.magazineDefIds : []).map((entry) => String(entry ?? "").trim()).filter(Boolean)))
       : [];
     const caliberId = attackType === "ranged" ? String(profile.caliberId ?? "").trim() : null;
-    const profileCodeBase = slugifyName(profile.name) || `${attackType}_profile_${index + 1}`;
-    const priorProfileCodes = profiles
-      .slice(0, index)
-      .map((entry, earlierIndex) => slugifyName(entry.name) || `${String(entry.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged"}_profile_${earlierIndex + 1}`);
     return {
       id: profile.id || undefined,
-      code: uniqueGeneratedCode(profileCodeBase, priorProfileCodes),
+      code: resolveWeaponProfileDraftCode(profile, index, profiles),
       name: String(profile.name ?? "").trim(),
       description: "",
       attack_type: attackType,
@@ -1951,11 +2004,11 @@ function buildWeaponPayload(draft, auto, references) {
     base_accuracy_bonus: coerceInteger(defaultProfile?.accuracyModifier, 0),
     base_melee_damage: coerceInteger(defaultProfile?.baseMeleeDamage, 0),
     description: String(draft.description ?? ""),
-    sort_order: auto.sortOrder,
-    tags: auto.tags,
-    profiles: payloadProfiles,
-    feature_links: [],
-    ability_links: (Array.isArray(draft.abilityLinks) ? draft.abilityLinks : [])
+      sort_order: auto.sortOrder,
+      tags: auto.tags,
+      profiles: payloadProfiles,
+      feature_links: [],
+      ability_links: (Array.isArray(draft.abilityLinks) ? draft.abilityLinks : [])
       .map((entry, index) => buildWeaponAbilityLinkPayload(entry, index))
       .filter(Boolean),
   };
@@ -2968,17 +3021,18 @@ function buildOptionalNumberField({
   index,
   value,
   mode,
+  inputAttr = "data-creator-link-input",
 }) {
   const selectedMode = String(mode ?? "").trim() || "none";
   return `
     <div class="creator-small-stack">
       <span>${escapeHtml(label)}</span>
       <div class="creator-mini-grid">
-        <select data-creator-link-input="${field}Mode" data-link-index="${index}">
+        <select ${inputAttr}="${field}Mode" data-link-index="${index}">
           <option value="none"${selectedMode === "none" ? " selected" : ""}>None</option>
           <option value="set"${selectedMode === "set" ? " selected" : ""}>Set</option>
         </select>
-        <input data-creator-link-input="${field}" data-link-index="${index}" type="number" min="0" value="${escapeHtml(value)}"${selectedMode === "set" ? "" : " disabled"}>
+        <input ${inputAttr}="${field}" data-link-index="${index}" type="number" min="0" value="${escapeHtml(value)}"${selectedMode === "set" ? "" : " disabled"}>
       </div>
     </div>
   `;
@@ -4221,11 +4275,10 @@ function buildAbilityLinksEditorMarkup(draft, references) {
 }
 
 function buildWeaponAbilityProfileOptions(draft, selectedValue) {
-  const profiles = Array.isArray(draft?.profiles) ? draft.profiles : [];
   const options = ['<option value="">All profiles</option>'];
-  for (const profile of profiles) {
+  for (const profile of getWeaponProfileReferenceOptions(draft)) {
     options.push(
-      `<option value="${escapeHtml(profile.id)}"${selectedValue === profile.id ? " selected" : ""}>${escapeHtml(profile.name || profile.code || "profile")}${profile.attackType ? ` | ${escapeHtml(profile.attackType)}` : ""}</option>`,
+      `<option value="${escapeHtml(profile.value)}"${selectedValue === profile.value ? " selected" : ""}>${escapeHtml(profile.name || profile.profileCode || "profile")}${profile.attackType ? ` | ${escapeHtml(profile.attackType)}` : ""}</option>`,
     );
   }
   return options.join("");
@@ -4240,6 +4293,16 @@ function buildWeaponAbilityLinksEditorMarkup(draft, references) {
 
   return links.map((link, index) => {
     const ability = (Array.isArray(references?.abilities) ? references.abilities : []).find((entry) => entry.id === link.abilityDefId);
+    const passive = link.grantMode === "passive";
+    const reloadMode = String(link.reloadMode ?? "");
+    const selectedProfileValue = resolveWeaponAbilityProfileSelectValue(link);
+    const profileSummary = (() => {
+      if (!selectedProfileValue) {
+        return "All profiles";
+      }
+      const match = getWeaponProfileReferenceOptions(draft).find((entry) => entry.value === selectedProfileValue);
+      return match?.name || match?.profileCode || "Profile";
+    })();
     return `
       <div class="creator-link-card" data-creator-weapon-ability-row="${index}">
         <div class="creator-link-head">
@@ -4260,16 +4323,63 @@ function buildWeaponAbilityLinksEditorMarkup(draft, references) {
           <label class="field-stack">
             <span>Profile Scope</span>
             <select data-creator-weapon-ability-input="profileId" data-link-index="${index}">
-              ${buildWeaponAbilityProfileOptions(draft, link.profileId)}
+              ${buildWeaponAbilityProfileOptions(draft, selectedProfileValue)}
             </select>
           </label>
-          <label class="toggle-inline creator-toggle-card">
-            <input data-creator-weapon-ability-input="enabledByDefault" data-link-index="${index}" type="checkbox"${link.enabledByDefault ? " checked" : ""}>
-            <span>Enabled by default</span>
+          <label class="field-stack">
+            <span>Grant Mode</span>
+            <select data-creator-weapon-ability-input="grantMode" data-link-index="${index}">
+              <option value="available"${link.grantMode === "available" ? " selected" : ""}>Available</option>
+              <option value="activated"${link.grantMode === "activated" ? " selected" : ""}>Active</option>
+              <option value="passive"${passive ? " selected" : ""}>Passive</option>
+            </select>
           </label>
         </div>
+        ${passive ? `
+          <div class="creator-auto-meta creator-small-meta">
+            <div><strong>Passive:</strong> always active while the weapon or selected profile is available.</div>
+          </div>
+        ` : `
+          <div class="field-grid creator-grid-2">
+            ${buildOptionalNumberField({
+              label: "Duration",
+              field: "durationRounds",
+              index,
+              value: link.durationRounds,
+              mode: link.durationRoundsMode,
+              inputAttr: "data-creator-weapon-ability-input",
+            })}
+            ${buildOptionalNumberField({
+              label: "Charges",
+              field: "charges",
+              index,
+              value: link.charges,
+              mode: link.chargesMode,
+              inputAttr: "data-creator-weapon-ability-input",
+            })}
+            ${buildOptionalNumberField({
+              label: "Cooldown",
+              field: "cooldownRounds",
+              index,
+              value: link.cooldownRounds,
+              mode: link.cooldownRoundsMode,
+              inputAttr: "data-creator-weapon-ability-input",
+            })}
+            <div class="creator-small-stack">
+              <span>Reload</span>
+              <div class="creator-mini-grid creator-mini-grid-wide">
+                <select data-creator-weapon-ability-input="reloadMode" data-link-index="${index}">
+                  ${RELOAD_MODES.map((mode) => `<option value="${escapeHtml(mode.value)}"${reloadMode === mode.value ? " selected" : ""}>${escapeHtml(mode.label)}</option>`).join("")}
+                </select>
+                <select data-creator-weapon-ability-input="reloadItemCode" data-link-index="${index}"${reloadMode ? "" : " disabled"}>
+                  ${buildItemOptions(references, link.reloadItemCode)}
+                </select>
+              </div>
+            </div>
+          </div>
+        `}
         <div class="creator-auto-meta creator-small-meta">
-          <div><strong>Summary:</strong> ${escapeHtml(ability?.name || "Select ability")} | ${escapeHtml(ability?.attack_type || ability?.ability_kind || "ability")} | ${escapeHtml(link.profileId ? ((draft.profiles || []).find((entry) => entry.id === link.profileId)?.name || "profile") : "All profiles")} | ${link.enabledByDefault ? "Enabled" : "Disabled"}</div>
+          <div><strong>Summary:</strong> ${escapeHtml(ability?.name || "Select ability")} | ${escapeHtml(ability?.attack_type || ability?.ability_kind || "ability")} | ${escapeHtml(profileSummary)} | ${escapeHtml(link.grantMode || "available")}</div>
         </div>
       </div>
     `;
@@ -4591,19 +4701,23 @@ function readWeaponDraftFromDom(root, fallbackDraft = createEmptyWeaponDraft()) 
           ? fallbackDraft.abilityLinks[Number.parseInt(index, 10)] ?? createEmptyAbilityLinkDraft()
           : createEmptyAbilityLinkDraft();
         const linkQuery = (field) => form.querySelector(`[data-creator-weapon-ability-input="${field}"][data-link-index="${index}"]`);
+        const profileSelection = String(linkQuery("profileId")?.value ?? "");
+        const profileId = profileSelection.startsWith("id:") ? profileSelection.slice(3) : (!profileSelection.startsWith("code:") ? profileSelection : "");
+        const profileCode = profileSelection.startsWith("code:") ? profileSelection.slice(5) : "";
         return {
           abilityDefId: String(linkQuery("abilityDefId")?.value ?? fallbackLink.abilityDefId ?? ""),
-          grantMode: "available",
-          profileId: String(linkQuery("profileId")?.value ?? fallbackLink.profileId ?? ""),
+          grantMode: String(linkQuery("grantMode")?.value ?? fallbackLink.grantMode ?? "available"),
+          profileId: String(profileId || fallbackLink.profileId || ""),
+          profileCode: String(profileCode || fallbackLink.profileCode || ""),
           enabledByDefault: Boolean(linkQuery("enabledByDefault")?.checked ?? fallbackLink.enabledByDefault ?? true),
-          durationRoundsMode: "none",
-          durationRounds: "",
-          chargesMode: "none",
-          charges: "",
-          cooldownRoundsMode: "none",
-          cooldownRounds: "",
-          reloadMode: "",
-          reloadItemCode: "",
+          durationRoundsMode: String(linkQuery("durationRoundsMode")?.value ?? fallbackLink.durationRoundsMode ?? "none"),
+          durationRounds: String(linkQuery("durationRounds")?.value ?? fallbackLink.durationRounds ?? ""),
+          chargesMode: String(linkQuery("chargesMode")?.value ?? fallbackLink.chargesMode ?? "none"),
+          charges: String(linkQuery("charges")?.value ?? fallbackLink.charges ?? ""),
+          cooldownRoundsMode: String(linkQuery("cooldownRoundsMode")?.value ?? fallbackLink.cooldownRoundsMode ?? "none"),
+          cooldownRounds: String(linkQuery("cooldownRounds")?.value ?? fallbackLink.cooldownRounds ?? ""),
+          reloadMode: String(linkQuery("reloadMode")?.value ?? fallbackLink.reloadMode ?? ""),
+          reloadItemCode: String(linkQuery("reloadItemCode")?.value ?? fallbackLink.reloadItemCode ?? ""),
         };
       })
     : cloneJson(fallbackDraft.abilityLinks ?? []);
