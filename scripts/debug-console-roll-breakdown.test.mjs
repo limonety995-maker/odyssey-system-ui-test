@@ -173,6 +173,35 @@ test("10. buildRollBreakdown never mutates the trace it was given", () => {
   assert.equal(JSON.stringify(trace), before);
 });
 
+// ── 11: the supported armed-technique (ability) attack path shares the SAME
+// normalized trace contract — buildRollBreakdown/buildAttackResolutionTrace
+// are not weapon-only, they're a single shared normalizer for every
+// perform_attack outcome regardless of whether an armed technique modified it ──
+
+test("11. an armed-technique (ability) attack outcome produces the SAME ATTACK ROLL/DEFENSE ROLL/DAMAGE ROLL/DAMAGE DEFENSE breakdown shape as a plain weapon attack — one shared contract, not a second one", () => {
+  const raw = fullRaw({
+    armed_actions: [
+      { characterActionId: "act-1", name: "Aimed Shot", stackGroup: "default", validated: true, applied: true, costsConsumed: { psi: 5 }, cooldownBefore: 0, cooldownAfter: 2 },
+    ],
+  });
+  const trace = buildAttackResolutionTrace(outcomeOf(raw));
+  const b = buildRollBreakdown(trace);
+  // Same four categories, same Roll/With modifiers/Modifiers shape as the
+  // plain-weapon-attack tests above (1-4) — buildRollBreakdown never branches
+  // on modifiers.armed at all, so an armed technique changing attack.total
+  // (via the SAME manual_attack_bonus channel weapon attacks already use)
+  // flows through identically.
+  assert.ok(b["ATTACK ROLL"] && b["DEFENSE ROLL"] && b["DAMAGE ROLL"] && b["DAMAGE DEFENSE"]);
+  assert.equal(b["ATTACK ROLL"].Roll, 47);
+  assert.equal(b["ATTACK ROLL"]["With modifiers"], 71);
+  // The armed technique itself is carried verbatim in trace.modifiers.armed —
+  // a SEPARATE, additive field — never folded into or replacing the roll
+  // breakdown's own Skill/Weapon/Fire mode/Ammo modifier list.
+  assert.equal(trace.modifiers.armed.length, 1);
+  assert.equal(trace.modifiers.armed[0].name, "Aimed Shot");
+  assert.equal(trace.modifiers.armed[0].applied, true);
+});
+
 setTimeout(() => {
   console.log(`\nDebug Console roll breakdown: ${passed} passed, ${failed} failed`);
   if (failures.length) {

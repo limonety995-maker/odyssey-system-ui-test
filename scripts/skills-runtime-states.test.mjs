@@ -289,16 +289,16 @@ test("17. slot state markers (.ohud-qb-cd/.ohud-qb-active/.ohud-qb-state) use --
     const idx = layoutCss.indexOf(selector);
     assert.ok(idx > -1, `${selector} exists`);
     const rule = layoutCss.slice(idx, layoutCss.indexOf("}", idx));
-    assert.match(rule, /font-size:\s*calc\(10px \* var\(--ohud-slot-marker-ratio, 1\)\)/);
+    assert.match(rule, /font-size:\s*calc\(var\(--ohud-font-10\) \* var\(--ohud-slot-marker-ratio, 1\)\)/);
   }
   assert.match(moduleSrc, /computeCriticalTextRatio\(scale,\s*1\.5\)/, "the slot-marker ratio uses a tighter cap than the default (3x)");
 });
 
-test("17b. the Ability Detail Card's name/body text meet the section-G floors (14px name, 12px body) via a scoped override — the Quickbar Editor's own (unscoped) rule is untouched", () => {
-  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-name \{ font-size: 14px; \}/);
-  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-text,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-pill,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-status \{ font-size: 12px; \}/);
+test("17b. the Ability Detail Card's name/body text meet the section-G floors (16px name, 14px body — the original 14px/12px floors +2px typography pass) via a scoped override — the Quickbar Editor's own (unscoped) rule is untouched", () => {
+  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-name \{ font-size: var\(--ohud-font-14\); \}/);
+  assert.match(layoutCss, /\.ohud-qbe-desc--card \.ohud-qbe-desc-text,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-pill,\s*\n\.ohud-qbe-desc--card \.ohud-qbe-desc-status \{ font-size: var\(--ohud-font-12\); \}/);
   // The base (editor) rule is unchanged — still its original, smaller size.
-  assert.match(layoutCss, /^\.ohud-qbe-desc-name \{ font-size: 13px/m);
+  assert.match(layoutCss, /^\.ohud-qbe-desc-name \{ font-size: var\(--ohud-font-13\)/m);
 });
 
 test("the detail card is its own companion popover (bug fix) — it never reads the module-canvas typography ratio variables, since it isn't wrapped in that transform at all; see ability-detail-card-placement.test.mjs for the full architecture coverage", () => {

@@ -359,6 +359,19 @@ test("Fix #4: rotation animation is linear and completes one full turn in 3-4 se
   assert.ok(RING_ROTATION_PERIOD_MS >= 3000 && RING_ROTATION_PERIOD_MS <= 4000);
 });
 
+test("Fix #4: rotation origin stays centered — the ring is a CIRCLE shape whose .position() IS its own center (OBR circles have no separate top-left anchor), never an offset/top-left transform-origin", () => {
+  const idx = rendererSrc.indexOf("function buildTargetRingItem");
+  const block = rendererSrc.slice(idx, rendererSrc.indexOf("async function getTokenBounds"));
+  assert.match(block, /\.shapeType\("CIRCLE"\)/, "a CIRCLE shape's position is its geometric center by construction");
+  assert.match(block, /\.position\(geo\.position\)/, "position is the SAME center computeOverlayGeometry derived from the token's own center, not a top-left offset");
+  assert.match(block, /\.rotation\(rotationDeg\)/, "rotation is set on this same centered item — never a separately-offset child");
+});
+
+test("Fix #4: computeOverlayGeometry's position IS the token's own center (never top-left), which is what both the anchor and the ring inherit", () => {
+  const geo = computeOverlayGeometry({ width: 40, height: 60, center: { x: 100, y: 200 } }, 0.10);
+  assert.deepEqual(geo.position, { x: 100, y: 200 }, "geometry position is exactly the token's center, never a top-left corner derivation");
+});
+
 test("the outline/ring/cursor wiring is called from the SAME two existing hook points (onTargetingState/onSelectionState) — no new controller entry point added to combatHudOverlayController.js", () => {
   assert.match(overlayControllerSrc, /targetingVisuals\?\.handleTargetingState\?\./);
   assert.match(overlayControllerSrc, /targetingVisuals\?\.handleSelectionState\?\./);
