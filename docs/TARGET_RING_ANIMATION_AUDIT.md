@@ -3,20 +3,24 @@
 Priority Bugfix Pack: "Body Thresholds, Debug Roll Trace, Target Ring, HUD
 Typography".
 
-**Status note:** the anchor/inner-ring separation this section describes was
+**Status note:** the anchor/inner-ring separation §1-8 below describes was
 already implemented in an earlier session of this same bugfix pack (commit
-`fix(targeting): stabilize local target ring rotation`, already on `main`).
-This audit re-verifies that current, already-shipped architecture against
-this task's exact requirements and closes the one test gap not yet covered
-(rotation-origin-centered — see §Tests). It does not re-do the fix.
+`fix(targeting): stabilize local target ring rotation`, already on `main`)
+and fixed the reported STUTTER. A later report showed a DIFFERENT, more
+fundamental bug: the overlay can be **entirely absent** even though Combat
+Control correctly shows a selected target — see the "Missing-overlay
+lifecycle audit" section below, which is the actual work of this pass.
 
 ## 1. Current target-pick visual flow
 
 `Combat Control → Pick target on map` (`TargetBlock.js`'s pick area) drives
 `hud/targeting/targetSelectionController.js`'s existing OBR-selection-watch
 flow (unchanged by this pack). Once a target token is picked, that
-controller broadcasts the resolved target over the existing `BC_HUD_TARGETING_COMMAND`
-payload. `hud/targeting/visuals/targetingVisualController.js`
+controller broadcasts the resolved target over `BC_HUD_TARGETING` (its own
+outbound state broadcast — distinct from `BC_HUD_TARGETING_COMMAND`, the
+INBOUND channel Combat Control uses to send `pick`/`cancel`/`clear`/
+`selectZone` commands back to this same controller).
+`hud/targeting/visuals/targetingVisualController.js`
 (`setupTargetingVisuals()`) is a pure CONSUMER of that broadcast (via
 `handleTargetingState`) — it starts no new target-selection mechanism and
 sends no commands back into that flow. It only asks
@@ -87,7 +91,9 @@ Two local items, in a parent/child chain:
 Because the ring's parent (the anchor) never itself changes rotation out
 from under it, the animation tick's writes and the token-geometry-driven
 transform recompute are now on genuinely separate objects — no more race.
-`showTargetRing()` creates both together (`addItems([anchor, ring])`);
+`showTargetRing()` creates the anchor and the ring in two SEQUENTIAL
+`addItems()` calls (see "Missing-overlay lifecycle audit" below for why this
+was changed from one batched call);
 `hideTargetRing()`/`hideAllTargetingVisuals()` always delete both together —
 no orphaned anchor can be left behind.
 
@@ -121,21 +127,148 @@ uses for "visible to me only" map overlays, so no new Owlbear SDK capability
 or fallback was needed; a fully smooth, local-only rotating ring was
 achievable with the supported `attachedTo`/`disableAttachmentBehavior` API.
 
+## Missing-overlay lifecycle audit
+
+Reported bug: Combat Control correctly shows a selected target ("Target
+block shows selected target name", "target body zone UI is active") but the
+map overlay ring around that target token is absent. This is a different bug
+from the stutter §1-8 already fixed — the state/UI layer works; the
+map-rendering layer does not.
+
+### 2. Where the target state is stored after target selection
+
+Entirely in `targetSelectionController.js`'s own in-memory `state.target`
+(background context, survives HUD popover open/close, reset only by
+`clearTarget()`/`applySource()` on a genuine character change/scene
+teardown). It is never written to OBR scene/token metadata and never
+persisted — Combat Control's rendering of the name/zone UI reads the
+`BC_HUD_TARGETING` broadcast built from this same state
+(`buildTargetingBroadcast()`), which is why the NAME can be correct even if
+the separate map overlay fails independently.
+
+### 4/14. Why selected-target state can exist while the overlay is absent — root cause
+
+`targetingVisualController.js`'s `reconcileRing()` is a pure CONSUMER of the
+SAME broadcast (via the `onTargetingState` hook `combatHudOverlayController.js`
+wires directly to `targetSelectionController`'s own `broadcast()` call — a
+synchronous, same-process function call, not a second network/broadcast
+round trip, so the two layers do not "miss" each other's updates). The state
+layer and the render layer are correctly wired together on paper. But
+`reconcileRing()`'s actual creation call, `showTargetRing(tokenId)`, was
+wrapped in a `try { ... } catch (_e) { ringVisible = false; ringTokenId =
+null; }` with **no logging at all** — any failure inside `showTargetRing()`
+silently resulted in "target selected, ring absent," indistinguishable from
+"everything working" with no diagnostic trail.
+
+The most concrete, previously-untested risk inside `showTargetRing()` itself:
+it created the invisible anchor AND the visible ring — where the ring's
+`.attachedTo(TARGET_RING_ANCHOR_ITEM_ID)` references the anchor's id — in a
+**single batched** `OBR.scene.local.addItems([anchor, ring])` call. This
+"attach to a sibling being created in the very same call" pattern has no
+precedent anywhere else in this codebase (`movement/combatMovementPreview.js`,
+the project's other local-only map overlay, never attaches one freshly-
+created local item to another — it positions everything by absolute
+coordinates instead), so it was never validated against the Owlbear SDK's
+actual same-batch attachment-resolution behavior. If the SDK resolves
+`attachedTo` against the scene state as it was BEFORE the batch is applied
+(rather than resolving sibling references within the same batch), the ring
+item would either be silently rejected or created unattached/at a degenerate
+position — exactly matching "selected target exists, ring absent, no error."
+
+**Fix:** `showTargetRing()` now issues two SEQUENTIAL `addItems()` calls —
+the anchor first, awaited to completion, then the ring referencing that
+now-committed anchor id. This removes the same-batch ordering risk entirely
+regardless of which way the SDK actually resolves it. `reconcileRing()` also
+now logs a `targeting/target-ring-shown` (success) or
+`targeting/target-ring-failed` (failure, with the real thrown error message)
+Debug Console event on every creation attempt, so if the overlay is ever
+missing again for some other reason, there is now a diagnosable trace
+instead of silence.
+
+### 5. Whether the ring is tied only to pick mode
+
+No. `shouldShowTargetRing({ targetTokenId })` in `targetingVisualPolicy.js`
+depends ONLY on a target token id existing — it takes no `mode`/`picking`
+parameter at all. The ring is designed to persist through picking → idle
+exactly as required ("restore an already selected target… the ring must
+remain visible while… the target remains selected").
+
+### 6. Whether the ring is removed immediately after successful pick
+
+No code path does this. `resolveCandidate()` (the pick-resolution function)
+calls `commit(applyResolvedTarget(state, result.candidate))` — which sets a
+real target — then `await restoreSourceSelection()`, which only calls
+`OBR.player.select([sourceTokenId], true)` (restoring the NATIVE Owlbear
+selection outline to the source token). It never touches `state.target` and
+never sends a `clear`/`cancel` command. Ruled out as a cause.
+
+### 7. Whether scene/token listeners are subscribed after target selection
+
+Not needed, and none are added. Position/size/rotation tracking is delegated
+entirely to OBR's own `attachedTo()` sync on the anchor — no per-target JS
+listener is ever registered (or needs to be) for token geometry.
+
+### 8/9. Whether token lookup uses the correct id / source-target confusion
+
+Traced end to end: the picked token id comes from `OBR.player.selection[0]`
+during picking (a real OBR scene-item id, captured in
+`targetSelectionController.js`'s `subscribePlayerChanges` callback) →
+`adapter.resolve(tokenId)` returns `{ tokenId: String(tokenId), ... }`
+verbatim → `applyResolvedTarget()` stores it as `state.target.tokenId` →
+`buildTargetingBroadcast()` copies it to `payload.target.tokenId` →
+`handleTargetingState()` reads it into `targetTokenId` → `showTargetRing(targetTokenId)`.
+No aliasing, relabeling, or accidental swap with `sourceTokenId` at any
+point in this chain.
+
+### 10. Whether native Owlbear selection outline was mistaken for the overlay
+
+Worth flagging as a visual-verification caution, not a code bug: after a
+successful pick, `restoreSourceSelection()` deliberately moves OBR's OWN
+native (purple) selection outline back onto the SOURCE token. A viewer
+watching only the native selection outline would correctly see it move away
+from the target — the CUSTOM dashed ring around the target is a completely
+separate, independently-rendered item and must be checked for on its own,
+not inferred from where the native outline currently is.
+
+### 11-13. Recreation on updates / geometry vs. rotation transforms
+
+Unchanged from §3-5 above — still correct: `reconcileRing()` only recreates
+on an actual target-token change; the anchor alone tracks geometry; only the
+ring's own `.rotation` is animated.
+
+### 16. Final fixed architecture (this pass)
+
+Unchanged topology (anchor + ring, §7 above), with the creation sequence
+hardened to two sequential `addItems()` calls and failure now logged instead
+of silently swallowed — see §4/14.
+
+### 17. Why local-only, still
+
+Unchanged — see §8 above; this pass adds no new OBR capability, only
+reorders two already-local-only calls and adds Debug Console logging (which
+itself is a purely local, in-memory diagnostic store — see
+`hud/debug/debugLogStore.js`, never persisted, never shared).
+
 ## Tests
 
 The prior session's `scripts/hud-targeting-visuals.test.mjs` "Fix #4" block
 already covered: anchor `attachedTo(tokenId)` with full sync (tracks
 position/size/rotation), the ring attached to the anchor (never the token)
-with independent rotation, `showTargetRing`/`hideTargetRing` creating and
-deleting both items together, `setTargetRingRotation` touching only the
-ring, `reconcileRing` only firing on an actual target-token change (never on
+with independent rotation, `setTargetRingRotation` touching only the ring,
+`reconcileRing` only firing on an actual target-token change (never on
 routine geometry updates — i.e. the ring persists/never remounts during
-normal token movement), scene-teardown resetting `ringTokenId`, and the
-existing local-only/no-shared-state source-contract tests.
+normal token movement), scene-teardown resetting `ringTokenId`, rotation
+origin centered, and the existing local-only/no-shared-state source-contract
+tests.
 
-This pass adds the one test the requirements newly call out that wasn't yet
-explicit: rotation origin stays centered — a dedicated test now pins that
-the ring is built as a `CIRCLE` shape positioned at `computeOverlayGeometry`'s
-own center-derived `position` (never a top-left offset), and that
-`computeOverlayGeometry` itself always returns the token's true center, not
-a top-left corner.
+This pass adds: `showTargetRing()` issues two SEPARATE, sequential
+`addItems()` calls (anchor committed before the ring references it) rather
+than one batched call; `reconcileRing()` logs a debug event on both success
+and failure of ring creation; and the full lifecycle matrix the new
+requirements call out — overlay created on pick, restored after HUD/
+Tactical-Move/attack-result refresh with a still-valid target, attached to
+the TARGET (never the source) token, working for NPC targets and targets not
+currently Owlbear-selected, and removed on every required teardown path
+(clear/Escape/source-change/scene-change/token-deletion/HUD-teardown) —
+all as pure/source-contract tests (no live OBR session available to this
+harness; see the file header for why).
