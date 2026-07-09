@@ -23,6 +23,7 @@ export const LOG_TYPE = Object.freeze({
   fireMode: "fire-mode",
   abilityExecute: "ability-execute",
   directedAbility: "directed-ability",
+  toggleAbility: "toggle-ability",
 });
 
 export const LOG_OUTCOME = Object.freeze({
@@ -166,6 +167,47 @@ export function buildDirectedAbilityLogEntry({ sourceCharacterId, targetCharacte
     details,
     sourceCharacterId: sourceCharacterId ?? null,
     targetCharacterId: targetCharacterId ?? null,
+  };
+}
+
+/**
+ * Build a Phase 4.1B.3 toggle-ability log entry from the
+ * toggleAbilityPayload-shaped outcome (`{ ok, normalized, error, code }`) —
+ * same honesty rules as buildAbilityExecutionLogEntry. Picks "activated"/
+ * "deactivated" from the server's own `active` flag when present; falls back
+ * to a neutral "toggled" line only if the server response is missing it
+ * (never guessed from any other field).
+ *
+ * @param {{
+ *   sourceCharacterId:(string|null), abilityName:(string|null),
+ *   outcome:{ok:boolean, normalized:object|null, error:(string|null)},
+ * }} input
+ */
+export function buildToggleAbilityLogEntry({ sourceCharacterId, abilityName, outcome }) {
+  const ok = !!outcome?.ok;
+  const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  let details;
+  if (ok) {
+    const n = outcome?.normalized ?? {};
+    const verb = n.active === true ? "activated" : n.active === false ? "deactivated" : "toggled";
+    const costParts = [];
+    if (Number(n.actionCost) > 0) costParts.push("MAIN spent");
+    if (Number(n.resourceSpent) > 0) costParts.push(`Resource spent: ${n.resourceSpent}`);
+    details = [
+      `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${name}.`,
+      costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
+    ];
+  } else {
+    details = [String(outcome?.error || `${name} denied.`)];
+  }
+  return {
+    timestamp: Date.now(),
+    type: LOG_TYPE.toggleAbility,
+    outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
+    title: ok ? "Ability toggled" : "Ability failed",
+    details,
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null,
   };
 }
 

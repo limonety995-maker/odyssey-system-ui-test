@@ -27,7 +27,7 @@
 // zone" note — its Target/Status lines otherwise need no override either
 // (same reasoning as instant/self).
 
-import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
+import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
 
 const TYPE_LABEL = {
   attack_technique: "Attack technique",
@@ -98,6 +98,7 @@ export function abilityTooltipModel(action) {
   const directAttack = isDirectAttackAbility(a);
   const instantSelf = !directAttack && isInstantSelfAbility(a);
   const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
+  const toggleAbility = !directAttack && !instantSelf && !directedTarget && isToggleAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
@@ -107,6 +108,7 @@ export function abilityTooltipModel(action) {
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
+  else if (toggleAbility) lines.push({ label: "Execution", value: state.active === true ? "Toggle (click to deactivate)" : "Toggle (click to activate)" });
 
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);

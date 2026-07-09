@@ -582,6 +582,19 @@ export function mountCombatHudModule(options) {
           });
         }
         break;
+      case "execute-toggle-ability":
+        // Phase 4.1B.3: a toggle/stance ability — no target/body-zone
+        // concept (isToggleAbility). The server alone decides whether this
+        // click activates or deactivates. Same is-disabled guard — an
+        // already-active toggle stays enabled (deriveToggleAvailability)
+        // even on cooldown/resource-insufficient, since deactivating is free.
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud", feature: "quickbar", type: "execute-toggle-ability",
+            characterActionId: t.getAttribute("data-action-id"),
+          });
+        }
+        break;
       case "end-turn":
         // Phase 3E.0: disable immediately (until the authoritative session
         // re-render) so a double-click can never fire a second request; the
@@ -643,8 +656,10 @@ export function mountCombatHudModule(options) {
     // needs the honest hover/focus detail card.
     // Phase 4.1B.2: same reasoning for a directed-target-eligible action —
     // "execute-directed-ability".
+    // Phase 4.1B.3: same reasoning for a toggle-eligible action —
+    // "execute-toggle-ability".
     const t = target && target.closest
-      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"]')
+      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"], [data-action="execute-toggle-ability"]')
       : null;
     return t && el.contains(t) ? t : null;
   }

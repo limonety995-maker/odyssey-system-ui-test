@@ -34,7 +34,9 @@ import { evaluateInstantAbilityExecution, isInstantAbilityResultStale } from "..
 import { resolveInstantAbilityExecution } from "../combat/instantAbilityPayload.js";
 import { evaluateDirectedAbilityExecution, isDirectedAbilityResultStale } from "../combat/directedAbilityPolicy.js";
 import { resolveDirectedAbilityExecution } from "../combat/directedAbilityPayload.js";
-import { isDirectAttackAbility, isInstantSelfAbility, isDirectedTargetAbility } from "../abilities/abilityAvailabilityPolicy.js";
+import { evaluateToggleAbilityExecution, isToggleAbilityResultStale } from "../combat/toggleAbilityPolicy.js";
+import { resolveToggleAbilityExecution } from "../combat/toggleAbilityPayload.js";
+import { isDirectAttackAbility, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility } from "../abilities/abilityAvailabilityPolicy.js";
 import { buildAttackResolutionTrace, buildRollResolutionDetails } from "../combat/attackResolutionTrace.js";
 import { createSelectedWeaponMemory, resolveStoredWeaponId } from "./selectedWeaponMemory.js";
 import { createArmedTechniqueMemory } from "./armedTechniqueMemory.js";
@@ -43,6 +45,7 @@ import {
   buildAttackLogEntry,
   buildAbilityExecutionLogEntry,
   buildDirectedAbilityLogEntry,
+  buildToggleAbilityLogEntry,
   buildReloadLogEntry,
   buildFireModeLogEntry,
 } from "../log/combatResultLogPolicy.js";
@@ -153,6 +156,11 @@ export function setupSceneSelection(hooks = {}) {
     // target, never a body zone.
     pendingDirectedAbilityActionId: null,
     directedAbilityExecutionResult: null,
+    // Phase 4.1B.3: same per-ability in-flight tracking, for the SEPARATE
+    // toggle/stance ability execution command — no target, no body zone,
+    // server decides ON vs OFF itself.
+    pendingToggleAbilityActionId: null,
+    toggleAbilityExecutionResult: null,
   };
   // ephemeral.debugEnabled gates the reload/fireMode/basicAttack debug sub-objects
   // in selectionState.js (an unrelated diagnostics feature) — kept independent of
@@ -1131,6 +1139,163 @@ export function setupSceneSelection(hooks = {}) {
           ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
           await refetchCurrent();
           logDebugEvent("refresh", "source-refresh-result", { reason: "directed-ability-failure" }, true);
+        }
+        return;
+      }
+
+      // Phase 4.1B.3: Toggle / Stance / Maintained Ability Execution. A
+      // SEPARATE command from execute-instant-ability — no target/body-zone
+      // concept either, but a genuinely different execution class (its own
+      // server RPC, its own ON/OFF state) that may need its own preconditions
+      // later without disturbing instant/self's. Uses the SAME
+      // combat_execute_action(kind:"ability") RPC as every other ability
+      // class — the server alone decides whether this call activates or
+      // deactivates (see docs/PHASE_4_1B_3_TOGGLE_STANCE_MAINTAINED_AUDIT.md).
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-toggle-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "toggle-ability-requested", { characterActionId: actionId });
+
+        // Double-submit guard: per-ability, not a whole-quickbar lock.
+        if (ephemeral.pendingToggleAbilityActionId) return;
+
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isToggleAbility(action)) {
+          // Defensive only — QuickbarView.js never dispatches this command
+          // for anything else. Same rich, safe diagnostic shape every other
+          // ability class's INVALID_ABILITY hotfix already established —
+          // never the raw runtime bundle, never credentials/auth/GM-only data.
+          logDebugEvent("abilities", "toggle-ability-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null,
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+
+        const sessionAtRequest = currentMappedSession();
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true,
+        };
+        const evalResult = evaluateToggleAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.toggleAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "toggle-ability-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        // Client-side session pre-gate (UX mirror only — the server
+        // re-checks turn/MAIN inside combat_execute_action regardless).
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.toggleAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "toggle-ability-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest),
+        };
+
+        const activeBefore = action.state?.active === true;
+        ephemeral.pendingToggleAbilityActionId = actionId;
+        logDebugEvent("abilities", "toggle-ability-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          activeBefore,
+        });
+        if (lastState) publishState(lastState); // slot shows pending immediately
+
+        let outcome;
+        try {
+          outcome = await resolveToggleAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+
+        ephemeral.pendingToggleAbilityActionId = null;
+        const currentCtx = { sourceCharacterId: ephemeral.characterId, abilityId: actionId };
+        const stale = isToggleAbilityResultStale(requestCtx, currentCtx);
+
+        ephemeral.toggleAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildToggleAbilityLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          abilityName: action.name,
+          outcome,
+        }));
+        logDebugEvent("abilities", "toggle-ability-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          activeBefore,
+          activeAfter: outcome.normalized?.active ?? null,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale,
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "toggle-ability-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion,
+          }, true);
+          logDebugEvent("abilities", "toggle-ability-active-state", {
+            characterActionId: actionId,
+            activeBefore,
+            activeAfter: outcome.normalized.active,
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "toggle-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: outcome.normalized?.active === false ? "Ability deactivated." : "Ability activated." };
+          // No target/body-zone concept exists for this ability class —
+          // nothing to preserve/clear; the existing target/ring state is
+          // simply never referenced by this handler.
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "toggle-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "toggle-ability-failure" }, true);
         }
         return;
       }

@@ -68,16 +68,17 @@ export function renderSkillBlock(state, opts = {}) {
     // — ephemeral UI state folded in by selectionState.js, never server data
     // by itself (the server re-validates everything at Attack time).
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    // Phase 4.1B.0/4.1B.1/4.1B.2: which direct-ability-attack, instant/self,
-    // or directed-target-ability request (if any) is currently in flight —
-    // ephemeral UI-only, folded in by selectionState.js exactly like
-    // armedActionId above. Each command handler owns its own field; a given
-    // action is only ever eligible for ONE of the three execution classes,
-    // so merging them into a single prop for QuickbarView is safe — at most
-    // one is ever non-null.
+    // Phase 4.1B.0/4.1B.1/4.1B.2/4.1B.3: which direct-ability-attack,
+    // instant/self, directed-target-ability, or toggle-ability request (if
+    // any) is currently in flight — ephemeral UI-only, folded in by
+    // selectionState.js exactly like armedActionId above. Each command
+    // handler owns its own field; a given action is only ever eligible for
+    // ONE of the four execution classes, so merging them into a single prop
+    // for QuickbarView is safe — at most one is ever non-null.
     const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId
       ?? state?.snapshot?.pendingInstantAbilityActionId
       ?? state?.snapshot?.pendingDirectedAbilityActionId
+      ?? state?.snapshot?.pendingToggleAbilityActionId
       ?? null;
     const openActionId = opts?.openSkillsMenu?.kind === "action"
       ? String(opts.openSkillsMenu.id ?? "").trim() || null

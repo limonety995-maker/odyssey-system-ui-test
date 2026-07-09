@@ -18,7 +18,7 @@ import { esc, cls, tipAttr } from "../components/hudDom.js";
 import { skillIconSvg, ICON_LOCK } from "../components/hudIcons.js";
 import { rowOfSlot, FIRST_ROW_SIZE } from "./quickbarLayoutPolicy.js";
 import { abilityTooltipLines } from "./AbilityTooltip.js";
-import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility } from "./abilityAvailabilityPolicy.js";
+import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility, deriveToggleAvailability } from "./abilityAvailabilityPolicy.js";
 
 // semanticKind → HUD accent class (same accent vocabulary as SkillBlock).
 const SEMANTIC_ACCENT = {
@@ -144,8 +144,13 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   // all of the above (a "directed" action can never also be
   // attack_technique/instant by construction). See isDirectedTargetAbility.
   const directedTarget = !isTechnique && !instantSelf && isDirectedTargetAbility(action);
+  // Phase 4.1B.3: a "toggle" action gets its own mutually-exclusive click
+  // behavior too — mutually exclusive with all of the above by construction
+  // (an ability's server-derived `type` is exactly one value). See
+  // abilityAvailabilityPolicy.js's isToggleAbility.
+  const toggleAbility = !isTechnique && !instantSelf && !directedTarget && isToggleAbility(action);
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
-  const pending = (directAttack || instantSelf || directedTarget) && pendingActionId != null && pendingActionId === action.characterActionId;
+  const pending = (directAttack || instantSelf || directedTarget || toggleAbility) && pendingActionId != null && pendingActionId === action.characterActionId;
   // Phase 4.1A.2: canonical category driving the state marker below — armed
   // takes visual priority (see abilityAvailabilityPolicy.js's doc comment)
   // even when the underlying ability also looks disabled. Direct-attack tiles
@@ -154,7 +159,14 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   // function's doc comment for why). Instant/self and directed-target tiles
   // reuse deriveSlotAvailability UNCHANGED — their available/
   // executionAvailable fields are never tainted the way direct-attack's are.
-  const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
+  // Toggle tiles use their OWN derivation (deriveToggleAvailability) so an
+  // already-active toggle stays clickable (to turn off, always free) even
+  // while on cooldown or resource-insufficient.
+  const availability = directAttack
+    ? deriveDirectAttackAvailability(action)
+    : toggleAbility
+      ? deriveToggleAvailability(action)
+      : deriveSlotAvailability(action, armed);
   // Server-truth for non-direct-attack tiles: available now factors in
   // cooldown/resource sufficiency/effect support (migration 101), so this
   // dimming class is honestly correct for every non-ready state. Direct-
@@ -169,14 +181,18 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   // error surfaces from the click itself).
   const disabled = directAttack
     ? (availability !== SLOT_AVAILABILITY.ready || pending)
-    : (action.state?.available === false || ((instantSelf || directedTarget) && pending));
+    : toggleAbility
+      ? (availability !== SLOT_AVAILABILITY.ready || pending)
+      : (action.state?.available === false || ((instantSelf || directedTarget) && pending));
   const dataAction = directAttack
     ? "execute-direct-ability"
     : instantSelf
       ? "execute-instant-ability"
       : directedTarget
         ? "execute-directed-ability"
-        : (isTechnique ? "toggle-armed-technique" : "show-ability-detail");
+        : toggleAbility
+          ? "execute-toggle-ability"
+          : (isTechnique ? "toggle-armed-technique" : "show-ability-detail");
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
     directAttack
@@ -185,7 +201,9 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
         ? (pending ? "Executing…" : "Instant ability — no target required")
         : directedTarget
           ? (pending ? "Executing…" : "Directed ability — uses selected target, no body zone required")
-          : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
+          : toggleAbility
+            ? (pending ? "Executing…" : (active ? "Toggle ability — click to deactivate" : "Toggle ability — click to activate"))
+            : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
   ]);
 
   // The state marker and the (orthogonal) active/ON marker share one

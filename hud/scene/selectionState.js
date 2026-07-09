@@ -441,6 +441,12 @@ export function buildBroadcastPayload(state, ephemeral = {}) {
     if (pendingDirectedAbilityActionId) {
       hudSnapshot = { ...hudSnapshot, pendingDirectedAbilityActionId };
     }
+    // Phase 4.1B.3: same treatment for the SEPARATE toggle-ability in-flight
+    // request.
+    const pendingToggleAbilityActionId = ephemeral.pendingToggleAbilityActionId ?? null;
+    if (pendingToggleAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingToggleAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle
     ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {

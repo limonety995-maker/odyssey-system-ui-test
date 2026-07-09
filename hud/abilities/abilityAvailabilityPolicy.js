@@ -149,3 +149,42 @@ export function isDirectedTargetAbility(action) {
   const a = action && typeof action === "object" ? action : {};
   return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
 }
+
+// Phase 4.1B.3 — Toggle / Stance / Maintained Abilities.
+//
+// A quick action is toggle-eligible (immediate, server-authoritative
+// activation/deactivation — see hud/scene/sceneSelectionController.js's
+// "execute-toggle-ability" handler) when the server's own type derivation
+// (109_toggle_ability_execution.sql) says `type === "toggle"` — produced only
+// for a non-attack ability whose definition has `activation_type = 'toggle'`.
+// No name-based check, no client-side inference — the server field alone is
+// authoritative, exactly like every other class in this file.
+export function isToggleAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "toggle";
+}
+
+/**
+ * Availability for a toggle-eligible action (isToggleAbility() already true
+ * for it) — deliberately NOT deriveSlotAvailability unchanged: an already-
+ * ACTIVE toggle must stay clickable (to turn off, which is always free) even
+ * while its own activation cooldown is still counting down or its resource
+ * pool has since dropped below the activation cost — neither fact should ever
+ * block a free deactivation. `state.active` overriding everything else is the
+ * one deliberate difference from deriveSlotAvailability; an inactive toggle
+ * falls back to the exact same cooldown → insufficient-resource → unavailable
+ * → ready priority every other class already uses.
+ * @param {object} action mapped quick action, already confirmed isToggleAbility()
+ * @returns {string} one of SLOT_AVAILABILITY's values (never "armed"/"unsupported")
+ */
+export function deriveToggleAvailability(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+
+  if (state.active === true) return SLOT_AVAILABILITY.ready;
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  if (state.available === false) return SLOT_AVAILABILITY.unavailable;
+  return SLOT_AVAILABILITY.ready;
+}
