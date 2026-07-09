@@ -201,6 +201,9 @@ export function renderSelectionModule(moduleId, payload, opts = {}) {
       const fn = LIVE_RENDERERS[moduleId];
       if (fn) {
         const syntheticState = buildSyntheticState(payload);
+        if (moduleId === "skills") {
+          return fn(syntheticState, opts?.skillsUiState ?? {});
+        }
         return fn(syntheticState);
       }
     }

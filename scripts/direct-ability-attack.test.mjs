@@ -36,7 +36,7 @@ const read = (...seg) => fs.readFileSync(path.join(repoRoot, ...seg), "utf8").re
 const controllerSrc = read("hud", "scene", "sceneSelectionController.js");
 const quickbarViewSrc = read("hud", "abilities", "QuickbarView.js");
 const moduleSrc = read("hud", "components", "CombatHudModule.js");
-const migrationSrc = read("supabase", "102_direct_ability_attack_session_gate.sql");
+const migrationSrc = read("supabase", "108_direct_ability_attack_session_gate.sql");
 
 let passed = 0;
 let failed = 0;

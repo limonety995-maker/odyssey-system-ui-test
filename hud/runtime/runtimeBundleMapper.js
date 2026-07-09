@@ -452,20 +452,57 @@ export function mapWeapon(armory, selectedWeaponId = null) {
   if (!w) return null;
 
   const isMelee = !str(w.model?.caliber) && !str(w.caliber);
+  const feedMode = String(
+    w.feed_mode ?? w.active_profile?.feed_mode ?? "detachable_magazine",
+  ).trim().toLowerCase() === "internal_magazine"
+    ? "internal_magazine"
+    : "detachable_magazine";
+  const isInternal = !isMelee && feedMode === "internal_magazine";
   const rawMag = w.loaded_magazine ?? w.active_profile?.loaded_magazine ?? null;
-  const loadedMag = readMagazine(rawMag);
+  const loadedMag = isInternal ? null : readMagazine(rawMag);
+  const internalAmmo = isInternal
+    ? {
+        current: num(
+          w.internal_current_rounds
+          ?? w.active_profile?.internal_current_rounds
+          ?? w.ammo?.current_rounds
+          ?? w.ammo?.current,
+          0,
+        ),
+        max: num(
+          w.internal_max_rounds
+          ?? w.active_profile?.internal_max_rounds
+          ?? w.internal_capacity
+          ?? w.active_profile?.internal_capacity
+          ?? w.ammo?.max_rounds
+          ?? w.ammo?.max,
+          0,
+        ),
+        ammoTypeCode: str(
+          w.internal_ammo_type?.code
+          ?? w.active_profile?.internal_ammo_type?.code
+          ?? w.ammo?.ammo_type
+          ?? w.ammo?.ammo_type_code,
+        ),
+        ammoTypeName: str(
+          w.internal_ammo_type?.name
+          ?? w.active_profile?.internal_ammo_type?.name
+          ?? w.ammo?.ammo_type_name,
+        ),
+      }
+    : null;
 
   const fireModes = readFireModes(w);
   const currentFireMode = readCurrentFireMode(w) ?? fireModes[0] ?? null;
-  const reserve = readReserveMagazines(armory, w, loadedMag);
+  const reserve = isInternal ? [] : readReserveMagazines(armory, w, loadedMag);
 
   // A weapon "uses a magazine" / "requires ammo" when it is not melee. Explicit
   // backend flags win if present.
-  const usesMagazine   = w.uses_magazine   != null ? bool(w.uses_magazine)   : !isMelee;
+  const usesMagazine   = w.uses_magazine   != null ? bool(w.uses_magazine)   : (!isMelee && !isInternal);
   const requiresAmmo   = w.requires_ammo   != null ? bool(w.requires_ammo)   : !isMelee;
   const usesConsumable = bool(w.uses_consumable, false);
   const canReload =
-    w.can_reload != null ? bool(w.can_reload) : (!isMelee && reserve.length > 0);
+    w.can_reload != null ? bool(w.can_reload) : (!isMelee && !isInternal && reserve.length > 0);
 
   return {
     id:             str(w.id) ?? "wpn-unknown",
@@ -475,14 +512,17 @@ export function mapWeapon(armory, selectedWeaponId = null) {
     fireModes,
     currentFireMode,
     fireMode: readFireMode(w),
+    feedMode,
     usesMagazine,
     usesConsumable,
     requiresAmmo,
     loadedMagazine: loadedMag,
     reserveMagazines: reserve,
     ammo: {
-      current: loadedMag ? loadedMag.current : num(w.ammo_current, 0),
-      max:     loadedMag ? loadedMag.max     : num(w.ammo_max,     0),
+      current: loadedMag ? loadedMag.current : (internalAmmo ? internalAmmo.current : num(w.ammo_current, 0)),
+      max:     loadedMag ? loadedMag.max     : (internalAmmo ? internalAmmo.max : num(w.ammo_max, 0)),
+      ammoTypeCode: internalAmmo?.ammoTypeCode ?? null,
+      ammoTypeName: internalAmmo?.ammoTypeName ?? null,
     },
     reloadCandidateId: reserve[0]?.id ?? null,
     canReload,
@@ -546,12 +586,15 @@ function mapWeaponOption(armory, weapon, selectedWeaponId) {
   const vm = mapWeapon({ ...armory, weapons: [weapon] }, str(weapon?.id));
   const cls = str(weapon?.model?.weapon_class_name) ?? str(weapon?.model?.weapon_class);
   const mag = vm?.loadedMagazine ?? null;
+  const ammoLabel = mag
+    ? `${mag.current}/${mag.max}`
+    : (vm?.requiresAmmo ? `${num(vm?.ammo?.current, 0)}/${num(vm?.ammo?.max, 0)}` : "-");
   return {
     id: str(weapon?.id) ?? "wpn-unknown",
     name: str(weapon?.name) ?? str(weapon?.weapon_name) ?? "Unknown Weapon",
     type: cls,
     selected: vm?.id === selectedWeaponId,
-    ammoLabel: mag ? `${mag.current}/${mag.max}` : (vm?.requiresAmmo ? "no magazine" : "—"),
+    ammoLabel,
   };
 }
 

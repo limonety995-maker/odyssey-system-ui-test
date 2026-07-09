@@ -1,6 +1,16 @@
--- ===== BEGIN 102_direct_ability_attack_session_gate.sql =====
+-- ===== BEGIN 108_direct_ability_attack_session_gate.sql =====
 --
 -- Phase 4.1B.0 — Direct Ability Attack from Skills Block.
+--
+-- Renumbered from 102 → 108 on 2026-07-09 during the upstream tree-adoption
+-- sync (odyssey-services/Odyssey_System @ 8958a3a): the upstream repo
+-- independently used migration number 102 for an unrelated change
+-- (102_character_ability_reconcile.sql). Confirmed by diffing upstream's
+-- current public.perform_attack against this migration's own body: the ONLY
+-- difference is exactly the fix described below — upstream has NOT applied
+-- this fix under any other migration (102-107 were checked; none redefine
+-- perform_attack). Content is otherwise byte-identical to the original
+-- 102_direct_ability_attack_session_gate.sql.
 --
 -- Root cause found during the audit (docs/PHASE_4_1B_0_DIRECT_ABILITY_ATTACK_AUDIT.md
 -- §14): public.perform_attack(jsonb) already redirects a payload carrying
@@ -646,4 +656,4 @@ $$;
 
 grant execute on function public.perform_attack(jsonb) to anon, authenticated;
 
--- ===== END 102_direct_ability_attack_session_gate.sql =====
+-- ===== END 108_direct_ability_attack_session_gate.sql =====

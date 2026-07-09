@@ -17,6 +17,7 @@ export const ABILITY_RPC_NAMES = Object.freeze({
   getCharacterAbilities: "get_character_abilities",
   syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
   useAbility: "use_ability",
+  reloadCharacterAbility: "reload_character_ability",
   advanceCharacterAbilityStates: "advance_character_ability_states",
   // Phase 4.0 — quick-actions runtime + quickbar layout persistence (migration 92).
   getQuickActionsRuntime: "odyssey_get_character_quick_actions_runtime",
@@ -33,6 +34,9 @@ export const WEAPON_RPC_NAMES = Object.freeze({
   switchWeaponProfile: "switch_weapon_profile",
   switchWeaponFireMode: "switch_weapon_fire_mode",
   loadWeaponProfileMagazine: "load_weapon_profile_magazine",
+  unloadWeaponMagazine: "unload_weapon_magazine",
+  loadWeaponInternalRounds: "load_weapon_internal_rounds",
+  unloadWeaponInternalRounds: "unload_weapon_internal_rounds",
   activateWeaponFeature: "activate_weapon_feature",
   deactivateWeaponFeature: "deactivate_weapon_feature",
   getCharacterWeaponFeatures: "get_character_weapon_features",

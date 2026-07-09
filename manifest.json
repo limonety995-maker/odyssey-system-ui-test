@@ -1,16 +1,17 @@
-{
-  "name": "Odyssey System (ui test)",
-  "version": "1.8.72 (ui)",
+﻿{
+  "name": "Odyssey System",
+  "version": "1.8.69",
   "manifest_version": 1,
   "description": "Odyssey Bridge Shell foundation for the Supabase-backed system.",
   "author": "Codex",
-  "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.72",
-  "background_url": "https://limonety995-maker.github.io/odyssey-system-ui-test/background.html?v=1.8.72",
+  "icon": "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.69",
+  "background_url": "https://odyssey-services.github.io/Odyssey_System/background.html?v=1.8.69",
   "action": {
     "title": "Odyssey System",
-    "icon": "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.72",
-    "popover": "https://limonety995-maker.github.io/odyssey-system-ui-test/index.html?v=1.8.72",
+    "icon": "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.69",
+    "popover": "https://odyssey-services.github.io/Odyssey_System/index.html?v=1.8.69",
     "height": 860,
     "width": 560
   }
 }
+

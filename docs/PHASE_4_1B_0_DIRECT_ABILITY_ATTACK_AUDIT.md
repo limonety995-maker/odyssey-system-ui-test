@@ -275,8 +275,12 @@ This satisfies migration rule (F): *"There is no server-authoritative direct
 ability attack path"* — read precisely: the ATTACK RESOLUTION half of that
 path is complete and correct, but the session-gate half (which the weapon
 path already has) does not apply to it. **Migration
-`supabase/102_direct_ability_attack_session_gate.sql`** was created (NOT
-applied remotely — no `supabase db push`/`migration up` was run) to close
+`supabase/102_direct_ability_attack_session_gate.sql`** (renumbered to
+`108_direct_ability_attack_session_gate.sql` on 2026-07-09 during the
+upstream tree-adoption sync, since upstream independently used migration
+number 102 for an unrelated change — see that file's own header comment)
+was created (NOT applied remotely — no `supabase db push`/`migration up`
+was run) to close
 exactly this gap: it redefines `perform_attack` so the session-gate block
 runs BEFORE the ability redirect (mirroring the weapon path exactly), and a
 successfully-resolved ability attack now gets the same
@@ -427,5 +431,6 @@ migration to migration 101's runtime query was needed or made.
    the mapper never lets the client invent these values), surface the
    server's error message through the existing error-display convention.
 
-**Server:** migration `102_direct_ability_attack_session_gate.sql` (§14) —
-created, not applied remotely.
+**Server:** migration `108_direct_ability_attack_session_gate.sql` (§14,
+renumbered from 102 on 2026-07-09 — see that file's header) — created, not
+applied remotely.

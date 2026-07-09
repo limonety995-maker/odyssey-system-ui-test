@@ -25,6 +25,14 @@ export function useAbility(payload, settings) {
   );
 }
 
+export function reloadCharacterAbility(payload, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.reloadCharacterAbility,
+    { p_payload: payload },
+    settings,
+  );
+}
+
 export function advanceCharacterAbilityStates(characterId, settings) {
   return callSupabaseRpc(
     ABILITY_RPC_NAMES.advanceCharacterAbilityStates,

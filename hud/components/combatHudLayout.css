@@ -546,6 +546,7 @@
 .ohud-qb--empty-clickable:hover .ohud-muted-fill, .ohud-qb--empty-clickable:focus-visible .ohud-muted-fill { color: var(--odyssey-hud-implant); }
 .ohud-qb--empty-clickable:focus-visible { outline: 2px solid var(--odyssey-hud-implant); outline-offset: 2px; }
 .ohud-qb-row { display: flex; gap: 4px; flex-wrap: nowrap; }
+.ohud-qb-card { position: relative; flex: 1 1 0; min-width: 0; max-width: 56px; height: 50px; }
 .ohud-qb-slot {
   /* Width fills the row evenly (flex-basis 0 + grow), capped at 56px so ten
    * slots stay dense rather than stretching to fill a very wide container.
@@ -557,6 +558,7 @@
   background: var(--odyssey-hud-panel, rgba(255,255,255,0.04)); color: var(--odyssey-hud-text);
   cursor: pointer; overflow: hidden; transition: border-color .12s ease, background .12s ease;
 }
+.ohud-qb-card > .ohud-qb-slot { width: 100%; max-width: none; height: 100%; }
 .ohud-qb-slot:not(.is-empty):not(.is-disabled):hover { border-color: var(--odyssey-hud-border-strong); background: var(--odyssey-hud-panel-hover); }
 .ohud-qb-slot.is-empty { cursor: default; border-style: dashed; opacity: 0.6; background: transparent; }
 .ohud-qb-slot.is-empty::after { content: "+"; font-size: var(--ohud-font-15); color: var(--odyssey-hud-dim); opacity: 0.5; }
@@ -612,6 +614,32 @@
  * Muted, never the "damage" red — see abilityAvailabilityPolicy.js's header
  * comment: unsupported/unavailable are blocked capabilities, not injuries. */
 .ohud-qb-state--lock { color: var(--odyssey-hud-muted); }
+.ohud-qb-gm-trigger {
+  position: absolute; right: 2px; bottom: 12px; z-index: 4;
+  min-width: 18px; height: 16px; padding: 0 4px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 5px;
+  background: rgba(12, 16, 27, 0.92); color: var(--odyssey-hud-muted);
+  font-size: var(--ohud-font-7); font-weight: 800; letter-spacing: 0.2px;
+  cursor: pointer;
+}
+.ohud-qb-gm-trigger:hover,
+.ohud-qb-gm-trigger.is-open { border-color: var(--odyssey-cyan); color: var(--odyssey-cyan); }
+.ohud-qb-gm-trigger:disabled { opacity: 0.55; cursor: default; }
+.ohud-qb-gm-menu {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 8;
+  min-width: 118px; display: flex; flex-direction: column; gap: 4px;
+  padding: 6px; border: 1px solid var(--odyssey-hud-border-strong); border-radius: 8px;
+  background: rgba(8, 12, 20, 0.98); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+.ohud-qb-gm-menu-btn {
+  width: 100%; min-height: 22px; padding: 4px 8px;
+  border: 1px solid var(--odyssey-hud-border); border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04); color: var(--odyssey-hud-text);
+  font: inherit; font-size: var(--ohud-font-8-5); text-align: left; cursor: pointer;
+}
+.ohud-qb-gm-menu-btn:hover { border-color: var(--odyssey-cyan); }
+.ohud-qb-gm-menu-btn.is-danger:hover { border-color: var(--odyssey-hud-negative); color: var(--odyssey-hud-negative); }
+.ohud-qb-gm-menu-btn:disabled { opacity: 0.55; cursor: default; }
 
 /* ===================== Quickbar editor companion popover (Phase 4.0c) =====================
  * A standalone sci-fi window: dark surface, thin glowing border, header / body

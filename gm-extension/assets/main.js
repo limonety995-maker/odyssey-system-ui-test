@@ -4092,10 +4092,12 @@ function createEmptyWeaponProfileDraft(index = 0) {
     id: "",
     name: "",
     attackType: index === 0 ? "ranged" : "melee",
+    feedMode: "detachable_magazine",
     weaponClassId: "",
     linkedSkillId: "",
     rangeProfileId: "",
     caliberId: "",
+    internalCapacity: "",
     accuracyModifier: "0",
     baseMeleeDamage: "0",
     armorPierce: "0",
@@ -4245,6 +4247,7 @@ function createEmptyAbilityLinkDraft() {
     abilityDefId: "",
     grantMode: "activated",
     profileId: "",
+    profileCode: "",
     enabledByDefault: true,
     durationRoundsMode: "none",
     durationRounds: "",
@@ -4904,10 +4907,12 @@ function normalizeWeaponProfileDraft(profile) {
     id: String(profile?.id ?? ""),
     name: String(profile?.name ?? ""),
     attackType: String(profile?.attack_type ?? "ranged"),
+    feedMode: String(profile?.feed_mode ?? "detachable_magazine"),
     weaponClassId: String(profile?.weapon_class_id ?? ""),
     linkedSkillId: String(profile?.linked_skill_id ?? ""),
     rangeProfileId: String(profile?.range_profile_id ?? ""),
     caliberId: String(profile?.caliber_id ?? ""),
+    internalCapacity: profile?.internal_capacity !== void 0 && profile?.internal_capacity !== null ? String(profile.internal_capacity) : "",
     accuracyModifier: String(profile?.accuracy_modifier ?? 0),
     baseMeleeDamage: String(profile?.base_melee_damage ?? 0),
     armorPierce: String(data.armor_pierce ?? 0),
@@ -4931,22 +4936,26 @@ function normalizeWeaponDraft(bundle) {
     name: String(weapon.name ?? ""),
     description: String(weapon.description ?? ""),
     profiles,
-    abilityLinks: Array.isArray(bundle?.ability_links) ? bundle.ability_links.map((entry) => ({
-      abilityDefId: String(entry?.ability_def_id ?? ""),
-      grantMode: String(entry?.grant_mode ?? "available"),
-      profileId: String(entry?.profile_id ?? entry?.data?.profile_id ?? ""),
-      enabledByDefault: Boolean(
-        entry?.is_enabled_by_default ?? entry?.is_enabled ?? true
-      ),
-      durationRoundsMode: "none",
-      durationRounds: "",
-      chargesMode: "none",
-      charges: "",
-      cooldownRoundsMode: "none",
-      cooldownRounds: "",
-      reloadMode: "",
-      reloadItemCode: ""
-    })) : []
+    abilityLinks: Array.isArray(bundle?.ability_links) ? bundle.ability_links.map((entry) => {
+      const data = toPlainObject(entry?.data);
+      return {
+        abilityDefId: String(entry?.ability_def_id ?? ""),
+        grantMode: String(entry?.grant_mode ?? "available"),
+        profileId: String(entry?.profile_id ?? data.profile_id ?? ""),
+        profileCode: String(entry?.profile_code ?? data.profile_code ?? ""),
+        enabledByDefault: Boolean(
+          entry?.is_enabled_by_default ?? entry?.is_enabled ?? String(entry?.grant_mode ?? "available").trim() === "passive"
+        ),
+        durationRoundsMode: data.duration_rounds !== void 0 && data.duration_rounds !== null ? "set" : "none",
+        durationRounds: data.duration_rounds !== void 0 && data.duration_rounds !== null ? String(data.duration_rounds) : "",
+        chargesMode: data.default_max_charges !== void 0 && data.default_max_charges !== null ? "set" : "none",
+        charges: data.default_max_charges !== void 0 && data.default_max_charges !== null ? String(data.default_max_charges) : "",
+        cooldownRoundsMode: data.cooldown_rounds !== void 0 && data.cooldown_rounds !== null ? "set" : "none",
+        cooldownRounds: data.cooldown_rounds !== void 0 && data.cooldown_rounds !== null ? String(data.cooldown_rounds) : "",
+        reloadMode: String(toPlainObject(data.reload).mode ?? ""),
+        reloadItemCode: String(toPlainObject(data.reload).item_code ?? "")
+      };
+    }) : []
   };
 }
 function normalizeItemDraft(bundle) {
@@ -5460,21 +5469,70 @@ function buildAbilityLinkPayload(link, index) {
     data
   };
 }
+function resolveWeaponProfileDraftCode(profile, index, profiles = []) {
+  const attackType = String(profile?.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
+  const profileCodeBase = slugifyName(profile?.name) || `${attackType}_profile_${index + 1}`;
+  const priorProfileCodes = profiles.slice(0, index).map((entry, earlierIndex) => {
+    const earlierType = String(entry?.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
+    return slugifyName(entry?.name) || `${earlierType}_profile_${earlierIndex + 1}`;
+  });
+  return uniqueGeneratedCode(profileCodeBase, priorProfileCodes);
+}
+function getWeaponProfileReferenceOptions(draft) {
+  const profiles = Array.isArray(draft?.profiles) ? draft.profiles : [];
+  return profiles.map((profile, index) => {
+    const profileId = String(profile?.id ?? "").trim();
+    const profileCode = resolveWeaponProfileDraftCode(profile, index, profiles);
+    return {
+      value: profileId ? `id:${profileId}` : `code:${profileCode}`,
+      profileId,
+      profileCode,
+      name: String(profile?.name ?? "").trim(),
+      attackType: String(profile?.attackType ?? "").trim()
+    };
+  });
+}
+function resolveWeaponAbilityProfileSelectValue(link) {
+  const profileId = String(link?.profileId ?? "").trim();
+  if (profileId) {
+    return `id:${profileId}`;
+  }
+  const profileCode = String(link?.profileCode ?? "").trim();
+  if (profileCode) {
+    return `code:${profileCode}`;
+  }
+  return "";
+}
 function buildWeaponAbilityLinkPayload(link, index) {
   const abilityDefId = String(link?.abilityDefId ?? "").trim();
   const profileId = String(link?.profileId ?? "").trim();
+  const profileCode = String(link?.profileCode ?? "").trim();
   if (!abilityDefId) {
     return null;
   }
+  const payload = buildAbilityLinkPayload(
+    {
+      ...link,
+      grantMode: String(link?.grantMode ?? "available").trim() || "available"
+    },
+    index
+  );
+  const data = toPlainObject(cloneJson(payload?.data));
+  if (profileId) {
+    data.profile_id = profileId;
+  } else {
+    delete data.profile_id;
+  }
+  if (profileCode) {
+    data.profile_code = profileCode;
+  } else {
+    delete data.profile_code;
+  }
   return {
-    ability_def_id: abilityDefId,
+    ...payload,
     profile_id: profileId || null,
-    grant_mode: "available",
-    is_enabled: Boolean(link?.enabledByDefault ?? true),
-    sort_order: index,
-    data: profileId ? {
-      profile_id: profileId
-    } : {}
+    profile_code: profileCode || null,
+    data
   };
 }
 function buildFlagPayload(entry) {
@@ -5510,6 +5568,7 @@ function buildWeaponPayload(draft, auto, references) {
   const meleeRangeProfileId = String((Array.isArray(references?.range_profiles) ? references.range_profiles : []).find((entry) => entry.code === "melee_profile")?.id ?? "");
   const payloadProfiles = profiles.map((profile, index) => {
     const attackType = String(profile.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
+    const feedMode = attackType === "ranged" && String(profile.feedMode ?? "detachable_magazine").trim() === "internal_magazine" ? "internal_magazine" : "detachable_magazine";
     const data = toPlainObject(cloneJson(profile.dataExtraData));
     data.armor_pierce = coerceInteger(profile.armorPierce, 0);
     data.two_handed = Boolean(profile.twoHanded);
@@ -5519,13 +5578,12 @@ function buildWeaponPayload(draft, auto, references) {
       delete data.can_parry;
     }
     const fireModeIds = attackType === "melee" ? meleeFireModeId ? [meleeFireModeId] : [] : Array.from(new Set((Array.isArray(profile.fireModeIds) ? profile.fireModeIds : []).map((entry) => String(entry ?? "").trim()).filter(Boolean)));
-    const magazineDefIds = attackType === "ranged" ? Array.from(new Set((Array.isArray(profile.magazineDefIds) ? profile.magazineDefIds : []).map((entry) => String(entry ?? "").trim()).filter(Boolean))) : [];
+    const magazineDefIds = attackType === "ranged" && feedMode === "detachable_magazine" ? Array.from(new Set((Array.isArray(profile.magazineDefIds) ? profile.magazineDefIds : []).map((entry) => String(entry ?? "").trim()).filter(Boolean))) : [];
     const caliberId = attackType === "ranged" ? String(profile.caliberId ?? "").trim() : null;
-    const profileCodeBase = slugifyName(profile.name) || `${attackType}_profile_${index + 1}`;
-    const priorProfileCodes = profiles.slice(0, index).map((entry, earlierIndex) => slugifyName(entry.name) || `${String(entry.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged"}_profile_${earlierIndex + 1}`);
+    const internalCapacity = attackType === "ranged" && feedMode === "internal_magazine" ? Math.max(1, coerceInteger(profile.internalCapacity, 1)) : null;
     return {
       id: profile.id || void 0,
-      code: uniqueGeneratedCode(profileCodeBase, priorProfileCodes),
+      code: resolveWeaponProfileDraftCode(profile, index, profiles),
       name: String(profile.name ?? "").trim(),
       description: "",
       attack_type: attackType,
@@ -5533,6 +5591,8 @@ function buildWeaponPayload(draft, auto, references) {
       linked_skill_id: String(profile.linkedSkillId ?? "").trim() || null,
       caliber_id: caliberId,
       range_profile_id: attackType === "melee" ? String(profile.rangeProfileId ?? "").trim() || meleeRangeProfileId || null : String(profile.rangeProfileId ?? "").trim() || null,
+      feed_mode: feedMode,
+      internal_capacity: internalCapacity,
       accuracy_modifier: coerceInteger(profile.accuracyModifier, 0),
       base_melee_damage: coerceInteger(profile.baseMeleeDamage, 0),
       is_default: Boolean(profile.isDefault),
@@ -6430,18 +6490,19 @@ function buildOptionalNumberField({
   field,
   index,
   value,
-  mode
+  mode,
+  inputAttr = "data-creator-link-input"
 }) {
   const selectedMode = String(mode ?? "").trim() || "none";
   return `
     <div class="creator-small-stack">
       <span>${escapeHtml(label)}</span>
       <div class="creator-mini-grid">
-        <select data-creator-link-input="${field}Mode" data-link-index="${index}">
+        <select ${inputAttr}="${field}Mode" data-link-index="${index}">
           <option value="none"${selectedMode === "none" ? " selected" : ""}>None</option>
           <option value="set"${selectedMode === "set" ? " selected" : ""}>Set</option>
         </select>
-        <input data-creator-link-input="${field}" data-link-index="${index}" type="number" min="0" value="${escapeHtml(value)}"${selectedMode === "set" ? "" : " disabled"}>
+        <input ${inputAttr}="${field}" data-link-index="${index}" type="number" min="0" value="${escapeHtml(value)}"${selectedMode === "set" ? "" : " disabled"}>
       </div>
     </div>
   `;
@@ -6544,6 +6605,7 @@ function buildFlagEditorMarkup(draft) {
 function buildWeaponProfileEditorMarkup(state, references, profile, index) {
   const attackType = String(profile.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
   const isRanged = attackType === "ranged";
+  const feedMode = String(profile.feedMode ?? "detachable_magazine").trim() === "internal_magazine" ? "internal_magazine" : "detachable_magazine";
   const defaultChecked = Boolean(profile.isDefault);
   return `
     <div class="creator-link-card" data-creator-weapon-profile-row="${index}">
@@ -6611,6 +6673,22 @@ function buildWeaponProfileEditorMarkup(state, references, profile, index) {
             <span>Two-handed</span>
           </label>
         </div>
+        <div class="field-grid creator-grid-3">
+          <label class="field-stack">
+            <span>Feed Mode</span>
+            <select data-creator-weapon-profile-input="feedMode" data-weapon-profile-index="${index}">
+              <option value="detachable_magazine"${feedMode === "detachable_magazine" ? " selected" : ""}>Detachable magazine</option>
+              <option value="internal_magazine"${feedMode === "internal_magazine" ? " selected" : ""}>Internal magazine</option>
+            </select>
+          </label>
+          ${feedMode === "internal_magazine" ? `
+            <label class="field-stack">
+              <span>Internal Capacity</span>
+              <input data-creator-weapon-profile-input="internalCapacity" data-weapon-profile-index="${index}" type="number" min="1" value="${escapeHtml(profile.internalCapacity || "1")}">
+            </label>
+          ` : `<div></div>`}
+          <div></div>
+        </div>
         <div class="creator-links-block">
           <div class="creator-links-head">
             <span>Fire Modes</span>
@@ -6619,14 +6697,16 @@ function buildWeaponProfileEditorMarkup(state, references, profile, index) {
             ${buildWeaponFireModeCheckboxMarkup(references, profile, index)}
           </div>
         </div>
-        <div class="creator-links-block">
-          <div class="creator-links-head">
-            <span>Compatible Magazines</span>
+        ${feedMode === "detachable_magazine" ? `
+          <div class="creator-links-block">
+            <div class="creator-links-head">
+              <span>Compatible Magazines</span>
+            </div>
+            <div class="creator-check-grid">
+              ${buildWeaponMagazineCheckboxMarkup(references, profile, index)}
+            </div>
           </div>
-          <div class="creator-check-grid">
-            ${buildWeaponMagazineCheckboxMarkup(references, profile, index)}
-          </div>
-        </div>
+        ` : ""}
       ` : `
         <div class="field-grid creator-grid-3">
           <label class="field-stack">
@@ -7611,11 +7691,10 @@ function buildAbilityLinksEditorMarkup(draft, references) {
   }).join("");
 }
 function buildWeaponAbilityProfileOptions(draft, selectedValue) {
-  const profiles = Array.isArray(draft?.profiles) ? draft.profiles : [];
   const options = ['<option value="">All profiles</option>'];
-  for (const profile of profiles) {
+  for (const profile of getWeaponProfileReferenceOptions(draft)) {
     options.push(
-      `<option value="${escapeHtml(profile.id)}"${selectedValue === profile.id ? " selected" : ""}>${escapeHtml(profile.name || profile.code || "profile")}${profile.attackType ? ` | ${escapeHtml(profile.attackType)}` : ""}</option>`
+      `<option value="${escapeHtml(profile.value)}"${selectedValue === profile.value ? " selected" : ""}>${escapeHtml(profile.name || profile.profileCode || "profile")}${profile.attackType ? ` | ${escapeHtml(profile.attackType)}` : ""}</option>`
     );
   }
   return options.join("");
@@ -7628,6 +7707,16 @@ function buildWeaponAbilityLinksEditorMarkup(draft, references) {
   }
   return links.map((link, index) => {
     const ability = (Array.isArray(references?.abilities) ? references.abilities : []).find((entry) => entry.id === link.abilityDefId);
+    const passive = link.grantMode === "passive";
+    const reloadMode = String(link.reloadMode ?? "");
+    const selectedProfileValue = resolveWeaponAbilityProfileSelectValue(link);
+    const profileSummary = (() => {
+      if (!selectedProfileValue) {
+        return "All profiles";
+      }
+      const match = getWeaponProfileReferenceOptions(draft).find((entry) => entry.value === selectedProfileValue);
+      return match?.name || match?.profileCode || "Profile";
+    })();
     return `
       <div class="creator-link-card" data-creator-weapon-ability-row="${index}">
         <div class="creator-link-head">
@@ -7648,16 +7737,63 @@ function buildWeaponAbilityLinksEditorMarkup(draft, references) {
           <label class="field-stack">
             <span>Profile Scope</span>
             <select data-creator-weapon-ability-input="profileId" data-link-index="${index}">
-              ${buildWeaponAbilityProfileOptions(draft, link.profileId)}
+              ${buildWeaponAbilityProfileOptions(draft, selectedProfileValue)}
             </select>
           </label>
-          <label class="toggle-inline creator-toggle-card">
-            <input data-creator-weapon-ability-input="enabledByDefault" data-link-index="${index}" type="checkbox"${link.enabledByDefault ? " checked" : ""}>
-            <span>Enabled by default</span>
+          <label class="field-stack">
+            <span>Grant Mode</span>
+            <select data-creator-weapon-ability-input="grantMode" data-link-index="${index}">
+              <option value="available"${link.grantMode === "available" ? " selected" : ""}>Available</option>
+              <option value="activated"${link.grantMode === "activated" ? " selected" : ""}>Active</option>
+              <option value="passive"${passive ? " selected" : ""}>Passive</option>
+            </select>
           </label>
         </div>
+        ${passive ? `
+          <div class="creator-auto-meta creator-small-meta">
+            <div><strong>Passive:</strong> always active while the weapon or selected profile is available.</div>
+          </div>
+        ` : `
+          <div class="field-grid creator-grid-2">
+            ${buildOptionalNumberField({
+      label: "Duration",
+      field: "durationRounds",
+      index,
+      value: link.durationRounds,
+      mode: link.durationRoundsMode,
+      inputAttr: "data-creator-weapon-ability-input"
+    })}
+            ${buildOptionalNumberField({
+      label: "Charges",
+      field: "charges",
+      index,
+      value: link.charges,
+      mode: link.chargesMode,
+      inputAttr: "data-creator-weapon-ability-input"
+    })}
+            ${buildOptionalNumberField({
+      label: "Cooldown",
+      field: "cooldownRounds",
+      index,
+      value: link.cooldownRounds,
+      mode: link.cooldownRoundsMode,
+      inputAttr: "data-creator-weapon-ability-input"
+    })}
+            <div class="creator-small-stack">
+              <span>Reload</span>
+              <div class="creator-mini-grid creator-mini-grid-wide">
+                <select data-creator-weapon-ability-input="reloadMode" data-link-index="${index}">
+                  ${RELOAD_MODES.map((mode) => `<option value="${escapeHtml(mode.value)}"${reloadMode === mode.value ? " selected" : ""}>${escapeHtml(mode.label)}</option>`).join("")}
+                </select>
+                <select data-creator-weapon-ability-input="reloadItemCode" data-link-index="${index}"${reloadMode ? "" : " disabled"}>
+                  ${buildItemOptions(references, link.reloadItemCode)}
+                </select>
+              </div>
+            </div>
+          </div>
+        `}
         <div class="creator-auto-meta creator-small-meta">
-          <div><strong>Summary:</strong> ${escapeHtml(ability?.name || "Select ability")} | ${escapeHtml(ability?.attack_type || ability?.ability_kind || "ability")} | ${escapeHtml(link.profileId ? (draft.profiles || []).find((entry) => entry.id === link.profileId)?.name || "profile" : "All profiles")} | ${link.enabledByDefault ? "Enabled" : "Disabled"}</div>
+          <div><strong>Summary:</strong> ${escapeHtml(ability?.name || "Select ability")} | ${escapeHtml(ability?.attack_type || ability?.ability_kind || "ability")} | ${escapeHtml(profileSummary)} | ${escapeHtml(link.grantMode || "available")}</div>
         </div>
       </div>
     `;
@@ -7853,16 +7989,19 @@ function readWeaponDraftFromDom(root2, fallbackDraft = createEmptyWeaponDraft())
     const fallbackProfile = Array.isArray(fallbackDraft.profiles) ? fallbackDraft.profiles[Number.parseInt(rowIndex, 10)] ?? createEmptyWeaponProfileDraft(index) : createEmptyWeaponProfileDraft(index);
     const profileQuery = (field) => form.querySelector(`[data-creator-weapon-profile-input="${field}"][data-weapon-profile-index="${rowIndex}"]`);
     const attackType = String(profileQuery("attackType")?.value ?? fallbackProfile.attackType ?? "ranged").trim() === "melee" ? "melee" : "ranged";
+    const feedMode = attackType === "ranged" && String(profileQuery("feedMode")?.value ?? fallbackProfile.feedMode ?? "detachable_magazine").trim() === "internal_magazine" ? "internal_magazine" : "detachable_magazine";
     const fireModeIds = Array.from(form.querySelectorAll(`[data-creator-weapon-profile-fire-mode][data-weapon-profile-index="${rowIndex}"]:checked`)).map((entry) => String(entry.getAttribute("data-creator-weapon-profile-fire-mode") ?? "").trim()).filter(Boolean);
-    const magazineDefIds = Array.from(form.querySelectorAll(`[data-creator-weapon-profile-magazine][data-weapon-profile-index="${rowIndex}"]:checked`)).map((entry) => String(entry.getAttribute("data-creator-weapon-profile-magazine") ?? "").trim()).filter(Boolean);
+    const magazineDefIds = feedMode === "detachable_magazine" ? Array.from(form.querySelectorAll(`[data-creator-weapon-profile-magazine][data-weapon-profile-index="${rowIndex}"]:checked`)).map((entry) => String(entry.getAttribute("data-creator-weapon-profile-magazine") ?? "").trim()).filter(Boolean) : [];
     return {
       id: String(fallbackProfile.id ?? ""),
       name: String(profileQuery("name")?.value ?? fallbackProfile.name ?? ""),
       attackType,
+      feedMode,
       weaponClassId: String(profileQuery("weaponClassId")?.value ?? fallbackProfile.weaponClassId ?? ""),
       linkedSkillId: String(profileQuery("linkedSkillId")?.value ?? fallbackProfile.linkedSkillId ?? ""),
       rangeProfileId: String(profileQuery("rangeProfileId")?.value ?? fallbackProfile.rangeProfileId ?? ""),
       caliberId: String(profileQuery("caliberId")?.value ?? fallbackProfile.caliberId ?? ""),
+      internalCapacity: String(profileQuery("internalCapacity")?.value ?? fallbackProfile.internalCapacity ?? ""),
       accuracyModifier: String(profileQuery("accuracyModifier")?.value ?? fallbackProfile.accuracyModifier ?? "0"),
       baseMeleeDamage: String(profileQuery("baseMeleeDamage")?.value ?? fallbackProfile.baseMeleeDamage ?? "0"),
       armorPierce: String(profileQuery("armorPierce")?.value ?? fallbackProfile.armorPierce ?? "0"),
@@ -7882,19 +8021,23 @@ function readWeaponDraftFromDom(root2, fallbackDraft = createEmptyWeaponDraft())
     const index = String(row.getAttribute("data-creator-weapon-ability-row") ?? "");
     const fallbackLink = Array.isArray(fallbackDraft.abilityLinks) ? fallbackDraft.abilityLinks[Number.parseInt(index, 10)] ?? createEmptyAbilityLinkDraft() : createEmptyAbilityLinkDraft();
     const linkQuery = (field) => form.querySelector(`[data-creator-weapon-ability-input="${field}"][data-link-index="${index}"]`);
+    const profileSelection = String(linkQuery("profileId")?.value ?? "");
+    const profileId = profileSelection.startsWith("id:") ? profileSelection.slice(3) : !profileSelection.startsWith("code:") ? profileSelection : "";
+    const profileCode = profileSelection.startsWith("code:") ? profileSelection.slice(5) : "";
     return {
       abilityDefId: String(linkQuery("abilityDefId")?.value ?? fallbackLink.abilityDefId ?? ""),
-      grantMode: "available",
-      profileId: String(linkQuery("profileId")?.value ?? fallbackLink.profileId ?? ""),
+      grantMode: String(linkQuery("grantMode")?.value ?? fallbackLink.grantMode ?? "available"),
+      profileId: String(profileId || fallbackLink.profileId || ""),
+      profileCode: String(profileCode || fallbackLink.profileCode || ""),
       enabledByDefault: Boolean(linkQuery("enabledByDefault")?.checked ?? fallbackLink.enabledByDefault ?? true),
-      durationRoundsMode: "none",
-      durationRounds: "",
-      chargesMode: "none",
-      charges: "",
-      cooldownRoundsMode: "none",
-      cooldownRounds: "",
-      reloadMode: "",
-      reloadItemCode: ""
+      durationRoundsMode: String(linkQuery("durationRoundsMode")?.value ?? fallbackLink.durationRoundsMode ?? "none"),
+      durationRounds: String(linkQuery("durationRounds")?.value ?? fallbackLink.durationRounds ?? ""),
+      chargesMode: String(linkQuery("chargesMode")?.value ?? fallbackLink.chargesMode ?? "none"),
+      charges: String(linkQuery("charges")?.value ?? fallbackLink.charges ?? ""),
+      cooldownRoundsMode: String(linkQuery("cooldownRoundsMode")?.value ?? fallbackLink.cooldownRoundsMode ?? "none"),
+      cooldownRounds: String(linkQuery("cooldownRounds")?.value ?? fallbackLink.cooldownRounds ?? ""),
+      reloadMode: String(linkQuery("reloadMode")?.value ?? fallbackLink.reloadMode ?? ""),
+      reloadItemCode: String(linkQuery("reloadItemCode")?.value ?? fallbackLink.reloadItemCode ?? "")
     };
   }) : cloneJson(fallbackDraft.abilityLinks ?? []);
   return {
@@ -9729,6 +9872,7 @@ var ABILITY_RPC_NAMES = Object.freeze({
   getCharacterAbilities: "get_character_abilities",
   syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
   useAbility: "use_ability",
+  reloadCharacterAbility: "reload_character_ability",
   advanceCharacterAbilityStates: "advance_character_ability_states",
   // Phase 4.0 — quick-actions runtime + quickbar layout persistence (migration 92).
   getQuickActionsRuntime: "odyssey_get_character_quick_actions_runtime",
@@ -9743,6 +9887,9 @@ var WEAPON_RPC_NAMES = Object.freeze({
   switchWeaponProfile: "switch_weapon_profile",
   switchWeaponFireMode: "switch_weapon_fire_mode",
   loadWeaponProfileMagazine: "load_weapon_profile_magazine",
+  unloadWeaponMagazine: "unload_weapon_magazine",
+  loadWeaponInternalRounds: "load_weapon_internal_rounds",
+  unloadWeaponInternalRounds: "unload_weapon_internal_rounds",
   activateWeaponFeature: "activate_weapon_feature",
   deactivateWeaponFeature: "deactivate_weapon_feature",
   getCharacterWeaponFeatures: "get_character_weapon_features"
@@ -10388,6 +10535,7 @@ var abilityApi_exports = {};
 __export(abilityApi_exports, {
   advanceCharacterAbilityStates: () => advanceCharacterAbilityStates,
   getCharacterAbilities: () => getCharacterAbilities,
+  reloadCharacterAbility: () => reloadCharacterAbility,
   syncCharacterResourcePools: () => syncCharacterResourcePools,
   useAbility: () => useAbility
 });
@@ -10408,6 +10556,13 @@ function syncCharacterResourcePools(characterId, settings) {
 function useAbility(payload, settings) {
   return callSupabaseRpc(
     ABILITY_RPC_NAMES.useAbility,
+    { p_payload: payload },
+    settings
+  );
+}
+function reloadCharacterAbility(payload, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.reloadCharacterAbility,
     { p_payload: payload },
     settings
   );
@@ -10542,9 +10697,12 @@ __export(weaponApi_exports, {
   deactivateWeaponFeature: () => deactivateWeaponFeature,
   getCharacterArmory: () => getCharacterArmory,
   getCharacterWeaponFeatures: () => getCharacterWeaponFeatures,
+  loadWeaponInternalRounds: () => loadWeaponInternalRounds,
   loadWeaponProfileMagazine: () => loadWeaponProfileMagazine,
   switchWeaponFireMode: () => switchWeaponFireMode,
-  switchWeaponProfile: () => switchWeaponProfile
+  switchWeaponProfile: () => switchWeaponProfile,
+  unloadWeaponInternalRounds: () => unloadWeaponInternalRounds,
+  unloadWeaponMagazine: () => unloadWeaponMagazine
 });
 function getCharacterArmory(characterId, settings) {
   return callSupabaseRpc(
@@ -10577,6 +10735,27 @@ function switchWeaponFireMode(characterId, weaponId, fireModeId, settings) {
 function loadWeaponProfileMagazine(payload, settings) {
   return callSupabaseRpc(
     WEAPON_RPC_NAMES.loadWeaponProfileMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function unloadWeaponMagazine(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.unloadWeaponMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function loadWeaponInternalRounds(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.loadWeaponInternalRounds,
+    { p_payload: payload },
+    settings
+  );
+}
+function unloadWeaponInternalRounds(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.unloadWeaponInternalRounds,
     { p_payload: payload },
     settings
   );

@@ -27,7 +27,12 @@ export const QUICK_ACTION_TYPES = Object.freeze({
 export const QUICK_ACTION_SOURCES = Object.freeze({
   perk: "perk",
   psi: "psi",
+  skill: "skill",
+  weapon: "weapon",
+  armor: "armor",
   implant: "implant",
+  prosthetic: "prosthetic",
+  equipment: "equipment",
   item: "item",
   technique: "technique",
 });
@@ -83,8 +88,6 @@ function normalizeSource(raw) {
   if (VALID_SOURCES.has(v)) return v;
   const aliases = {
     psionic: QUICK_ACTION_SOURCES.psi,
-    prosthetic: QUICK_ACTION_SOURCES.implant,
-    equipment: QUICK_ACTION_SOURCES.item,
     innate: QUICK_ACTION_SOURCES.perk,
     custom: QUICK_ACTION_SOURCES.technique,
   };
@@ -172,7 +175,21 @@ function mapRequirements(raw) {
   return {
     weaponClass: str(r.weaponClass),
     weaponId: str(r.weaponId),
+    equipmentItemId: str(r.equipmentItemId),
+    itemId: str(r.itemId),
+    requiresSelectedSource: bool(r.requiresSelectedSource, false),
+    requiresEquipped: bool(r.requiresEquipped, false),
+    requiresInstalled: bool(r.requiresInstalled, false),
     conditionSummary: str(r.conditionSummary),
+  };
+}
+
+function mapReload(raw) {
+  const r = raw?.reload && typeof raw.reload === "object" ? raw.reload : {};
+  return {
+    required: bool(r.required, false),
+    itemCode: str(r.itemCode) ?? str(r.item_code),
+    itemCost: num(r.itemCost ?? r.item_cost, 1),
   };
 }
 
@@ -182,6 +199,11 @@ export function mapQuickAction(raw) {
   return {
     characterActionId: str(q.characterActionId) ?? str(q.character_action_id) ?? null,
     definitionId: str(q.definitionId) ?? str(q.definition_id) ?? null,
+    characterSkillId: str(q.characterSkillId) ?? str(q.character_skill_id) ?? null,
+    sourceCharacterWeaponId: str(q.sourceCharacterWeaponId) ?? str(q.source_character_weapon_id) ?? null,
+    sourceEquipmentItemId: str(q.sourceEquipmentItemId) ?? str(q.source_equipment_item_id) ?? null,
+    sourceCharacterItemId: str(q.sourceCharacterItemId) ?? str(q.source_character_item_id) ?? null,
+    sourceLabel: str(q.sourceLabel) ?? str(q.source_label) ?? null,
     sourceType: normalizeSource(q),
     type: normalizeType(q),
     name: str(q.name) ?? "Unknown action",
@@ -194,6 +216,7 @@ export function mapQuickAction(raw) {
     cooldown: mapCooldown(q),
     state: mapState(q),
     requirements: mapRequirements(q),
+    reload: mapReload(q),
   };
 }
 

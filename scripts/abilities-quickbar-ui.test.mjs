@@ -282,6 +282,29 @@ test("SkillBlock renders the quickbar when snapshot.quickbar is present", () => 
   assert.match(html, /data-action="open-quickbar-editor"/, "the empty slot carries the open-editor trigger");
 });
 
+test("GM quickbar admin renders sibling controls, not nested buttons, and can expose both delete-skill + delete-ability actions", () => {
+  const html = renderQuickbarStrip(
+    runtime([{ slotIndex: 0, characterActionId: "act-1", empty: false }], [
+      {
+        ...action({ id: "act-1", type: "toggle" }),
+        characterSkillId: "char-skill-1",
+      },
+    ]),
+    {
+      gmAdmin: {
+        enabled: true,
+        openActionId: "act-1",
+        pendingDeleteId: null,
+      },
+    },
+  );
+  assert.match(html, /class="ohud-qb-card"/);
+  assert.match(html, /data-action="toggle-gm-skill-menu"/);
+  assert.match(html, /data-action="gm-delete-skill"/);
+  assert.match(html, /data-action="gm-delete-ability"/);
+  assert.ok(!/<button[^>]*>\s*<button/i.test(html), "no nested button markup");
+});
+
 test("15/backcompat. SkillBlock falls back to the legacy category view when no quickbar (mock path unaffected)", () => {
   const legacyState = {
     viewer: { role: "player" },
@@ -510,6 +533,34 @@ test("open-quickbar-editor dispatches only the quickbar open-editor command", ()
   assert.ok(idx > -1);
   const block = moduleSrc.slice(idx, moduleSrc.indexOf("break;", idx));
   assert.ok(block.includes('feature: "quickbar"') && block.includes('type: "open-editor"'));
+});
+
+test("CombatHudModule handles GM delete before the generic [data-action] routing and stops propagation", () => {
+  const deleteIdx = moduleSrc.indexOf("const deleteTarget = e.target.closest('[data-action=\"gm-delete-skill\"], [data-action=\"gm-delete-ability\"]');");
+  const genericIdx = moduleSrc.indexOf('const t = e.target.closest("[data-action]");');
+  assert.ok(deleteIdx > -1, "dedicated GM delete handler exists");
+  assert.ok(genericIdx > -1 && deleteIdx < genericIdx, "GM delete branch runs before generic action routing");
+  const block = moduleSrc.slice(deleteIdx, genericIdx);
+  assert.match(block, /e\.preventDefault\(\)/);
+  assert.match(block, /e\.stopPropagation\(\)/);
+  assert.match(block, /feature:\s*"gm-skill-admin"/);
+});
+
+test("CombatHudModule skips Skills re-render on same-signature live payloads and keeps menu state out of DOM", () => {
+  assert.match(moduleSrc, /function buildSkillsRenderSignature\(payload\)/);
+  assert.match(moduleSrc, /if \(nextSig === lastSkillsRenderSignature && !gmDeleteStatus\)/);
+  assert.match(moduleSrc, /openSkillsMenu = null/);
+  assert.match(moduleSrc, /pendingGmDeleteId = null/);
+  assert.match(moduleSrc, /render-skipped/);
+});
+
+test("sceneSelectionController routes gm-skill-admin deletes through server refresh, with single-flight guard", () => {
+  assert.match(sceneControllerSrc, /feature === "gm-skill-admin"/);
+  assert.match(sceneControllerSrc, /skillAdminDeleteInFlight/);
+  assert.match(sceneControllerSrc, /odyssey_character_skills\?id=eq\./);
+  assert.match(sceneControllerSrc, /odyssey_character_abilities\?id=eq\./);
+  assert.match(sceneControllerSrc, /quickbarController\?\.refresh/);
+  assert.match(sceneControllerSrc, /logDebugEvent\("skills", "gm-delete-result"/);
 });
 
 test("15. selectionState folds the abilities runtime into snapshot.quickbar (Skills only; Target/Action untouched)", () => {

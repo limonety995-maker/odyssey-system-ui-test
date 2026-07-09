@@ -44,6 +44,30 @@ export function loadWeaponProfileMagazine(payload, settings) {
   );
 }
 
+export function unloadWeaponMagazine(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.unloadWeaponMagazine,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function loadWeaponInternalRounds(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.loadWeaponInternalRounds,
+    { p_payload: payload },
+    settings,
+  );
+}
+
+export function unloadWeaponInternalRounds(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.unloadWeaponInternalRounds,
+    { p_payload: payload },
+    settings,
+  );
+}
+
 export function activateWeaponFeature(payload, settings) {
   return callSupabaseRpc(
     WEAPON_RPC_NAMES.activateWeaponFeature,

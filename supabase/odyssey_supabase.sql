@@ -29665,7 +29665,7 @@ begin
     );
   end if;
 
-  if v_source_type not in ('psionic', 'implant', 'prosthetic', 'equipment', 'item', 'innate', 'custom') then
+  if v_source_type not in ('psionic', 'implant', 'prosthetic', 'equipment', 'item', 'weapon', 'skill', 'perk', 'innate', 'custom') then
     return public.odyssey_creator_error(
       'VALIDATION_ERROR',
       'source_type is invalid.',
@@ -44651,7 +44651,7 @@ begin
     );
   end if;
 
-  if v_source_type not in ('psionic', 'implant', 'prosthetic', 'equipment', 'item', 'innate', 'custom') then
+  if v_source_type not in ('psionic', 'implant', 'prosthetic', 'equipment', 'item', 'weapon', 'skill', 'perk', 'innate', 'custom') then
     return public.odyssey_creator_error(
       'VALIDATION_ERROR',
       'source_type is invalid.',
@@ -50894,7 +50894,7 @@ create or replace function public.assign_character_owner(
 )
 returns jsonb
 language plpgsql
-as $
+as $body$
 declare
   v_character_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_id');
   v_owner_player_id text := coalesce(nullif(trim(coalesce(p_payload->>'owner_player_id', '')), ''), '');
@@ -52667,7 +52667,7 @@ begin
     'turn_result', v_next_turn
   );
 end;
-$;
+$body$;
 
 create or replace function public.combat_skip_turn(
   p_payload jsonb
@@ -53127,12 +53127,13 @@ create or replace function public.combat_execute_action(
 )
 returns jsonb
 language plpgsql
-as $
+as $body$
 declare
   v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
   v_encounter_id uuid := public.odyssey_try_parse_uuid(v_payload->>'encounter_id');
   v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
   v_kind text := lower(trim(coalesce(v_payload->>'kind', '')));
+  v_include_runtime boolean := coalesce(nullif(trim(coalesce(v_payload->>'include_runtime', '')), '')::boolean, false);
   v_actor_player_id text := coalesce(nullif(trim(coalesce(v_payload->>'actor_player_id', '')), ''), '');
   v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(v_payload->>'actor_is_gm', '')), '')::boolean, false);
   v_intent jsonb := case when jsonb_typeof(v_payload->'intent') = 'object' then v_payload->'intent' else '{}'::jsonb end;
@@ -53146,7 +53147,11 @@ declare
   v_move_cost integer := 0;
   v_use_reaction boolean := false;
   v_post_refresh jsonb := '{}'::jsonb;
+  v_result_target_character_id uuid := null;
+  v_result_combat_state jsonb := '{}'::jsonb;
 begin
+  perform set_config('lock_timeout', '1500ms', true);
+
   if v_kind not in ('attack', 'reload', 'ability', 'perk', 'item', 'move') then
     return jsonb_build_object('ok', false, 'error', 'INVALID_ACTION_KIND', 'message', 'Unsupported action kind.');
   end if;
@@ -53260,7 +53265,24 @@ begin
     perform public.odyssey_increment_encounter_state_version(v_encounter_id);
   end if;
 
-  v_post_refresh := public.odyssey_refresh_character_combat_state(v_character_id);
+  v_result_target_character_id := public.odyssey_try_parse_uuid(v_result->>'target_character_id');
+  v_result_combat_state := case
+    when jsonb_typeof(v_result->'combat_state') = 'object' then v_result->'combat_state'
+    else '{}'::jsonb
+  end;
+
+  if v_kind = 'ability'
+     and v_result_target_character_id = v_character_id
+     and v_result_combat_state <> '{}'::jsonb then
+    v_post_refresh := jsonb_build_object(
+      'ok', true,
+      'character_id', v_character_id,
+      'combat_state', v_result_combat_state,
+      'state_version', nullif(v_result#>>'{combat_state,state_version}', '')::integer
+    );
+  else
+    v_post_refresh := public.odyssey_refresh_character_combat_state(v_character_id);
+  end if;
 
   if v_kind = 'perk'
      and coalesce(nullif(v_result->>'force_end_turn', '')::boolean, false)
@@ -53280,10 +53302,29 @@ begin
       ),
     'result', v_result,
     'acting_combat_state', coalesce(v_post_refresh->'combat_state', '{}'::jsonb),
-    'runtime', public.odyssey_build_combat_runtime(v_encounter_id, v_actor_player_id, v_actor_is_gm, v_actor_is_gm, 5)
+    'runtime', case
+      when v_include_runtime then public.odyssey_build_combat_runtime(v_encounter_id, v_actor_player_id, v_actor_is_gm, v_actor_is_gm, 5)
+      else null
+    end
   );
+exception
+  when lock_not_available then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ACTION_BUSY_RETRY',
+      'message', 'Character state is busy. Please retry.'
+    );
+  when query_canceled then
+    if SQLERRM ilike '%statement timeout%' or SQLERRM ilike '%lock timeout%' then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'ACTION_BUSY_RETRY',
+        'message', 'Character state is busy. Please retry.'
+      );
+    end if;
+    raise;
 end;
-$;
+$body$;
 
 grant execute on function public.odyssey_get_character_reaction_value(uuid) to anon, authenticated;
 grant execute on function public.odyssey_character_has_active_effect_flag(uuid, text) to anon, authenticated;
@@ -63381,4 +63422,6197 @@ comment on function public.odyssey_get_character_quick_actions_runtime is
 grant execute on function public.odyssey_get_character_quick_actions_runtime(uuid) to anon, authenticated;
 
 -- ===== END 101_quickbar_execution_availability.sql =====
+
+-- ===== BEGIN 102_character_ability_reconcile.sql =====
+
+do $$
+declare
+  v_constraint_name text;
+begin
+  select conname
+  into v_constraint_name
+  from pg_constraint
+  where conrelid = 'public.odyssey_ability_defs'::regclass
+    and contype = 'c'
+    and pg_get_constraintdef(oid) ilike '%source_type%';
+
+  if v_constraint_name is not null then
+    execute format(
+      'alter table public.odyssey_ability_defs drop constraint %I',
+      v_constraint_name
+    );
+  end if;
+end;
+$$;
+
+alter table public.odyssey_ability_defs
+  add constraint odyssey_ability_defs_source_type_check_v2
+  check (
+    source_type in (
+      'psionic',
+      'implant',
+      'prosthetic',
+      'equipment',
+      'item',
+      'weapon',
+      'skill',
+      'perk',
+      'innate',
+      'custom'
+    )
+  );
+
+create table if not exists public.odyssey_ability_grants (
+  id uuid primary key default gen_random_uuid(),
+  source_type text not null check (
+    source_type in ('skill', 'perk', 'item', 'equipment', 'weapon')
+  ),
+  source_def_id uuid not null,
+  ability_def_id uuid not null references public.odyssey_ability_defs(id) on delete cascade,
+  min_level integer not null default 1,
+  is_enabled boolean not null default true,
+  data jsonb not null default '{}'::jsonb check (jsonb_typeof(data) = 'object'),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create unique index if not exists odyssey_ability_grants_unique
+  on public.odyssey_ability_grants (source_type, source_def_id, ability_def_id);
+
+create index if not exists odyssey_ability_grants_source_idx
+  on public.odyssey_ability_grants (source_type, source_def_id, is_enabled, sort_order);
+
+create index if not exists odyssey_ability_grants_ability_idx
+  on public.odyssey_ability_grants (ability_def_id, sort_order);
+
+alter table public.odyssey_ability_grants enable row level security;
+
+drop policy if exists "odyssey_ability_grants_full_access" on public.odyssey_ability_grants;
+create policy "odyssey_ability_grants_full_access"
+on public.odyssey_ability_grants
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+grant select, insert, update, delete on public.odyssey_ability_grants to anon, authenticated;
+
+drop trigger if exists odyssey_touch_updated_at_ability_grants on public.odyssey_ability_grants;
+create trigger odyssey_touch_updated_at_ability_grants
+before update on public.odyssey_ability_grants
+for each row
+execute function public.odyssey_touch_updated_at();
+
+insert into public.odyssey_ability_grants (
+  source_type,
+  source_def_id,
+  ability_def_id,
+  min_level,
+  is_enabled,
+  data,
+  sort_order
+)
+select
+  'skill',
+  ad.linked_skill_id,
+  ad.id,
+  1,
+  true,
+  jsonb_build_object(
+    'generated_from_legacy_linked_skill_id', true
+  ),
+  coalesce(ad.sort_order, 0)
+from public.odyssey_ability_defs ad
+where ad.linked_skill_id is not null
+  and not exists (
+    select 1
+    from public.odyssey_ability_grants grant_link
+    where grant_link.source_type = 'skill'
+      and grant_link.source_def_id = ad.linked_skill_id
+      and grant_link.ability_def_id = ad.id
+  );
+
+create or replace function public.odyssey_reconcile_character_abilities(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_character_exists boolean := false;
+  v_skill_upserted integer := 0;
+  v_skill_hidden integer := 0;
+  v_perk_upserted integer := 0;
+  v_perk_hidden integer := 0;
+  v_item_upserted integer := 0;
+  v_item_hidden integer := 0;
+  v_equipment_upserted integer := 0;
+  v_equipment_hidden integer := 0;
+  v_weapon_hidden integer := 0;
+  v_weapon_result jsonb := '[]'::jsonb;
+  v_source record;
+  v_existing public.odyssey_character_abilities%rowtype;
+  v_payload_data jsonb := '{}'::jsonb;
+  v_weapon_sync_result jsonb := '{}'::jsonb;
+begin
+  select exists(
+    select 1
+    from public.odyssey_characters c
+    where c.id = p_character_id
+      and coalesce(c.is_deleted, false) = false
+  )
+  into v_character_exists;
+
+  if not v_character_exists then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'character_id', p_character_id
+    );
+  end if;
+
+  for v_source in
+    with mapped_skill_grants as (
+      select
+        ad.id as ability_def_id,
+        ad.code as ability_code,
+        grant_link.source_def_id as skill_def_id,
+        cs.id as character_skill_id,
+        greatest(coalesce(cs.level, 0), 0) as skill_level,
+        coalesce(grant_link.sort_order, ad.sort_order, 0) as sort_order,
+        coalesce(grant_link.data, '{}'::jsonb) as grant_data,
+        0 as source_priority
+      from public.odyssey_ability_grants grant_link
+      join public.odyssey_ability_defs ad on ad.id = grant_link.ability_def_id
+      join public.odyssey_character_skills cs
+        on cs.character_id = p_character_id
+       and cs.skill_def_id = grant_link.source_def_id
+      where grant_link.source_type = 'skill'
+        and grant_link.is_enabled = true
+        and greatest(coalesce(cs.level, 0), 0) >= greatest(coalesce(grant_link.min_level, 1), 1)
+    ),
+    legacy_skill_grants as (
+      select
+        ad.id as ability_def_id,
+        ad.code as ability_code,
+        ad.linked_skill_id as skill_def_id,
+        cs.id as character_skill_id,
+        greatest(coalesce(cs.level, 0), 0) as skill_level,
+        coalesce(ad.sort_order, 0) as sort_order,
+        jsonb_build_object(
+          'generated_from_legacy_linked_skill_id', true
+        ) as grant_data,
+        1 as source_priority
+      from public.odyssey_ability_defs ad
+      join public.odyssey_character_skills cs
+        on cs.character_id = p_character_id
+       and cs.skill_def_id = ad.linked_skill_id
+      where ad.linked_skill_id is not null
+        and not exists (
+          select 1
+          from public.odyssey_ability_grants grant_link
+          where grant_link.source_type = 'skill'
+            and grant_link.source_def_id = ad.linked_skill_id
+            and grant_link.ability_def_id = ad.id
+        )
+    )
+    select distinct on (combined.ability_def_id, combined.character_skill_id)
+      combined.*
+    from (
+      select * from legacy_skill_grants
+      union all
+      select * from mapped_skill_grants
+    ) combined
+    order by combined.ability_def_id, combined.character_skill_id, combined.source_priority
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_equipment_item_id is null
+      and ability.source_character_item_id is null
+      and ability.source_character_weapon_id is null
+      and coalesce(ability.data->>'generated_from', 'skill') = 'skill'
+    for update of ability;
+
+    v_payload_data :=
+      coalesce(v_existing.data, '{}'::jsonb)
+      || coalesce(v_source.grant_data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'skill',
+        'skill_def_id', v_source.skill_def_id::text,
+        'character_skill_id', v_source.character_skill_id::text,
+        'source_removed', false
+      );
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = v_source.character_skill_id,
+        learned_level = v_source.skill_level,
+        is_enabled = true,
+        is_hidden = false,
+        data = v_payload_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        v_source.character_skill_id,
+        v_source.skill_level,
+        null,
+        null,
+        null,
+        true,
+        false,
+        v_payload_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_skill_upserted := v_skill_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    character_skill_id = null,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'skill',
+        'source_removed', true,
+        'source_removed_reason', 'missing_skill'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_equipment_item_id is null
+    and ability.source_character_item_id is null
+    and ability.source_character_weapon_id is null
+    and coalesce(ability.data->>'generated_from', 'skill') = 'skill'
+    and exists (
+      select 1
+      from public.odyssey_ability_defs ad
+      where ad.id = ability.ability_def_id
+        and (
+          (ad.linked_skill_id is not null)
+          or exists (
+            select 1
+            from public.odyssey_ability_grants grant_link
+            where grant_link.ability_def_id = ad.id
+              and grant_link.source_type = 'skill'
+          )
+        )
+    )
+    and not exists (
+      select 1
+      from public.odyssey_ability_defs ad
+      left join public.odyssey_character_skills skill_row
+        on skill_row.character_id = p_character_id
+       and skill_row.skill_def_id = ad.linked_skill_id
+      where ad.id = ability.ability_def_id
+        and ad.linked_skill_id is not null
+        and skill_row.id is not null
+      union all
+      select 1
+      from public.odyssey_ability_grants grant_link
+      join public.odyssey_character_skills skill_row
+        on skill_row.character_id = p_character_id
+       and skill_row.skill_def_id = grant_link.source_def_id
+      where grant_link.ability_def_id = ability.ability_def_id
+        and grant_link.source_type = 'skill'
+        and grant_link.is_enabled = true
+        and greatest(coalesce(skill_row.level, 0), 0) >= greatest(coalesce(grant_link.min_level, 1), 1)
+    );
+
+  get diagnostics v_skill_hidden = row_count;
+
+  for v_source in
+    select
+      ad.id as ability_def_id,
+      ad.code as ability_code,
+      cp.id as character_perk_id,
+      cp.perk_def_id,
+      coalesce(grant_link.sort_order, ad.sort_order, 0) as sort_order,
+      coalesce(grant_link.data, '{}'::jsonb) as grant_data
+    from public.odyssey_character_perks cp
+    join public.odyssey_ability_grants grant_link
+      on grant_link.source_type = 'perk'
+     and grant_link.source_def_id = cp.perk_def_id
+     and grant_link.is_enabled = true
+    join public.odyssey_ability_defs ad on ad.id = grant_link.ability_def_id
+    where cp.character_id = p_character_id
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_equipment_item_id is null
+      and ability.source_character_item_id is null
+      and ability.source_character_weapon_id is null
+      and coalesce(ability.data->>'generated_from', '') = 'perk'
+    for update of ability;
+
+    v_payload_data :=
+      coalesce(v_existing.data, '{}'::jsonb)
+      || coalesce(v_source.grant_data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'perk',
+        'perk_def_id', v_source.perk_def_id::text,
+        'character_perk_id', v_source.character_perk_id::text,
+        'source_removed', false
+      );
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = null,
+        learned_level = greatest(coalesce(v_existing.learned_level, 1), 1),
+        is_enabled = true,
+        is_hidden = false,
+        data = v_payload_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      begin
+        insert into public.odyssey_character_abilities (
+          character_id,
+          ability_def_id,
+          character_skill_id,
+          learned_level,
+          source_equipment_item_id,
+          source_character_item_id,
+          source_character_weapon_id,
+          is_enabled,
+          is_hidden,
+          data,
+          notes,
+          sort_order
+        )
+        values (
+          p_character_id,
+          v_source.ability_def_id,
+          null,
+          1,
+          null,
+          null,
+          null,
+          true,
+          false,
+          v_payload_data,
+          '',
+          v_source.sort_order
+        );
+      exception
+        when unique_violation then
+          null;
+      end;
+    end if;
+
+    v_perk_upserted := v_perk_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'perk',
+        'source_removed', true,
+        'source_removed_reason', 'missing_perk'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_equipment_item_id is null
+    and ability.source_character_item_id is null
+    and ability.source_character_weapon_id is null
+    and coalesce(ability.data->>'generated_from', '') = 'perk'
+    and not exists (
+      select 1
+      from public.odyssey_character_perks cp
+      join public.odyssey_ability_grants grant_link
+        on grant_link.source_type = 'perk'
+       and grant_link.source_def_id = cp.perk_def_id
+       and grant_link.ability_def_id = ability.ability_def_id
+       and grant_link.is_enabled = true
+      where cp.character_id = p_character_id
+    );
+
+  get diagnostics v_perk_hidden = row_count;
+
+  for v_source in
+    select
+      ad.id as ability_def_id,
+      ad.code as ability_code,
+      item.id as source_character_item_id,
+      item.item_def_id,
+      coalesce(link.sort_order, ad.sort_order, item.sort_order, 0) as sort_order,
+      coalesce(link.grant_mode, 'activated') as grant_mode,
+      coalesce(link.data, '{}'::jsonb) as grant_data
+    from public.odyssey_character_items item
+    join public.odyssey_item_def_abilities link
+      on link.item_def_id = item.item_def_id
+     and link.is_enabled = true
+    join public.odyssey_ability_defs ad on ad.id = link.ability_def_id
+    where item.character_id = p_character_id
+      and coalesce(item.quantity, 0) > 0
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_character_item_id = v_source.source_character_item_id
+    for update of ability;
+
+    v_payload_data :=
+      coalesce(v_existing.data, '{}'::jsonb)
+      || coalesce(v_source.grant_data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'item',
+        'item_def_id', v_source.item_def_id::text,
+        'source_character_item_id', v_source.source_character_item_id::text,
+        'grant_mode', v_source.grant_mode,
+        'source_removed', false
+      );
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = null,
+        learned_level = greatest(coalesce(v_existing.learned_level, 1), 1),
+        is_enabled = true,
+        is_hidden = false,
+        data = v_payload_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        null,
+        1,
+        null,
+        v_source.source_character_item_id,
+        null,
+        true,
+        false,
+        v_payload_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_item_upserted := v_item_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'item',
+        'source_removed', true,
+        'source_removed_reason', 'missing_item'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_character_item_id is not null
+    and not exists (
+      select 1
+      from public.odyssey_character_items item
+      join public.odyssey_item_def_abilities link
+        on link.item_def_id = item.item_def_id
+       and link.ability_def_id = ability.ability_def_id
+       and link.is_enabled = true
+      where item.id = ability.source_character_item_id
+        and item.character_id = p_character_id
+        and coalesce(item.quantity, 0) > 0
+    );
+
+  get diagnostics v_item_hidden = row_count;
+
+  for v_source in
+    select
+      ad.id as ability_def_id,
+      ad.code as ability_code,
+      item.id as source_equipment_item_id,
+      item.equipment_model_id,
+      coalesce(link.sort_order, ad.sort_order, item.sort_order, 0) as sort_order,
+      coalesce(link.grant_mode, 'available') as grant_mode,
+      coalesce(link.data, '{}'::jsonb) as grant_data
+    from public.odyssey_character_equipment_items item
+    join public.odyssey_equipment_model_abilities link
+      on link.equipment_model_id = item.equipment_model_id
+     and link.is_enabled = true
+    join public.odyssey_ability_defs ad on ad.id = link.ability_def_id
+    where item.character_id = p_character_id
+      and item.is_equipped = true
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_equipment_item_id = v_source.source_equipment_item_id
+    for update of ability;
+
+    v_payload_data :=
+      coalesce(v_existing.data, '{}'::jsonb)
+      || coalesce(v_source.grant_data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'equipment',
+        'equipment_model_id', v_source.equipment_model_id::text,
+        'source_equipment_item_id', v_source.source_equipment_item_id::text,
+        'grant_mode', v_source.grant_mode,
+        'source_removed', false
+      );
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = null,
+        learned_level = greatest(coalesce(v_existing.learned_level, 1), 1),
+        is_enabled = true,
+        is_hidden = false,
+        data = v_payload_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        null,
+        1,
+        v_source.source_equipment_item_id,
+        null,
+        null,
+        true,
+        false,
+        v_payload_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_equipment_upserted := v_equipment_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'equipment',
+        'source_removed', true,
+        'source_removed_reason', 'missing_equipment'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_equipment_item_id is not null
+    and not exists (
+      select 1
+      from public.odyssey_character_equipment_items item
+      join public.odyssey_equipment_model_abilities link
+        on link.equipment_model_id = item.equipment_model_id
+       and link.ability_def_id = ability.ability_def_id
+       and link.is_enabled = true
+      where item.id = ability.source_equipment_item_id
+        and item.character_id = p_character_id
+        and item.is_equipped = true
+    );
+
+  get diagnostics v_equipment_hidden = row_count;
+
+  for v_source in
+    select weapon.id
+    from public.odyssey_character_weapons weapon
+    where weapon.character_id = p_character_id
+  loop
+    v_weapon_sync_result := public.initialize_character_weapon_abilities(v_source.id);
+    v_weapon_result := v_weapon_result || jsonb_build_array(v_weapon_sync_result);
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'weapon',
+        'source_removed', true,
+        'source_removed_reason', 'missing_weapon'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_character_weapon_id is not null
+    and not exists (
+      select 1
+      from public.odyssey_character_weapons weapon
+      where weapon.id = ability.source_character_weapon_id
+        and weapon.character_id = p_character_id
+    );
+
+  get diagnostics v_weapon_hidden = row_count;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_id', p_character_id,
+    'skill_upserted', v_skill_upserted,
+    'skill_hidden', v_skill_hidden,
+    'perk_upserted', v_perk_upserted,
+    'perk_hidden', v_perk_hidden,
+    'item_upserted', v_item_upserted,
+    'item_hidden', v_item_hidden,
+    'equipment_upserted', v_equipment_upserted,
+    'equipment_hidden', v_equipment_hidden,
+    'weapon_hidden', v_weapon_hidden,
+    'weapon_result', v_weapon_result
+  );
+end;
+$$;
+
+create or replace function public.odyssey_reconcile_character_abilities_trigger()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_character_id uuid := coalesce(new.character_id, old.character_id);
+begin
+  if v_character_id is not null then
+    perform public.odyssey_reconcile_character_abilities(v_character_id);
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists odyssey_reconcile_character_abilities_on_skills on public.odyssey_character_skills;
+create trigger odyssey_reconcile_character_abilities_on_skills
+after insert or update or delete on public.odyssey_character_skills
+for each row
+execute function public.odyssey_reconcile_character_abilities_trigger();
+
+drop trigger if exists odyssey_reconcile_character_abilities_on_perks on public.odyssey_character_perks;
+create trigger odyssey_reconcile_character_abilities_on_perks
+after insert or update or delete on public.odyssey_character_perks
+for each row
+execute function public.odyssey_reconcile_character_abilities_trigger();
+
+drop trigger if exists odyssey_reconcile_character_abilities_on_items on public.odyssey_character_items;
+create trigger odyssey_reconcile_character_abilities_on_items
+after insert or update or delete on public.odyssey_character_items
+for each row
+execute function public.odyssey_reconcile_character_abilities_trigger();
+
+drop trigger if exists odyssey_reconcile_character_abilities_on_equipment on public.odyssey_character_equipment_items;
+create trigger odyssey_reconcile_character_abilities_on_equipment
+after insert or update or delete on public.odyssey_character_equipment_items
+for each row
+execute function public.odyssey_reconcile_character_abilities_trigger();
+
+drop trigger if exists odyssey_reconcile_character_abilities_on_weapons on public.odyssey_character_weapons;
+create trigger odyssey_reconcile_character_abilities_on_weapons
+after insert or update or delete on public.odyssey_character_weapons
+for each row
+execute function public.odyssey_reconcile_character_abilities_trigger();
+
+create or replace function public.get_character_abilities(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_character_exists boolean := false;
+  v_resource_pools jsonb := '[]'::jsonb;
+  v_abilities jsonb := '[]'::jsonb;
+begin
+  select exists(
+    select 1
+    from public.odyssey_characters c
+    where c.id = p_character_id
+      and coalesce(c.is_deleted, false) = false
+  )
+  into v_character_exists;
+
+  if not v_character_exists then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'character_id', p_character_id,
+      'resource_pools', '[]'::jsonb,
+      'abilities', '[]'::jsonb
+    );
+  end if;
+
+  with resource_rows as (
+    select
+      d.sort_order,
+      d.code,
+      jsonb_build_object(
+        'id', p.id,
+        'resource_pool_def_id', d.id,
+        'code', d.code,
+        'name', d.name,
+        'source_type', d.source_type,
+        'attribute_code', attr.code,
+        'recovery_mode', d.recovery_mode,
+        'current_value',
+          coalesce(
+            p.current_value,
+            case
+              when d.default_current_value is not null then least(d.default_current_value, case
+                when d.source_type = 'attribute' and d.attribute_def_id is not null then greatest(coalesce(a.value, d.default_max_value, 0), 0)
+                else greatest(coalesce(d.default_max_value, 0), 0)
+              end)
+              when d.source_type = 'attribute' and d.attribute_def_id is not null then greatest(coalesce(a.value, d.default_max_value, 0), 0)
+              else greatest(coalesce(d.default_max_value, 0), 0)
+            end,
+            0
+          ),
+        'max_value',
+          case
+            when d.source_type = 'attribute' and d.attribute_def_id is not null then greatest(coalesce(a.value, d.default_max_value, 0), 0)
+            else greatest(coalesce(d.default_max_value, 0), 0)
+          end,
+        'reserved_value', coalesce(p.reserved_value, 0),
+        'description', d.description,
+        'data', coalesce(p.data, '{}'::jsonb),
+        'notes', coalesce(p.notes, ''),
+        'tags', d.tags
+      ) as payload
+    from public.odyssey_resource_pool_defs d
+    left join public.odyssey_attribute_defs attr on attr.id = d.attribute_def_id
+    left join public.odyssey_character_attributes a
+      on a.character_id = p_character_id
+     and a.attribute_def_id = d.attribute_def_id
+    left join public.odyssey_character_resource_pools p
+      on p.character_id = p_character_id
+     and p.resource_pool_def_id = d.id
+  )
+  select coalesce(jsonb_agg(payload order by sort_order, code), '[]'::jsonb)
+  into v_resource_pools
+  from resource_rows;
+
+  with ability_rows as (
+    select
+      ability.sort_order,
+      def.sort_order as def_sort_order,
+      def.code,
+      ability.id,
+      ability.character_id,
+      def.id as ability_def_id,
+      def.code as ability_code,
+      def.name as ability_name,
+      def.ability_kind,
+      def.source_type,
+      def.activation_type,
+      def.target_type,
+      def.effect_mode,
+      def.attack_type,
+      def.description,
+      def.linked_skill_id,
+      linked_def.code as linked_skill_code,
+      linked_def.name as linked_skill_name,
+      coalesce(direct_skill.id, linked_skill.id) as resolved_character_skill_id,
+      coalesce(direct_skill.level, linked_skill.level, 0) as resolved_character_skill_level,
+      ability.learned_level,
+      greatest(coalesce(direct_skill.level, linked_skill.level, ability.learned_level, 0), 0) as effective_level,
+      ability.is_enabled,
+      ability.is_hidden,
+      ability.current_cooldown_rounds,
+      ability.current_charges,
+      ability.max_charges,
+      ability.source_equipment_item_id,
+      ability.source_character_item_id,
+      ability.source_character_weapon_id,
+      ability.data,
+      ability.notes,
+      def.tags,
+      level_data.*,
+      source_weapon.custom_name as source_weapon_custom_name,
+      source_weapon_model.id as source_weapon_model_id,
+      source_weapon_model.code as source_weapon_model_code,
+      source_weapon_model.name as source_weapon_model_name,
+      source_weapon_profile.id as source_weapon_active_profile_id,
+      source_weapon_profile.code as source_weapon_active_profile_code
+    from public.odyssey_character_abilities ability
+    join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+    left join public.odyssey_skill_defs linked_def on linked_def.id = def.linked_skill_id
+    left join public.odyssey_character_skills direct_skill
+      on direct_skill.id = ability.character_skill_id
+    left join public.odyssey_character_skills linked_skill
+      on ability.character_skill_id is null
+     and linked_skill.character_id = ability.character_id
+     and linked_skill.skill_def_id = def.linked_skill_id
+    left join lateral (
+      select level_entry.*
+      from public.odyssey_ability_level_defs level_entry
+      where level_entry.ability_def_id = def.id
+        and level_entry.ability_level <= greatest(coalesce(direct_skill.level, linked_skill.level, ability.learned_level, 0), 0)
+      order by level_entry.ability_level desc
+      limit 1
+    ) level_data on true
+    left join public.odyssey_character_weapons source_weapon on source_weapon.id = ability.source_character_weapon_id
+    left join public.odyssey_weapon_model_defs source_weapon_model on source_weapon_model.id = source_weapon.weapon_model_id
+    left join public.odyssey_weapon_model_profiles source_weapon_profile on source_weapon_profile.id = source_weapon.active_profile_id
+    where ability.character_id = p_character_id
+      and ability.is_hidden = false
+      and ability.is_enabled = true
+  )
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', id,
+        'character_id', character_id,
+        'ability_def_id', ability_def_id,
+        'code', ability_code,
+        'name', ability_name,
+        'ability_kind', ability_kind,
+        'source_type', source_type,
+        'activation_type', activation_type,
+        'target_type', target_type,
+        'effect_mode', effect_mode,
+        'attack_type', attack_type,
+        'description', description,
+        'linked_skill_id', linked_skill_id,
+        'linked_skill_code', linked_skill_code,
+        'linked_skill_name', linked_skill_name,
+        'character_skill_id', resolved_character_skill_id,
+        'character_skill_level', resolved_character_skill_level,
+        'learned_level', learned_level,
+        'effective_level', effective_level,
+        'is_enabled', is_enabled,
+        'is_hidden', is_hidden,
+        'current_cooldown_rounds', current_cooldown_rounds,
+        'current_charges', current_charges,
+        'max_charges', max_charges,
+        'resource',
+          jsonb_build_object(
+            'mode', source_type,
+            'pool_code', coalesce(nullif(level_data.resource_pool_code, ''), null),
+            'item_code', coalesce(nullif(level_data.resource_item_code, ''), null),
+            'cost', coalesce(level_data.resource_cost, 0)
+          ),
+        'source_equipment_item_id', source_equipment_item_id,
+        'source_character_item_id', source_character_item_id,
+        'source_character_weapon_id', source_character_weapon_id,
+        'source',
+          case
+            when source_character_weapon_id is not null then jsonb_strip_nulls(
+              jsonb_build_object(
+                'type', 'weapon',
+                'character_weapon_id', source_character_weapon_id,
+                'weapon_name', coalesce(nullif(trim(source_weapon_custom_name), ''), source_weapon_model_name),
+                'weapon_model_id', source_weapon_model_id,
+                'weapon_model_code', source_weapon_model_code,
+                'required_profile_id', nullif(trim(coalesce(data->>'required_profile_id', '')), ''),
+                'required_profile_code', nullif(trim(coalesce(data->>'required_profile_code', '')), ''),
+                'is_available_for_active_profile',
+                  case
+                    when nullif(trim(coalesce(data->>'required_profile_id', '')), '') is null then true
+                    else source_weapon_active_profile_id::text = nullif(trim(coalesce(data->>'required_profile_id', '')), '')
+                  end
+              )
+            )
+            when source_equipment_item_id is not null then jsonb_strip_nulls(
+              jsonb_build_object(
+                'type', 'equipment',
+                'character_equipment_item_id', source_equipment_item_id
+              )
+            )
+            when source_character_item_id is not null then jsonb_strip_nulls(
+              jsonb_build_object(
+                'type', 'item',
+                'character_item_id', source_character_item_id
+              )
+            )
+            else jsonb_strip_nulls(
+              jsonb_build_object(
+                'type', coalesce(nullif(trim(coalesce(data->>'generated_from', '')), ''), source_type)
+              )
+            )
+          end,
+        'data', data,
+        'notes', notes,
+        'tags', tags,
+        'level',
+          jsonb_strip_nulls(
+            jsonb_build_object(
+              'ability_level', level_data.ability_level,
+              'resource_cost', level_data.resource_cost,
+              'cooldown_rounds', level_data.cooldown_rounds,
+              'range_profile_id', level_data.range_profile_id,
+              'attack_accuracy_bonus', level_data.attack_accuracy_bonus,
+              'attack_damage_bonus', level_data.attack_damage_bonus,
+              'attack_armor_pierce', level_data.attack_armor_pierce,
+              'ignore_armor', level_data.ignore_armor,
+              'special_armor_value', level_data.special_armor_value,
+              'special_max_critical', level_data.special_max_critical,
+              'duration_rounds', level_data.duration_rounds,
+              'data', level_data.data,
+              'effect_data', level_data.effect_data
+            )
+          )
+      )
+      order by sort_order, def_sort_order, code, id
+    ),
+    '[]'::jsonb
+  )
+  into v_abilities
+  from ability_rows;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_id', p_character_id,
+    'resource_pools', v_resource_pools,
+    'abilities', v_abilities
+  );
+end;
+$$;
+
+create or replace function public.get_character_runtime_bundle(
+  p_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_sections_raw jsonb := v_payload->'sections';
+  v_filtered_sections jsonb := '[]'::jsonb;
+  v_item text;
+  v_bundle jsonb := '{}'::jsonb;
+  v_sections jsonb := '{}'::jsonb;
+  v_rule_sheet jsonb := '{}'::jsonb;
+  v_runtime_sections_fn text := '';
+  v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
+  v_campaign_id text := coalesce(nullif(trim(coalesce(v_payload->>'campaign_id', '')), ''), '');
+  v_room_id text := coalesce(nullif(trim(coalesce(v_payload->>'room_id', '')), ''), '');
+  v_scene_id text := coalesce(nullif(trim(coalesce(v_payload->>'scene_id', '')), ''), '');
+  v_actor_player_id text := coalesce(nullif(trim(coalesce(v_payload->>'actor_player_id', '')), ''), '');
+  v_actor_is_gm boolean := coalesce(nullif(trim(coalesce(v_payload->>'actor_is_gm', '')), '')::boolean, false);
+  v_wants_combat_session boolean := false;
+  v_encounter public.odyssey_combat_encounters;
+  v_participant jsonb := null;
+  v_combat_session jsonb := null;
+begin
+  if to_regprocedure('public.odyssey_build_character_runtime_sections(jsonb)') is not null then
+    v_runtime_sections_fn := 'public.odyssey_build_character_runtime_sections';
+  elsif to_regprocedure('public.odyssey_get_character_runtime_bundle_legacy(jsonb)') is not null then
+    v_runtime_sections_fn := 'public.odyssey_get_character_runtime_bundle_legacy';
+  else
+    raise exception 'Missing runtime bundle sections helper function';
+  end if;
+
+  if jsonb_typeof(v_sections_raw) = 'array' then
+    for v_item in
+      select section_name
+      from jsonb_array_elements_text(v_sections_raw) as section_rows(section_name)
+    loop
+      if lower(trim(v_item)) = 'combat_session' then
+        v_wants_combat_session := true;
+      else
+        v_filtered_sections := v_filtered_sections || to_jsonb(v_item);
+      end if;
+    end loop;
+
+    if jsonb_array_length(v_filtered_sections) = 0 then
+      execute format(
+        'select %s($1)',
+        v_runtime_sections_fn
+      )
+      into v_bundle
+      using (v_payload - 'sections') || jsonb_build_object('sections', jsonb_build_array('summary'));
+    else
+      execute format(
+        'select %s($1)',
+        v_runtime_sections_fn
+      )
+      into v_bundle
+      using (v_payload - 'sections') || jsonb_build_object('sections', v_filtered_sections);
+    end if;
+  else
+    v_wants_combat_session := true;
+    execute format(
+      'select %s($1)',
+      v_runtime_sections_fn
+    )
+    into v_bundle
+    using v_payload;
+  end if;
+
+  if coalesce((v_bundle->>'ok')::boolean, false) = false then
+    return v_bundle;
+  end if;
+
+  if v_character_id is null then
+    v_character_id := public.odyssey_try_parse_uuid(v_bundle#>>'{character,id}');
+  end if;
+
+  if v_campaign_id = '' then
+    v_campaign_id := coalesce(v_bundle#>>'{character,campaign_id}', '');
+  end if;
+  if v_room_id = '' then
+    v_room_id := coalesce(v_bundle#>>'{character,room_id}', '');
+  end if;
+
+  if v_wants_combat_session and v_character_id is not null and v_room_id <> '' and v_scene_id <> '' then
+    select *
+    into v_encounter
+    from public.odyssey_get_active_encounter(v_campaign_id, v_room_id, v_scene_id);
+
+    if found then
+      select participant
+      into v_participant
+      from jsonb_array_elements(
+        coalesce(
+          public.odyssey_build_combat_runtime(
+            v_encounter.id,
+            v_actor_player_id,
+            v_actor_is_gm,
+            v_actor_is_gm,
+            1
+          )->'visible_participants',
+          '[]'::jsonb
+        )
+      ) as participant_rows(participant)
+      where public.odyssey_try_parse_uuid(participant_rows.participant->>'character_id') = v_character_id
+      limit 1;
+
+      if v_participant is not null then
+        v_combat_session := jsonb_build_object(
+          'encounter_id', v_encounter.id,
+          'encounter_state_version', v_encounter.state_version,
+          'participant',
+            jsonb_build_object(
+              'initiative_entry_id', public.odyssey_try_parse_uuid(v_participant->>'initiative_entry_id'),
+              'initiative_value', coalesce(nullif(v_participant->>'initiative_value', '')::integer, 0),
+              'order_index', coalesce(nullif(v_participant->>'order_index', '')::integer, 0),
+              'is_current_turn', coalesce(nullif(v_participant->>'is_current_turn', '')::boolean, false),
+              'action_current', coalesce(nullif(v_participant->>'action_current', '')::integer, 0),
+              'action_max', coalesce(nullif(v_participant->>'action_max', '')::integer, 0),
+              'move_current', coalesce(nullif(v_participant->>'move_current', '')::integer, 0),
+              'move_max', coalesce(nullif(v_participant->>'move_max', '')::integer, 0),
+              'reaction_action_current', coalesce(nullif(v_participant->>'reaction_action_current', '')::integer, 0),
+              'action_converted_to_move', coalesce(nullif(v_participant->>'action_converted_to_move', '')::boolean, false),
+              'hide_from_initiative_ui', coalesce(nullif(v_participant->>'hide_from_initiative_ui', '')::boolean, false),
+              'movement_version', coalesce(nullif(v_participant->>'movement_version', '')::integer, 0)
+            )
+        );
+      end if;
+    end if;
+  end if;
+
+  v_sections := coalesce(v_bundle->'sections', '{}'::jsonb);
+  if v_character_id is not null then
+    v_rule_sheet := public.get_character_rule_sheet(v_character_id);
+    if jsonb_typeof(v_rule_sheet) = 'object' then
+      if v_sections ? 'attributes' then
+        v_sections := jsonb_set(
+          v_sections,
+          '{attributes}',
+          coalesce(v_rule_sheet->'attributes', '[]'::jsonb),
+          true
+        );
+      end if;
+      if v_sections ? 'skills' then
+        v_sections := jsonb_set(
+          v_sections,
+          '{skills}',
+          coalesce(v_rule_sheet->'skills', '[]'::jsonb),
+          true
+        );
+      end if;
+    end if;
+  end if;
+  if v_wants_combat_session then
+    v_sections := v_sections || jsonb_build_object('combat_session', coalesce(v_combat_session, 'null'::jsonb));
+  end if;
+
+  if v_sections ? 'equipment' then
+    -- Runtime equipment must come from the canonical equipment RPC, otherwise
+    -- slot metadata like default_body_part_code / allowed_body_part_codes can
+    -- disappear when the legacy/helper path emits a reduced item shape.
+    if v_character_id is not null then
+      v_sections := jsonb_set(
+        v_sections,
+        '{equipment}',
+        coalesce(
+          public.get_character_equipment(v_character_id)->'items',
+          '[]'::jsonb
+        ),
+        true
+      );
+    end if;
+
+    if jsonb_typeof(v_sections->'equipment') = 'array' then
+      v_sections := jsonb_set(
+        v_sections,
+        '{equipment}',
+        coalesce(
+          (
+            select jsonb_agg(public.odyssey_runtime_flatten_equipment_item(item_value))
+            from jsonb_array_elements(v_sections->'equipment') as equipment_rows(item_value)
+          ),
+          '[]'::jsonb
+        ),
+        true
+      );
+    end if;
+  end if;
+
+  return v_bundle || jsonb_build_object('sections', v_sections);
+end;
+$$;
+
+create or replace function public.odyssey_get_character_quick_actions_runtime(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_character_exists boolean;
+  v_is_alive boolean;
+  v_is_conscious boolean;
+  v_has_skip_turn_effect boolean;
+  v_quick_actions jsonb := '[]'::jsonb;
+  v_layout jsonb;
+  v_version integer := 1;
+begin
+  select exists(
+    select 1 from public.odyssey_characters where id = p_character_id and not coalesce(is_deleted, false)
+  ) into v_character_exists;
+
+  if not v_character_exists then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'Character does not exist or is deleted',
+      'characterId', p_character_id,
+      'quickActions', '[]'::jsonb,
+      'quickbar', jsonb_build_object('slots', '[]'::jsonb, 'maxSlots', 20, 'version', 1)
+    );
+  end if;
+
+  select coalesce(cs.is_alive, true), coalesce(cs.is_conscious, true)
+  into v_is_alive, v_is_conscious
+  from public.odyssey_characters c
+  left join public.odyssey_character_combat_state cs on cs.character_id = c.id
+  where c.id = p_character_id;
+
+  v_has_skip_turn_effect := public.odyssey_character_has_active_effect_flag(p_character_id, 'skip_turn');
+
+  select t.layout, t.version into v_layout, v_version
+  from public.odyssey_character_quickbar_layouts t
+  where t.character_id = p_character_id;
+
+  v_layout := coalesce(v_layout, jsonb_build_object('slots', '[]'::jsonb));
+  v_version := coalesce(v_version, 0);
+
+  v_quick_actions := coalesce(
+    (
+      select jsonb_agg(
+        jsonb_build_object(
+          'characterActionId', ca.id,
+          'definitionId', ca.ability_def_id,
+          'sourceType', ad.source_type,
+          'type', case
+            when coalesce(ad.effect_mode, '') = 'attack' or ad.ability_kind = 'attack' then 'attack_technique'
+            when coalesce(ad.target_type, 'none') in ('character', 'body_part') then 'directed'
+            else 'instant'
+          end,
+          'name', ad.name,
+          'shortDescription', substring(ad.description, 1, 100),
+          'fullDescription', ad.description,
+          'iconKey', coalesce(ad.data->>'icon_key', 'bolt'),
+          'semanticKind', ad.ability_kind,
+          'targeting', jsonb_build_object(
+            'mode', coalesce(ad.target_type, 'none'),
+            'minTargets', 1,
+            'maxTargets', 1,
+            'allowAllies', true,
+            'allowSelf', ad.target_type = 'self',
+            'requiresBodyZone', ad.target_type = 'body_part'
+          ),
+          'costs', jsonb_build_object(
+            'main', case when ad.resource_mode = 'pool' then 1 else 0 end,
+            'move', 0,
+            'psi', case when ad.resource_pool_code = 'psi' then coalesce((ald.data->>'psi_cost')::int, 0) else 0 end,
+            'charges', case when ad.resource_mode = 'item' then coalesce(ca.current_charges, 0) else 0 end
+          ),
+          'cooldown', jsonb_build_object(
+            'current', ca.current_cooldown_rounds,
+            'max', coalesce(ald.cooldown_rounds, 0),
+            'unit', 'turn'
+          ),
+          'state', jsonb_build_object(
+            'available',
+              ca.is_enabled
+              and not v_has_skip_turn_effect
+              and (v_is_alive or ad.target_type = 'none')
+              and coalesce(ca.current_cooldown_rounds, 0) <= 0
+              and not coalesce(res.insufficient_pool, false)
+              and not coalesce(res.insufficient_charges, false)
+              and not coalesce(exec.unsupported_effect, false),
+            'active', false,
+            'disabledReason', case
+              when not ca.is_enabled then 'Ability is disabled'
+              when v_has_skip_turn_effect then 'Skipping turn'
+              when not v_is_alive and ad.target_type <> 'none' then 'Character is dead'
+              when coalesce(exec.unsupported_effect, false) then 'Attack effect is not supported yet'
+              when coalesce(ca.current_cooldown_rounds, 0) > 0 then format('Cooldown: %s turns', ca.current_cooldown_rounds)
+              when coalesce(res.insufficient_pool, false) then format('Not enough %s', coalesce(ad.resource_pool_code, 'resource'))
+              when coalesce(res.insufficient_charges, false) then 'No charges left'
+              else null
+            end,
+            'selectable',
+              ca.is_enabled
+              and not v_has_skip_turn_effect
+              and (v_is_alive or ad.target_type = 'none')
+              and coalesce(ca.current_cooldown_rounds, 0) <= 0
+              and not coalesce(res.insufficient_pool, false)
+              and not coalesce(res.insufficient_charges, false)
+              and not coalesce(exec.unsupported_effect, false),
+            'executionAvailable', not coalesce(exec.unsupported_effect, false),
+            'executionReason', case when coalesce(exec.unsupported_effect, false) then 'ACTION_EFFECT_NOT_IMPLEMENTED' else null end,
+            'resourceSufficient', not (coalesce(res.insufficient_pool, false) or coalesce(res.insufficient_charges, false))
+          ),
+          'requirements', jsonb_build_object(
+            'weaponClass', null,
+            'weaponId', null,
+            'conditionSummary', null
+          )
+        )
+        order by ca.sort_order, ca.created_at
+      )
+    ),
+    '[]'::jsonb
+  )
+  from public.odyssey_character_abilities ca
+  join public.odyssey_ability_defs ad on ad.id = ca.ability_def_id
+  left join public.odyssey_ability_level_defs ald on ald.ability_def_id = ad.id and ald.ability_level = ca.learned_level
+  left join lateral (
+    select (
+      coalesce(ald.attack_damage_bonus, 0) <> 0
+      or coalesce(ald.attack_armor_pierce, 0) <> 0
+      or coalesce(ald.ignore_armor, false)
+    ) as unsupported_effect
+  ) exec on true
+  left join public.odyssey_resource_pool_defs rpd on rpd.code = ad.resource_pool_code
+  left join public.odyssey_character_resource_pools rp
+    on rp.character_id = ca.character_id and rp.resource_pool_def_id = rpd.id
+  left join lateral (
+    select
+      (ad.resource_mode = 'pool' and coalesce(rp.current_value, 0) < coalesce(ald.resource_cost, 0)) as insufficient_pool,
+      (ad.resource_mode = 'item' and ca.current_charges is not null and ca.current_charges <= 0) as insufficient_charges
+  ) res on true
+  where ca.character_id = p_character_id
+    and ca.is_hidden = false
+    and ca.is_enabled = true
+    and ad.ability_kind != 'passive'
+    and ad.activation_type in ('manual', 'custom');
+
+  return jsonb_build_object(
+    'ok', true,
+    'error', null,
+    'characterId', p_character_id,
+    'quickActions', v_quick_actions,
+    'quickbar', jsonb_build_object(
+      'slots', coalesce(v_layout->'slots', '[]'::jsonb),
+      'maxSlots', 20,
+      'version', v_version
+    )
+  );
+end;
+$$;
+
+-- ===== END 102_character_ability_reconcile.sql =====
+
+-- ===== 103_hud_gm_skill_delete_runtime.sql =====
+-- HUD GM delete support: expose source skill linkage in quick-actions runtime
+-- so the Skills quickbar can delete either the visible character ability row
+-- or its originating character skill row without an extra lookup query.
+
+create or replace function public.odyssey_get_character_quick_actions_runtime(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+as $$
+declare
+  v_character_exists boolean;
+  v_is_alive boolean;
+  v_is_conscious boolean;
+  v_has_skip_turn_effect boolean;
+  v_quick_actions jsonb := '[]'::jsonb;
+  v_layout jsonb;
+  v_version integer := 1;
+begin
+  select exists(
+    select 1 from public.odyssey_characters where id = p_character_id and not coalesce(is_deleted, false)
+  ) into v_character_exists;
+
+  if not v_character_exists then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'Character does not exist or is deleted',
+      'characterId', p_character_id,
+      'quickActions', '[]'::jsonb,
+      'quickbar', jsonb_build_object('slots', '[]'::jsonb, 'maxSlots', 20, 'version', 1)
+    );
+  end if;
+
+  select coalesce(cs.is_alive, true), coalesce(cs.is_conscious, true)
+  into v_is_alive, v_is_conscious
+  from public.odyssey_characters c
+  left join public.odyssey_character_combat_state cs on cs.character_id = c.id
+  where c.id = p_character_id;
+
+  v_has_skip_turn_effect := public.odyssey_character_has_active_effect_flag(p_character_id, 'skip_turn');
+
+  select t.layout, t.version into v_layout, v_version
+  from public.odyssey_character_quickbar_layouts t
+  where t.character_id = p_character_id;
+
+  v_layout := coalesce(v_layout, jsonb_build_object('slots', '[]'::jsonb));
+  v_version := coalesce(v_version, 0);
+
+  v_quick_actions := coalesce(
+    (
+      select jsonb_agg(
+        jsonb_build_object(
+          'characterActionId', ca.id,
+          'definitionId', ca.ability_def_id,
+          'characterSkillId', ca.character_skill_id,
+          'sourceCharacterWeaponId', ca.source_character_weapon_id,
+          'sourceType', ad.source_type,
+          'type', case
+            when coalesce(ad.effect_mode, '') = 'attack' or ad.ability_kind = 'attack' then 'attack_technique'
+            when coalesce(ad.target_type, 'none') in ('character', 'body_part') then 'directed'
+            else 'instant'
+          end,
+          'name', ad.name,
+          'shortDescription', substring(ad.description, 1, 100),
+          'fullDescription', ad.description,
+          'iconKey', coalesce(ad.data->>'icon_key', 'bolt'),
+          'semanticKind', ad.ability_kind,
+          'targeting', jsonb_build_object(
+            'mode', coalesce(ad.target_type, 'none'),
+            'minTargets', 1,
+            'maxTargets', 1,
+            'allowAllies', true,
+            'allowSelf', ad.target_type = 'self',
+            'requiresBodyZone', ad.target_type = 'body_part'
+          ),
+          'costs', jsonb_build_object(
+            'main', case when ad.resource_mode = 'pool' then 1 else 0 end,
+            'move', 0,
+            'psi', case when ad.resource_pool_code = 'psi' then coalesce((ald.data->>'psi_cost')::int, 0) else 0 end,
+            'charges', case when ad.resource_mode = 'item' then coalesce(ca.current_charges, 0) else 0 end
+          ),
+          'cooldown', jsonb_build_object(
+            'current', ca.current_cooldown_rounds,
+            'max', coalesce(ald.cooldown_rounds, 0),
+            'unit', 'turn'
+          ),
+          'state', jsonb_build_object(
+            'available',
+              ca.is_enabled
+              and not v_has_skip_turn_effect
+              and (v_is_alive or ad.target_type = 'none')
+              and coalesce(ca.current_cooldown_rounds, 0) <= 0
+              and not coalesce(res.insufficient_pool, false)
+              and not coalesce(res.insufficient_charges, false)
+              and not coalesce(exec.unsupported_effect, false),
+            'active', false,
+            'disabledReason', case
+              when not ca.is_enabled then 'Ability is disabled'
+              when v_has_skip_turn_effect then 'Skipping turn'
+              when not v_is_alive and ad.target_type <> 'none' then 'Character is dead'
+              when coalesce(exec.unsupported_effect, false) then 'Attack effect is not supported yet'
+              when coalesce(ca.current_cooldown_rounds, 0) > 0 then format('Cooldown: %s turns', ca.current_cooldown_rounds)
+              when coalesce(res.insufficient_pool, false) then format('Not enough %s', coalesce(ad.resource_pool_code, 'resource'))
+              when coalesce(res.insufficient_charges, false) then 'No charges left'
+              else null
+            end,
+            'selectable',
+              ca.is_enabled
+              and not v_has_skip_turn_effect
+              and (v_is_alive or ad.target_type = 'none')
+              and coalesce(ca.current_cooldown_rounds, 0) <= 0
+              and not coalesce(res.insufficient_pool, false)
+              and not coalesce(res.insufficient_charges, false)
+              and not coalesce(exec.unsupported_effect, false),
+            'executionAvailable', not coalesce(exec.unsupported_effect, false),
+            'executionReason', case when coalesce(exec.unsupported_effect, false) then 'ACTION_EFFECT_NOT_IMPLEMENTED' else null end,
+            'resourceSufficient', not (coalesce(res.insufficient_pool, false) or coalesce(res.insufficient_charges, false))
+          ),
+          'requirements', jsonb_build_object(
+            'weaponClass', null,
+            'weaponId', null,
+            'conditionSummary', null
+          )
+        )
+        order by ca.sort_order, ca.created_at
+      )
+      from public.odyssey_character_abilities ca
+      join public.odyssey_ability_defs ad on ad.id = ca.ability_def_id
+      left join public.odyssey_ability_level_defs ald on ald.ability_def_id = ad.id and ald.ability_level = ca.learned_level
+      left join lateral (
+        select (
+          coalesce(ald.attack_damage_bonus, 0) <> 0
+          or coalesce(ald.attack_armor_pierce, 0) <> 0
+          or coalesce(ald.ignore_armor, false)
+        ) as unsupported_effect
+      ) exec on true
+      left join public.odyssey_resource_pool_defs rpd on rpd.code = ad.resource_pool_code
+      left join public.odyssey_character_resource_pools rp
+        on rp.character_id = ca.character_id and rp.resource_pool_def_id = rpd.id
+      left join lateral (
+        select
+          (ad.resource_mode = 'pool' and coalesce(rp.current_value, 0) < coalesce(ald.resource_cost, 0)) as insufficient_pool,
+          (ad.resource_mode = 'item' and ca.current_charges is not null and ca.current_charges <= 0) as insufficient_charges
+      ) res on true
+      where ca.character_id = p_character_id
+        and ca.is_hidden = false
+        and ca.is_enabled = true
+        and ad.ability_kind != 'passive'
+        and ad.activation_type in ('manual', 'custom')
+    ),
+    '[]'::jsonb
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'error', null,
+    'characterId', p_character_id,
+    'quickActions', v_quick_actions,
+    'quickbar', jsonb_build_object(
+      'slots', coalesce(v_layout->'slots', '[]'::jsonb),
+      'maxSlots', 20,
+      'version', v_version
+    )
+  );
+end;
+$$;
+
+-- ===== END 103_hud_gm_skill_delete_runtime.sql =====
+
+
+-- ===== BEGIN 106_universal_granted_abilities.sql =====
+-- Universal granted abilities from skills / perks / items / equipment / weapons.
+-- Visibility and usability are separated:
+--   - generated character ability stays visible while the source exists
+--   - runtime state decides whether it is currently usable
+
+alter table public.odyssey_ability_grants
+  add column if not exists grant_mode text not null default 'available';
+
+alter table public.odyssey_ability_grants
+  add column if not exists requires_equipped boolean not null default false;
+
+alter table public.odyssey_ability_grants
+  add column if not exists requires_installed boolean not null default false;
+
+alter table public.odyssey_ability_grants
+  add column if not exists requires_selected_source boolean not null default false;
+
+alter table public.odyssey_ability_grants
+  add column if not exists default_current_charges integer null;
+
+alter table public.odyssey_ability_grants
+  add column if not exists default_max_charges integer null;
+
+alter table public.odyssey_ability_grants
+  add column if not exists reload_item_code text null;
+
+alter table public.odyssey_ability_grants
+  add column if not exists reload_item_cost integer not null default 1;
+
+do $$
+declare
+  v_constraint_name text;
+begin
+  select conname
+  into v_constraint_name
+  from pg_constraint
+  where conrelid = 'public.odyssey_ability_grants'::regclass
+    and contype = 'c'
+    and pg_get_constraintdef(oid) ilike '%source_type in%';
+
+  if v_constraint_name is not null then
+    execute format(
+      'alter table public.odyssey_ability_grants drop constraint %I',
+      v_constraint_name
+    );
+  end if;
+end;
+$$;
+
+alter table public.odyssey_ability_grants
+  drop constraint if exists odyssey_ability_grants_source_type_check;
+
+alter table public.odyssey_ability_grants
+  add constraint odyssey_ability_grants_source_type_check
+  check (
+    source_type in (
+      'skill',
+      'perk',
+      'item',
+      'equipment',
+      'armor',
+      'implant',
+      'prosthetic',
+      'weapon'
+    )
+  );
+
+alter table public.odyssey_ability_grants
+  drop constraint if exists odyssey_ability_grants_grant_mode_check;
+
+alter table public.odyssey_ability_grants
+  add constraint odyssey_ability_grants_grant_mode_check
+  check (grant_mode in ('available', 'passive', 'activated'));
+
+update public.odyssey_ability_grants
+set
+  grant_mode = coalesce(nullif(trim(coalesce(data->>'grant_mode', '')), ''), grant_mode, 'available'),
+  requires_equipped =
+    case
+      when lower(coalesce(data->>'requires_equipped', '')) in ('true', '1', 'yes', 'on') then true
+      when lower(coalesce(data->>'requires_equipped', '')) in ('false', '0', 'no', 'off') then false
+      else requires_equipped
+    end,
+  requires_installed =
+    case
+      when lower(coalesce(data->>'requires_installed', '')) in ('true', '1', 'yes', 'on') then true
+      when lower(coalesce(data->>'requires_installed', '')) in ('false', '0', 'no', 'off') then false
+      else requires_installed
+    end,
+  requires_selected_source =
+    case
+      when lower(coalesce(data->>'requires_selected_source', '')) in ('true', '1', 'yes', 'on') then true
+      when lower(coalesce(data->>'requires_selected_source', '')) in ('false', '0', 'no', 'off') then false
+      else requires_selected_source
+    end,
+  default_current_charges =
+    case
+      when default_current_charges is not null then default_current_charges
+      when coalesce(data->>'default_current_charges', '') ~ '^-?[0-9]+$' then greatest((data->>'default_current_charges')::integer, 0)
+      else null
+    end,
+  default_max_charges =
+    case
+      when default_max_charges is not null then default_max_charges
+      when coalesce(data->>'default_max_charges', '') ~ '^-?[0-9]+$' then greatest((data->>'default_max_charges')::integer, 0)
+      else null
+    end,
+  reload_item_code =
+    coalesce(
+      nullif(trim(coalesce(reload_item_code, '')), ''),
+      nullif(trim(coalesce(data#>>'{reload,item_code}', '')), ''),
+      nullif(trim(coalesce(data->>'reload_item_code', '')), ''),
+      nullif(trim(coalesce(data->>'requires_reload_item_code', '')), '')
+    ),
+  reload_item_cost =
+    case
+      when coalesce(data#>>'{reload,item_cost_per_reload}', '') ~ '^-?[0-9]+$' then greatest((data#>>'{reload,item_cost_per_reload}')::integer, 1)
+      when coalesce(data->>'reload_item_cost', '') ~ '^-?[0-9]+$' then greatest((data->>'reload_item_cost')::integer, 1)
+      else greatest(coalesce(reload_item_cost, 1), 1)
+    end
+where true;
+
+do $$
+declare
+  v_function_def text := null;
+begin
+  select pg_get_functiondef(p.oid)
+  into v_function_def
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'creator_upsert_ability'
+    and pg_get_function_identity_arguments(p.oid) = 'p_payload jsonb';
+
+  if v_function_def is null then
+    raise exception 'Function public.creator_upsert_ability(jsonb) was not found.';
+  end if;
+
+  v_function_def := replace(
+    v_function_def,
+    $old_source_types$('psionic', 'implant', 'prosthetic', 'equipment', 'item', 'weapon', 'skill', 'perk', 'innate', 'custom')$old_source_types$,
+    $new_source_types$('psionic', 'implant', 'prosthetic', 'equipment', 'armor', 'item', 'weapon', 'skill', 'perk', 'innate', 'custom')$new_source_types$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old_effect_modes$('attack', 'apply_effect', 'grant_special', 'narrative', 'custom')$old_effect_modes$,
+    $new_effect_modes$('attack', 'apply_effect', 'grant_special', 'activate_weapon_feature', 'narrative', 'custom')$new_effect_modes$
+  );
+
+  execute v_function_def;
+end;
+$$;
+
+create or replace function public.odyssey_get_unified_ability_grants()
+returns table (
+  source_type text,
+  source_def_id uuid,
+  ability_def_id uuid,
+  grant_mode text,
+  requires_equipped boolean,
+  requires_installed boolean,
+  requires_selected_source boolean,
+  default_current_charges integer,
+  default_max_charges integer,
+  reload_item_code text,
+  reload_item_cost integer,
+  min_level integer,
+  is_enabled boolean,
+  sort_order integer,
+  data jsonb,
+  profile_id uuid,
+  profile_code text
+)
+language sql
+stable
+as $$
+  with explicit_grants as (
+    select
+      lower(trim(g.source_type)) as source_type,
+      g.source_def_id,
+      g.ability_def_id,
+      coalesce(nullif(trim(g.grant_mode), ''), 'available') as grant_mode,
+      coalesce(g.requires_equipped, false) as requires_equipped,
+      coalesce(g.requires_installed, false) as requires_installed,
+      coalesce(g.requires_selected_source, false) as requires_selected_source,
+      g.default_current_charges,
+      g.default_max_charges,
+      nullif(trim(coalesce(g.reload_item_code, '')), '') as reload_item_code,
+      greatest(coalesce(g.reload_item_cost, 1), 1) as reload_item_cost,
+      greatest(coalesce(g.min_level, 1), 1) as min_level,
+      coalesce(g.is_enabled, true) as is_enabled,
+      coalesce(g.sort_order, 0) as sort_order,
+      coalesce(g.data, '{}'::jsonb) as data,
+      null::uuid as profile_id,
+      null::text as profile_code,
+      0 as priority
+    from public.odyssey_ability_grants g
+  ),
+  item_legacy as (
+    select
+      'item'::text as source_type,
+      link.item_def_id as source_def_id,
+      link.ability_def_id,
+      coalesce(link.grant_mode, 'activated') as grant_mode,
+      false as requires_equipped,
+      false as requires_installed,
+      false as requires_selected_source,
+      case
+        when coalesce(link.data->>'default_current_charges', '') ~ '^-?[0-9]+$' then greatest((link.data->>'default_current_charges')::integer, 0)
+        else null
+      end as default_current_charges,
+      case
+        when coalesce(link.data->>'default_max_charges', '') ~ '^-?[0-9]+$' then greatest((link.data->>'default_max_charges')::integer, 0)
+        else null
+      end as default_max_charges,
+      coalesce(
+        nullif(trim(coalesce(link.data#>>'{reload,item_code}', '')), ''),
+        nullif(trim(coalesce(link.data->>'reload_item_code', '')), ''),
+        nullif(trim(coalesce(link.data->>'requires_reload_item_code', '')), '')
+      ) as reload_item_code,
+      case
+        when coalesce(link.data#>>'{reload,item_cost_per_reload}', '') ~ '^-?[0-9]+$' then greatest((link.data#>>'{reload,item_cost_per_reload}')::integer, 1)
+        when coalesce(link.data->>'reload_item_cost', '') ~ '^-?[0-9]+$' then greatest((link.data->>'reload_item_cost')::integer, 1)
+        else 1
+      end as reload_item_cost,
+      1 as min_level,
+      coalesce(link.is_enabled, true) as is_enabled,
+      coalesce(link.sort_order, 0) as sort_order,
+      coalesce(link.data, '{}'::jsonb) as data,
+      null::uuid as profile_id,
+      null::text as profile_code,
+      10 as priority
+    from public.odyssey_item_def_abilities link
+    where coalesce(link.is_enabled, true) = true
+      and not exists (
+        select 1
+        from public.odyssey_ability_grants g
+        where g.source_type = 'item'
+          and g.source_def_id = link.item_def_id
+          and g.ability_def_id = link.ability_def_id
+      )
+  ),
+  equipment_legacy as (
+    select
+      case
+        when model.item_type in ('armor', 'shield', 'special_protection') then 'armor'
+        when model.item_type = 'implant' then 'implant'
+        when model.item_type = 'prosthetic' then 'prosthetic'
+        else 'equipment'
+      end as source_type,
+      link.equipment_model_id as source_def_id,
+      link.ability_def_id,
+      coalesce(link.grant_mode, 'available') as grant_mode,
+      case
+        when model.item_type in ('armor', 'shield', 'special_protection') then true
+        when lower(coalesce(link.data->>'requires_equipped', '')) in ('true', '1', 'yes', 'on') then true
+        when lower(coalesce(link.data->>'requires_equipped', '')) in ('false', '0', 'no', 'off') then false
+        else false
+      end as requires_equipped,
+      case
+        when model.item_type in ('implant', 'prosthetic') then true
+        when lower(coalesce(link.data->>'requires_installed', '')) in ('true', '1', 'yes', 'on') then true
+        when lower(coalesce(link.data->>'requires_installed', '')) in ('false', '0', 'no', 'off') then false
+        else false
+      end as requires_installed,
+      false as requires_selected_source,
+      case
+        when coalesce(link.data->>'default_current_charges', '') ~ '^-?[0-9]+$' then greatest((link.data->>'default_current_charges')::integer, 0)
+        else null
+      end as default_current_charges,
+      case
+        when coalesce(link.data->>'default_max_charges', '') ~ '^-?[0-9]+$' then greatest((link.data->>'default_max_charges')::integer, 0)
+        else null
+      end as default_max_charges,
+      coalesce(
+        nullif(trim(coalesce(link.data#>>'{reload,item_code}', '')), ''),
+        nullif(trim(coalesce(link.data->>'reload_item_code', '')), ''),
+        nullif(trim(coalesce(link.data->>'requires_reload_item_code', '')), '')
+      ) as reload_item_code,
+      case
+        when coalesce(link.data#>>'{reload,item_cost_per_reload}', '') ~ '^-?[0-9]+$' then greatest((link.data#>>'{reload,item_cost_per_reload}')::integer, 1)
+        when coalesce(link.data->>'reload_item_cost', '') ~ '^-?[0-9]+$' then greatest((link.data->>'reload_item_cost')::integer, 1)
+        else 1
+      end as reload_item_cost,
+      1 as min_level,
+      coalesce(link.is_enabled, true) as is_enabled,
+      coalesce(link.sort_order, 0) as sort_order,
+      coalesce(link.data, '{}'::jsonb) as data,
+      null::uuid as profile_id,
+      null::text as profile_code,
+      10 as priority
+    from public.odyssey_equipment_model_abilities link
+    join public.odyssey_equipment_model_defs model on model.id = link.equipment_model_id
+    where coalesce(link.is_enabled, true) = true
+      and not exists (
+        select 1
+        from public.odyssey_ability_grants g
+        where g.source_def_id = link.equipment_model_id
+          and g.ability_def_id = link.ability_def_id
+          and g.source_type in ('equipment', 'armor', 'implant', 'prosthetic')
+      )
+  ),
+  weapon_legacy as (
+    select
+      'weapon'::text as source_type,
+      link.weapon_model_id as source_def_id,
+      link.ability_def_id,
+      'available'::text as grant_mode,
+      false as requires_equipped,
+      false as requires_installed,
+      true as requires_selected_source,
+      case
+        when coalesce(link.data->>'default_current_charges', '') ~ '^-?[0-9]+$' then greatest((link.data->>'default_current_charges')::integer, 0)
+        else null
+      end as default_current_charges,
+      case
+        when coalesce(link.data->>'default_max_charges', '') ~ '^-?[0-9]+$' then greatest((link.data->>'default_max_charges')::integer, 0)
+        else null
+      end as default_max_charges,
+      coalesce(
+        nullif(trim(coalesce(link.data#>>'{reload,item_code}', '')), ''),
+        nullif(trim(coalesce(link.data->>'reload_item_code', '')), ''),
+        nullif(trim(coalesce(link.data->>'requires_reload_item_code', '')), '')
+      ) as reload_item_code,
+      case
+        when coalesce(link.data#>>'{reload,item_cost_per_reload}', '') ~ '^-?[0-9]+$' then greatest((link.data#>>'{reload,item_cost_per_reload}')::integer, 1)
+        when coalesce(link.data->>'reload_item_cost', '') ~ '^-?[0-9]+$' then greatest((link.data->>'reload_item_cost')::integer, 1)
+        else 1
+      end as reload_item_cost,
+      1 as min_level,
+      coalesce(link.is_enabled_by_default, true) as is_enabled,
+      coalesce(link.sort_order, 0) as sort_order,
+      coalesce(link.data, '{}'::jsonb) as data,
+      link.profile_id,
+      profile.code as profile_code,
+      10 as priority
+    from public.odyssey_weapon_model_ability_links link
+    left join public.odyssey_weapon_model_profiles profile on profile.id = link.profile_id
+    where not exists (
+      select 1
+      from public.odyssey_ability_grants g
+      where g.source_type = 'weapon'
+        and g.source_def_id = link.weapon_model_id
+        and g.ability_def_id = link.ability_def_id
+    )
+  ),
+  combined as (
+    select * from explicit_grants
+    union all
+    select * from item_legacy
+    union all
+    select * from equipment_legacy
+    union all
+    select * from weapon_legacy
+  )
+  select distinct on (
+    source_type,
+    source_def_id,
+    ability_def_id,
+    coalesce(profile_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  )
+    source_type,
+    source_def_id,
+    ability_def_id,
+    grant_mode,
+    requires_equipped,
+    requires_installed,
+    requires_selected_source,
+    default_current_charges,
+    default_max_charges,
+    reload_item_code,
+    reload_item_cost,
+    min_level,
+    is_enabled,
+    sort_order,
+    data,
+    profile_id,
+    profile_code
+  from combined
+  where coalesce(is_enabled, true) = true
+  order by
+    source_type,
+    source_def_id,
+    ability_def_id,
+    coalesce(profile_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    priority,
+    sort_order,
+    ability_def_id;
+$$;
+
+create or replace function public.odyssey_get_character_active_weapon_id(
+  p_character_id uuid
+)
+returns uuid
+language sql
+stable
+as $$
+  select weapon.id
+  from public.odyssey_character_weapons weapon
+  where weapon.character_id = p_character_id
+  order by
+    case
+      when weapon.equipped_slot = 'primary' then 0
+      when weapon.equipped_slot = 'secondary' then 1
+      else 2
+    end,
+    weapon.updated_at desc,
+    weapon.created_at desc,
+    weapon.id
+  limit 1;
+$$;
+
+create or replace function public.odyssey_get_character_ability_source_state(
+  p_character_ability_id uuid,
+  p_selected_character_weapon_id uuid default null
+)
+returns jsonb
+language plpgsql
+stable
+as $$
+declare
+  v_ability record;
+  v_generated_from text := '';
+  v_requires_selected_source boolean := false;
+  v_requires_equipped boolean := false;
+  v_requires_installed boolean := false;
+  v_selected_character_weapon_id uuid := p_selected_character_weapon_id;
+  v_source_type text := 'custom';
+  v_source_label text := '';
+  v_available boolean := true;
+  v_disabled_reason text := null;
+  v_disabled_code text := null;
+  v_reload_item_code text := null;
+  v_reload_item_cost integer := 1;
+  v_reload_required boolean := false;
+begin
+  select
+    ability.id,
+    ability.character_id,
+    ability.ability_def_id,
+    ability.source_character_weapon_id,
+    ability.source_equipment_item_id,
+    ability.source_character_item_id,
+    ability.is_enabled,
+    ability.is_hidden,
+    ability.current_charges,
+    ability.max_charges,
+    ability.data,
+    def.code as ability_code,
+    def.name as ability_name,
+    def.source_type as ability_source_type,
+    def.resource_item_code,
+    weapon.id as weapon_id,
+    weapon.character_id as weapon_character_id,
+    weapon.active_profile_id as weapon_active_profile_id,
+    weapon.custom_name as weapon_custom_name,
+    weapon_model.id as weapon_model_id,
+    weapon_model.code as weapon_model_code,
+    weapon_model.name as weapon_model_name,
+    equipment.id as equipment_id,
+    equipment.character_id as equipment_character_id,
+    equipment.is_equipped as equipment_is_equipped,
+    equipment.equipped_body_part_id as equipment_body_part_id,
+    equipment.custom_name as equipment_custom_name,
+    equipment_model.id as equipment_model_id,
+    equipment_model.code as equipment_model_code,
+    equipment_model.name as equipment_model_name,
+    equipment_model.item_type as equipment_item_type,
+    item.id as item_id,
+    item.character_id as item_character_id,
+    item.quantity as item_quantity,
+    item.custom_name as item_custom_name,
+    item_def.id as item_def_id,
+    item_def.code as item_def_code,
+    item_def.name as item_def_name
+  into v_ability
+  from public.odyssey_character_abilities ability
+  join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+  left join public.odyssey_character_weapons weapon on weapon.id = ability.source_character_weapon_id
+  left join public.odyssey_weapon_model_defs weapon_model on weapon_model.id = weapon.weapon_model_id
+  left join public.odyssey_character_equipment_items equipment on equipment.id = ability.source_equipment_item_id
+  left join public.odyssey_equipment_model_defs equipment_model on equipment_model.id = equipment.equipment_model_id
+  left join public.odyssey_character_items item on item.id = ability.source_character_item_id
+  left join public.odyssey_item_defs item_def on item_def.id = item.item_def_id
+  where ability.id = p_character_ability_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_NOT_FOUND',
+      'character_ability_id', p_character_ability_id
+    );
+  end if;
+
+  v_generated_from := lower(trim(coalesce(
+    nullif(v_ability.data->>'generated_from', ''),
+    nullif(v_ability.ability_source_type, ''),
+    'custom'
+  )));
+
+  v_requires_selected_source :=
+    case
+      when lower(coalesce(v_ability.data->>'requires_selected_source', '')) in ('true', '1', 'yes', 'on') then true
+      when lower(coalesce(v_ability.data->>'requires_selected_source', '')) in ('false', '0', 'no', 'off') then false
+      else v_ability.source_character_weapon_id is not null
+    end;
+
+  v_requires_equipped :=
+    case
+      when lower(coalesce(v_ability.data->>'requires_equipped', '')) in ('true', '1', 'yes', 'on') then true
+      when lower(coalesce(v_ability.data->>'requires_equipped', '')) in ('false', '0', 'no', 'off') then false
+      else v_generated_from = 'armor'
+    end;
+
+  v_requires_installed :=
+    case
+      when lower(coalesce(v_ability.data->>'requires_installed', '')) in ('true', '1', 'yes', 'on') then true
+      when lower(coalesce(v_ability.data->>'requires_installed', '')) in ('false', '0', 'no', 'off') then false
+      else v_generated_from in ('equipment', 'implant', 'prosthetic')
+    end;
+
+  v_reload_item_code := coalesce(
+    nullif(trim(coalesce(v_ability.data#>>'{reload,item_code}', '')), ''),
+    nullif(trim(coalesce(v_ability.data->>'reload_item_code', '')), ''),
+    nullif(trim(coalesce(v_ability.data->>'requires_reload_item_code', '')), ''),
+    nullif(trim(coalesce(v_ability.resource_item_code, '')), '')
+  );
+  v_reload_item_cost :=
+    case
+      when coalesce(v_ability.data#>>'{reload,item_cost_per_reload}', '') ~ '^-?[0-9]+$' then greatest((v_ability.data#>>'{reload,item_cost_per_reload}')::integer, 1)
+      when coalesce(v_ability.data->>'reload_item_cost', '') ~ '^-?[0-9]+$' then greatest((v_ability.data->>'reload_item_cost')::integer, 1)
+      else 1
+    end;
+  v_reload_required := v_ability.max_charges is not null and coalesce(v_ability.current_charges, 0) <= 0;
+
+  if v_ability.source_character_weapon_id is not null then
+    v_source_type := 'weapon';
+    v_source_label := coalesce(nullif(trim(coalesce(v_ability.weapon_custom_name, '')), ''), v_ability.weapon_model_name, v_ability.ability_name);
+    if v_selected_character_weapon_id is null then
+      v_selected_character_weapon_id := public.odyssey_get_character_active_weapon_id(v_ability.character_id);
+    end if;
+
+    if coalesce((v_ability.data->>'source_removed')::boolean, false) or v_ability.weapon_id is null then
+      v_available := false;
+      v_disabled_code := 'SOURCE_REMOVED';
+      v_disabled_reason := format('%s is no longer available.', v_source_label);
+    elsif nullif(trim(coalesce(v_ability.data->>'required_profile_id', '')), '') is not null
+      and v_ability.weapon_active_profile_id::text <> nullif(trim(coalesce(v_ability.data->>'required_profile_id', '')), '') then
+      v_available := false;
+      v_disabled_code := 'WEAPON_PROFILE_REQUIREMENT_NOT_MET';
+      v_disabled_reason := format('Switch %s profile.', v_source_label);
+    elsif v_requires_selected_source
+      and v_selected_character_weapon_id is distinct from v_ability.source_character_weapon_id then
+      v_available := false;
+      v_disabled_code := 'WEAPON_REQUIREMENT_NOT_MET';
+      v_disabled_reason := format('Select %s.', v_source_label);
+    end if;
+  elsif v_ability.source_equipment_item_id is not null then
+    v_source_type :=
+      case
+        when v_ability.equipment_item_type in ('armor', 'shield', 'special_protection') then 'armor'
+        when v_ability.equipment_item_type = 'implant' then 'implant'
+        when v_ability.equipment_item_type = 'prosthetic' then 'prosthetic'
+        else coalesce(nullif(v_generated_from, ''), 'equipment')
+      end;
+    v_source_label := coalesce(nullif(trim(coalesce(v_ability.equipment_custom_name, '')), ''), v_ability.equipment_model_name, v_ability.ability_name);
+
+    if coalesce((v_ability.data->>'source_removed')::boolean, false) or v_ability.equipment_id is null then
+      v_available := false;
+      v_disabled_code := 'SOURCE_REMOVED';
+      v_disabled_reason := format('%s is no longer available.', v_source_label);
+    elsif v_requires_equipped and not coalesce(v_ability.equipment_is_equipped, false) then
+      v_available := false;
+      v_disabled_code := 'EQUIPMENT_NOT_EQUIPPED';
+      v_disabled_reason := format('Equip %s.', v_source_label);
+    elsif v_requires_installed
+      and not coalesce(v_ability.equipment_is_equipped, false)
+      and v_ability.equipment_body_part_id is null then
+      v_available := false;
+      v_disabled_code := 'EQUIPMENT_NOT_INSTALLED';
+      v_disabled_reason := format('Install %s.', v_source_label);
+    end if;
+  elsif v_ability.source_character_item_id is not null then
+    v_source_type := 'item';
+    v_source_label := coalesce(nullif(trim(coalesce(v_ability.item_custom_name, '')), ''), v_ability.item_def_name, v_ability.ability_name);
+
+    if coalesce((v_ability.data->>'source_removed')::boolean, false)
+       or v_ability.item_id is null
+       or coalesce(v_ability.item_quantity, 0) <= 0 then
+      v_available := false;
+      v_disabled_code := 'ITEM_SOURCE_NOT_AVAILABLE';
+      v_disabled_reason := format('%s is no longer available.', v_source_label);
+    end if;
+  else
+    v_source_type := coalesce(nullif(v_generated_from, ''), coalesce(v_ability.ability_source_type, 'custom'));
+    v_source_label := coalesce(nullif(trim(coalesce(v_ability.data->>'source_label', '')), ''), v_ability.ability_name);
+
+    if coalesce((v_ability.data->>'source_removed')::boolean, false) then
+      v_available := false;
+      v_disabled_code := 'SOURCE_REMOVED';
+      v_disabled_reason := format('%s is no longer available.', v_source_label);
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'characterAbilityId', v_ability.id,
+    'sourceType', v_source_type,
+    'sourceLabel', v_source_label,
+    'sourceCharacterWeaponId', case when v_ability.source_character_weapon_id is not null then v_ability.source_character_weapon_id::text else null end,
+    'sourceEquipmentItemId', case when v_ability.source_equipment_item_id is not null then v_ability.source_equipment_item_id::text else null end,
+    'sourceCharacterItemId', case when v_ability.source_character_item_id is not null then v_ability.source_character_item_id::text else null end,
+    'selectedCharacterWeaponId', case when v_selected_character_weapon_id is not null then v_selected_character_weapon_id::text else null end,
+    'available', v_available,
+    'disabledReason', v_disabled_reason,
+    'disabledCode', v_disabled_code,
+    'reload', jsonb_strip_nulls(
+      jsonb_build_object(
+        'required', v_reload_required,
+        'itemCode', v_reload_item_code,
+        'itemCost', v_reload_item_cost
+      )
+    ),
+    'requirements', jsonb_build_object(
+      'weaponId', case when v_ability.source_character_weapon_id is not null then v_ability.source_character_weapon_id::text else null end,
+      'equipmentItemId', case when v_ability.source_equipment_item_id is not null then v_ability.source_equipment_item_id::text else null end,
+      'itemId', case when v_ability.source_character_item_id is not null then v_ability.source_character_item_id::text else null end,
+      'requiresSelectedSource', v_requires_selected_source,
+      'requiresEquipped', v_requires_equipped,
+      'requiresInstalled', v_requires_installed,
+      'conditionSummary', v_disabled_reason
+    )
+  );
+end;
+$$;
+
+create or replace function public.odyssey_validate_character_ability_source(
+  p_character_ability_id uuid,
+  p_selected_character_weapon_id uuid default null
+)
+returns jsonb
+language plpgsql
+stable
+as $$
+declare
+  v_state jsonb := public.odyssey_get_character_ability_source_state(
+    p_character_ability_id,
+    p_selected_character_weapon_id
+  );
+  v_disabled_code text := coalesce(v_state->>'disabledCode', '');
+begin
+  if coalesce((v_state->>'ok')::boolean, false) = false then
+    return v_state;
+  end if;
+
+  if coalesce((v_state->>'available')::boolean, false) = true then
+    return jsonb_build_object(
+      'ok', true,
+      'source_state', v_state
+    );
+  end if;
+
+  return jsonb_build_object(
+    'ok', false,
+    'error',
+      case v_disabled_code
+        when 'WEAPON_REQUIREMENT_NOT_MET' then 'WEAPON_REQUIREMENT_NOT_MET'
+        when 'WEAPON_PROFILE_REQUIREMENT_NOT_MET' then 'ABILITY_NOT_AVAILABLE_FOR_WEAPON_PROFILE'
+        when 'EQUIPMENT_NOT_EQUIPPED' then 'EQUIPMENT_NOT_EQUIPPED'
+        when 'EQUIPMENT_NOT_INSTALLED' then 'EQUIPMENT_NOT_INSTALLED'
+        when 'ITEM_SOURCE_NOT_AVAILABLE' then 'SOURCE_REMOVED'
+        when 'SOURCE_REMOVED' then 'SOURCE_REMOVED'
+        else 'ABILITY_SOURCE_REQUIREMENT_NOT_MET'
+      end,
+    'message', coalesce(v_state->>'disabledReason', 'Ability source requirement is not met.'),
+    'character_ability_id', p_character_ability_id,
+    'source_state', v_state
+  );
+end;
+$$;
+
+create or replace function public.initialize_character_weapon_abilities(
+  p_character_weapon_id uuid
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_weapon record;
+  v_grant record;
+  v_payload_data jsonb := '{}'::jsonb;
+  v_processed_ability_ids uuid[] := '{}'::uuid[];
+  v_upserted_count integer := 0;
+  v_hidden_count integer := 0;
+begin
+  select
+    weapon.id,
+    weapon.character_id,
+    weapon.weapon_model_id,
+    model.code as weapon_model_code,
+    model.name as weapon_model_name
+  into v_weapon
+  from public.odyssey_character_weapons weapon
+  join public.odyssey_weapon_model_defs model on model.id = weapon.weapon_model_id
+  where weapon.id = p_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_WEAPON_NOT_FOUND',
+      'character_weapon_id', p_character_weapon_id
+    );
+  end if;
+
+  for v_grant in
+    select grant_link.*
+    from public.odyssey_get_unified_ability_grants() grant_link
+    where grant_link.source_type = 'weapon'
+      and grant_link.source_def_id = v_weapon.weapon_model_id
+      and grant_link.is_enabled = true
+    order by
+      case when grant_link.profile_id is null then 1 else 0 end,
+      grant_link.sort_order,
+      grant_link.ability_def_id
+  loop
+    v_payload_data := jsonb_strip_nulls(
+      coalesce(v_grant.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'weapon',
+        'weapon_model_id', v_weapon.weapon_model_id::text,
+        'weapon_model_code', v_weapon.weapon_model_code,
+        'weapon_model_name', v_weapon.weapon_model_name,
+        'source_label', v_weapon.weapon_model_name,
+        'grant_mode', v_grant.grant_mode,
+        'requires_selected_source', coalesce(v_grant.requires_selected_source, true),
+        'requires_equipped', coalesce(v_grant.requires_equipped, false),
+        'requires_installed', coalesce(v_grant.requires_installed, false),
+        'source_removed', false,
+        'required_profile_id', case when v_grant.profile_id is not null then v_grant.profile_id::text else null end,
+        'required_profile_code', v_grant.profile_code,
+        'default_current_charges', v_grant.default_current_charges,
+        'default_max_charges', v_grant.default_max_charges,
+        'reload_item_code', v_grant.reload_item_code,
+        'reload_item_cost', v_grant.reload_item_cost,
+        'reload',
+          case
+            when v_grant.reload_item_code is not null then jsonb_build_object(
+              'mode',
+                case
+                  when v_grant.default_max_charges is not null then 'per_charge'
+                  else 'reset'
+                end,
+              'item_code', v_grant.reload_item_code,
+              'item_cost_per_reload', v_grant.reload_item_cost
+            )
+            else null
+          end
+      )
+    );
+
+    insert into public.odyssey_character_abilities (
+      character_id,
+      ability_def_id,
+      character_skill_id,
+      learned_level,
+      source_character_weapon_id,
+      is_enabled,
+      is_hidden,
+      current_cooldown_rounds,
+      current_charges,
+      max_charges,
+      data,
+      notes,
+      sort_order
+    )
+    values (
+      v_weapon.character_id,
+      v_grant.ability_def_id,
+      null,
+      greatest(coalesce(nullif(trim(coalesce(v_payload_data->>'learned_level', '')), '')::integer, 1), 1),
+      v_weapon.id,
+      true,
+      false,
+      greatest(coalesce(nullif(trim(coalesce(v_payload_data->>'cooldown_rounds', '')), '')::integer, 0), 0),
+      v_grant.default_current_charges,
+      v_grant.default_max_charges,
+      v_payload_data,
+      '',
+      coalesce(v_grant.sort_order, 0)
+    )
+    on conflict (character_id, ability_def_id, source_character_weapon_id)
+    where source_character_weapon_id is not null
+    do update
+    set
+      learned_level = excluded.learned_level,
+      is_enabled = true,
+      is_hidden = false,
+      current_charges =
+        case
+          when public.odyssey_character_abilities.current_charges is null then excluded.current_charges
+          else public.odyssey_character_abilities.current_charges
+        end,
+      max_charges =
+        case
+          when public.odyssey_character_abilities.max_charges is null then excluded.max_charges
+          else public.odyssey_character_abilities.max_charges
+        end,
+      data = excluded.data,
+      sort_order = excluded.sort_order,
+      updated_at = timezone('utc', now());
+
+    v_processed_ability_ids := array_append(v_processed_ability_ids, v_grant.ability_def_id);
+    v_upserted_count := v_upserted_count + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'weapon',
+        'source_removed', true,
+        'source_removed_reason', 'missing_weapon'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = v_weapon.character_id
+    and ability.source_character_weapon_id = v_weapon.id
+    and coalesce(ability.data->>'generated_from', '') = 'weapon'
+    and (
+      coalesce(array_length(v_processed_ability_ids, 1), 0) = 0
+      or not (ability.ability_def_id = any(v_processed_ability_ids))
+    );
+
+  get diagnostics v_hidden_count = row_count;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_weapon_id', v_weapon.id,
+    'character_id', v_weapon.character_id,
+    'weapon_model_id', v_weapon.weapon_model_id,
+    'upserted_count', v_upserted_count,
+    'hidden_count', v_hidden_count
+  );
+end;
+$$;
+
+create or replace function public.odyssey_reconcile_character_abilities(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_character_exists boolean := false;
+  v_skill_upserted integer := 0;
+  v_skill_hidden integer := 0;
+  v_perk_upserted integer := 0;
+  v_perk_hidden integer := 0;
+  v_item_upserted integer := 0;
+  v_item_hidden integer := 0;
+  v_equipment_upserted integer := 0;
+  v_equipment_hidden integer := 0;
+  v_weapon_hidden integer := 0;
+  v_weapon_result jsonb := '[]'::jsonb;
+  v_source record;
+  v_existing public.odyssey_character_abilities%rowtype;
+  v_payload_data jsonb := '{}'::jsonb;
+  v_weapon_sync_result jsonb := '{}'::jsonb;
+begin
+  select exists(
+    select 1
+    from public.odyssey_characters c
+    where c.id = p_character_id
+      and coalesce(c.is_deleted, false) = false
+  )
+  into v_character_exists;
+
+  if not v_character_exists then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'character_id', p_character_id
+    );
+  end if;
+
+  for v_source in
+    with mapped_skill_grants as (
+      select
+        ad.id as ability_def_id,
+        grant_link.source_def_id as skill_def_id,
+        cs.id as character_skill_id,
+        greatest(coalesce(cs.level, 0), 0) as skill_level,
+        coalesce(grant_link.sort_order, ad.sort_order, 0) as sort_order,
+        jsonb_strip_nulls(
+          coalesce(grant_link.data, '{}'::jsonb)
+          || jsonb_build_object(
+            'generated', true,
+            'generated_from', 'skill',
+            'skill_def_id', grant_link.source_def_id::text,
+            'character_skill_id', cs.id::text,
+            'grant_mode', grant_link.grant_mode,
+            'source_removed', false
+          )
+        ) as grant_data,
+        0 as source_priority
+      from public.odyssey_get_unified_ability_grants() grant_link
+      join public.odyssey_ability_defs ad on ad.id = grant_link.ability_def_id
+      join public.odyssey_character_skills cs
+        on cs.character_id = p_character_id
+       and cs.skill_def_id = grant_link.source_def_id
+      where grant_link.source_type = 'skill'
+        and grant_link.is_enabled = true
+        and greatest(coalesce(cs.level, 0), 0) >= greatest(coalesce(grant_link.min_level, 1), 1)
+    ),
+    legacy_skill_grants as (
+      select
+        ad.id as ability_def_id,
+        ad.linked_skill_id as skill_def_id,
+        cs.id as character_skill_id,
+        greatest(coalesce(cs.level, 0), 0) as skill_level,
+        coalesce(ad.sort_order, 0) as sort_order,
+        jsonb_build_object(
+          'generated', true,
+          'generated_from', 'skill',
+          'generated_from_legacy_linked_skill_id', true,
+          'skill_def_id', ad.linked_skill_id::text,
+          'character_skill_id', cs.id::text,
+          'source_removed', false
+        ) as grant_data,
+        1 as source_priority
+      from public.odyssey_ability_defs ad
+      join public.odyssey_character_skills cs
+        on cs.character_id = p_character_id
+       and cs.skill_def_id = ad.linked_skill_id
+      where ad.linked_skill_id is not null
+        and not exists (
+          select 1
+          from public.odyssey_get_unified_ability_grants() grant_link
+          where grant_link.source_type = 'skill'
+            and grant_link.source_def_id = ad.linked_skill_id
+            and grant_link.ability_def_id = ad.id
+        )
+    )
+    select distinct on (combined.ability_def_id, combined.character_skill_id)
+      combined.*
+    from (
+      select * from mapped_skill_grants
+      union all
+      select * from legacy_skill_grants
+    ) combined
+    order by combined.ability_def_id, combined.character_skill_id, combined.source_priority
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_equipment_item_id is null
+      and ability.source_character_item_id is null
+      and ability.source_character_weapon_id is null
+      and coalesce(ability.data->>'generated_from', 'skill') = 'skill'
+    for update of ability;
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = v_source.character_skill_id,
+        learned_level = v_source.skill_level,
+        is_enabled = true,
+        is_hidden = false,
+        data = v_source.grant_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        v_source.character_skill_id,
+        v_source.skill_level,
+        null,
+        null,
+        null,
+        true,
+        false,
+        v_source.grant_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_skill_upserted := v_skill_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    character_skill_id = null,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'skill',
+        'source_removed', true,
+        'source_removed_reason', 'missing_skill'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_equipment_item_id is null
+    and ability.source_character_item_id is null
+    and ability.source_character_weapon_id is null
+    and coalesce(ability.data->>'generated_from', 'skill') = 'skill'
+    and not exists (
+      select 1
+      from public.odyssey_character_skills skill_row
+      where skill_row.character_id = p_character_id
+        and (
+          skill_row.id = ability.character_skill_id
+          or skill_row.skill_def_id = public.odyssey_try_parse_uuid(ability.data->>'skill_def_id')
+        )
+    );
+
+  get diagnostics v_skill_hidden = row_count;
+
+  for v_source in
+    select
+      grant_link.ability_def_id,
+      cp.id as character_perk_id,
+      cp.perk_def_id,
+      coalesce(grant_link.sort_order, 0) as sort_order,
+      jsonb_strip_nulls(
+        coalesce(grant_link.data, '{}'::jsonb)
+        || jsonb_build_object(
+          'generated', true,
+          'generated_from', 'perk',
+          'perk_def_id', cp.perk_def_id::text,
+          'character_perk_id', cp.id::text,
+          'grant_mode', grant_link.grant_mode,
+          'source_removed', false
+        )
+      ) as grant_data
+    from public.odyssey_character_perks cp
+    join public.odyssey_get_unified_ability_grants() grant_link
+      on grant_link.source_type = 'perk'
+     and grant_link.source_def_id = cp.perk_def_id
+     and grant_link.is_enabled = true
+    where cp.character_id = p_character_id
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_equipment_item_id is null
+      and ability.source_character_item_id is null
+      and ability.source_character_weapon_id is null
+      and coalesce(ability.data->>'generated_from', '') = 'perk'
+    for update of ability;
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = null,
+        learned_level = greatest(coalesce(v_existing.learned_level, 1), 1),
+        is_enabled = true,
+        is_hidden = false,
+        data = v_source.grant_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        null,
+        1,
+        null,
+        null,
+        null,
+        true,
+        false,
+        v_source.grant_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_perk_upserted := v_perk_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'perk',
+        'source_removed', true,
+        'source_removed_reason', 'missing_perk'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_equipment_item_id is null
+    and ability.source_character_item_id is null
+    and ability.source_character_weapon_id is null
+    and coalesce(ability.data->>'generated_from', '') = 'perk'
+    and not exists (
+      select 1
+      from public.odyssey_character_perks cp
+      where cp.character_id = p_character_id
+        and cp.id = public.odyssey_try_parse_uuid(ability.data->>'character_perk_id')
+    );
+
+  get diagnostics v_perk_hidden = row_count;
+
+  for v_source in
+    select
+      grant_link.ability_def_id,
+      item.id as source_character_item_id,
+      item.item_def_id,
+      coalesce(grant_link.sort_order, item.sort_order, 0) as sort_order,
+      grant_link.default_current_charges,
+      grant_link.default_max_charges,
+      jsonb_strip_nulls(
+        coalesce(grant_link.data, '{}'::jsonb)
+        || jsonb_build_object(
+          'generated', true,
+          'generated_from', 'item',
+          'item_def_id', item.item_def_id::text,
+          'source_character_item_id', item.id::text,
+          'source_label', coalesce(nullif(trim(coalesce(item.custom_name, '')), ''), item_def.name),
+          'grant_mode', grant_link.grant_mode,
+          'requires_equipped', grant_link.requires_equipped,
+          'requires_installed', grant_link.requires_installed,
+          'requires_selected_source', grant_link.requires_selected_source,
+          'default_current_charges', grant_link.default_current_charges,
+          'default_max_charges', grant_link.default_max_charges,
+          'reload_item_code', grant_link.reload_item_code,
+          'reload_item_cost', grant_link.reload_item_cost,
+          'reload',
+            case
+              when grant_link.reload_item_code is not null then jsonb_build_object(
+                'mode',
+                  case
+                    when grant_link.default_max_charges is not null then 'per_charge'
+                    else 'reset'
+                  end,
+                'item_code', grant_link.reload_item_code,
+                'item_cost_per_reload', grant_link.reload_item_cost
+              )
+              else null
+            end,
+          'source_removed', false
+        )
+      ) as grant_data
+    from public.odyssey_character_items item
+    join public.odyssey_item_defs item_def on item_def.id = item.item_def_id
+    join public.odyssey_get_unified_ability_grants() grant_link
+      on grant_link.source_type = 'item'
+     and grant_link.source_def_id = item.item_def_id
+     and grant_link.is_enabled = true
+    where item.character_id = p_character_id
+      and coalesce(item.quantity, 0) > 0
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_character_item_id = v_source.source_character_item_id
+    for update of ability;
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = null,
+        learned_level = greatest(coalesce(v_existing.learned_level, 1), 1),
+        is_enabled = true,
+        is_hidden = false,
+        data = v_source.grant_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        current_charges,
+        max_charges,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        null,
+        1,
+        null,
+        v_source.source_character_item_id,
+        null,
+        true,
+        false,
+        v_source.default_current_charges,
+        v_source.default_max_charges,
+        v_source.grant_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_item_upserted := v_item_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'item',
+        'source_removed', true,
+        'source_removed_reason', 'missing_item'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_character_item_id is not null
+    and coalesce(ability.data->>'generated_from', '') = 'item'
+    and not exists (
+      select 1
+      from public.odyssey_character_items item
+      where item.id = ability.source_character_item_id
+        and item.character_id = p_character_id
+        and coalesce(item.quantity, 0) > 0
+    );
+
+  get diagnostics v_item_hidden = row_count;
+
+  for v_source in
+    select
+      grant_link.ability_def_id,
+      item.id as source_equipment_item_id,
+      item.equipment_model_id,
+      model.item_type,
+      coalesce(grant_link.sort_order, item.sort_order, 0) as sort_order,
+      grant_link.default_current_charges,
+      grant_link.default_max_charges,
+      jsonb_strip_nulls(
+        coalesce(grant_link.data, '{}'::jsonb)
+        || jsonb_build_object(
+          'generated', true,
+          'generated_from', grant_link.source_type,
+          'equipment_model_id', item.equipment_model_id::text,
+          'equipment_model_code', model.code,
+          'source_equipment_item_id', item.id::text,
+          'source_label', coalesce(nullif(trim(coalesce(item.custom_name, '')), ''), model.name),
+          'grant_mode', grant_link.grant_mode,
+          'requires_equipped', grant_link.requires_equipped,
+          'requires_installed', grant_link.requires_installed,
+          'requires_selected_source', grant_link.requires_selected_source,
+          'default_current_charges', grant_link.default_current_charges,
+          'default_max_charges', grant_link.default_max_charges,
+          'reload_item_code', grant_link.reload_item_code,
+          'reload_item_cost', grant_link.reload_item_cost,
+          'reload',
+            case
+              when grant_link.reload_item_code is not null then jsonb_build_object(
+                'mode',
+                  case
+                    when grant_link.default_max_charges is not null then 'per_charge'
+                    else 'reset'
+                  end,
+                'item_code', grant_link.reload_item_code,
+                'item_cost_per_reload', grant_link.reload_item_cost
+              )
+              else null
+            end,
+          'source_removed', false
+        )
+      ) as grant_data
+    from public.odyssey_character_equipment_items item
+    join public.odyssey_equipment_model_defs model on model.id = item.equipment_model_id
+    join public.odyssey_get_unified_ability_grants() grant_link
+      on grant_link.source_def_id = item.equipment_model_id
+     and grant_link.source_type in ('equipment', 'armor', 'implant', 'prosthetic')
+     and grant_link.is_enabled = true
+    where item.character_id = p_character_id
+  loop
+    select *
+    into v_existing
+    from public.odyssey_character_abilities ability
+    where ability.character_id = p_character_id
+      and ability.ability_def_id = v_source.ability_def_id
+      and ability.source_equipment_item_id = v_source.source_equipment_item_id
+    for update of ability;
+
+    if found then
+      update public.odyssey_character_abilities
+      set
+        character_skill_id = null,
+        learned_level = greatest(coalesce(v_existing.learned_level, 1), 1),
+        is_enabled = true,
+        is_hidden = false,
+        data = v_source.grant_data,
+        sort_order = v_source.sort_order,
+        updated_at = timezone('utc', now())
+      where id = v_existing.id;
+    else
+      insert into public.odyssey_character_abilities (
+        character_id,
+        ability_def_id,
+        character_skill_id,
+        learned_level,
+        source_equipment_item_id,
+        source_character_item_id,
+        source_character_weapon_id,
+        is_enabled,
+        is_hidden,
+        current_charges,
+        max_charges,
+        data,
+        notes,
+        sort_order
+      )
+      values (
+        p_character_id,
+        v_source.ability_def_id,
+        null,
+        1,
+        v_source.source_equipment_item_id,
+        null,
+        null,
+        true,
+        false,
+        v_source.default_current_charges,
+        v_source.default_max_charges,
+        v_source.grant_data,
+        '',
+        v_source.sort_order
+      );
+    end if;
+
+    v_equipment_upserted := v_equipment_upserted + 1;
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', coalesce(nullif(ability.data->>'generated_from', ''), 'equipment'),
+        'source_removed', true,
+        'source_removed_reason', 'missing_equipment'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_equipment_item_id is not null
+    and coalesce(ability.data->>'generated_from', '') in ('equipment', 'armor', 'implant', 'prosthetic')
+    and not exists (
+      select 1
+      from public.odyssey_character_equipment_items item
+      where item.id = ability.source_equipment_item_id
+        and item.character_id = p_character_id
+    );
+
+  get diagnostics v_equipment_hidden = row_count;
+
+  for v_source in
+    select weapon.id
+    from public.odyssey_character_weapons weapon
+    where weapon.character_id = p_character_id
+  loop
+    v_weapon_sync_result := public.initialize_character_weapon_abilities(v_source.id);
+    v_weapon_result := v_weapon_result || jsonb_build_array(v_weapon_sync_result);
+  end loop;
+
+  update public.odyssey_character_abilities ability
+  set
+    is_enabled = false,
+    is_hidden = true,
+    data =
+      coalesce(ability.data, '{}'::jsonb)
+      || jsonb_build_object(
+        'generated', true,
+        'generated_from', 'weapon',
+        'source_removed', true,
+        'source_removed_reason', 'missing_weapon'
+      ),
+    updated_at = timezone('utc', now())
+  where ability.character_id = p_character_id
+    and ability.source_character_weapon_id is not null
+    and coalesce(ability.data->>'generated_from', '') = 'weapon'
+    and not exists (
+      select 1
+      from public.odyssey_character_weapons weapon
+      where weapon.id = ability.source_character_weapon_id
+        and weapon.character_id = p_character_id
+    );
+
+  get diagnostics v_weapon_hidden = row_count;
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_id', p_character_id,
+    'skill_upserted', v_skill_upserted,
+    'skill_hidden', v_skill_hidden,
+    'perk_upserted', v_perk_upserted,
+    'perk_hidden', v_perk_hidden,
+    'item_upserted', v_item_upserted,
+    'item_hidden', v_item_hidden,
+    'equipment_upserted', v_equipment_upserted,
+    'equipment_hidden', v_equipment_hidden,
+    'weapon_hidden', v_weapon_hidden,
+    'weapon_result', v_weapon_result
+  );
+end;
+$$;
+
+do $$
+begin
+  if to_regprocedure('public.get_character_abilities(uuid)') is not null
+     and to_regprocedure('public.odyssey_get_character_abilities_legacy(uuid)') is null then
+    alter function public.get_character_abilities(uuid)
+      rename to odyssey_get_character_abilities_legacy;
+  end if;
+end;
+$$;
+
+create or replace function public.get_character_abilities(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+as $$
+declare
+  v_result jsonb := public.odyssey_get_character_abilities_legacy(p_character_id);
+  v_abilities jsonb := '[]'::jsonb;
+begin
+  if coalesce((v_result->>'ok')::boolean, false) = false then
+    return v_result;
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      ability_rows.ability
+      || jsonb_strip_nulls(
+        jsonb_build_object(
+          'sourceLabel', source_state->>'sourceLabel',
+          'runtimeState',
+            jsonb_build_object(
+              'available', coalesce((source_state->>'available')::boolean, true),
+              'disabledReason', source_state->>'disabledReason'
+            ),
+          'source',
+            jsonb_strip_nulls(
+              coalesce(
+                case
+                  when jsonb_typeof(ability_rows.ability->'source') = 'object' then ability_rows.ability->'source'
+                  else '{}'::jsonb
+                end,
+                '{}'::jsonb
+              )
+              || jsonb_build_object(
+                'type', source_state->>'sourceType',
+                'character_weapon_id', nullif(source_state->>'sourceCharacterWeaponId', ''),
+                'character_equipment_item_id', nullif(source_state->>'sourceEquipmentItemId', ''),
+                'character_item_id', nullif(source_state->>'sourceCharacterItemId', ''),
+                'label', source_state->>'sourceLabel',
+                'requirements', source_state->'requirements'
+              )
+            )
+        )
+      )
+      order by ability_rows.sort_order, ability_rows.created_at, ability_rows.id
+    ),
+    '[]'::jsonb
+  )
+  into v_abilities
+  from (
+    select
+      ability.id,
+      ability.sort_order,
+      ability.created_at,
+      jsonb_build_object(
+        'id', ability.id,
+        'character_id', ability.character_id,
+        'ability_def_id', def.id,
+        'code', def.code,
+        'name', def.name,
+        'ability_kind', def.ability_kind,
+        'source_type', def.source_type,
+        'activation_type', def.activation_type,
+        'target_type', def.target_type,
+        'effect_mode', def.effect_mode,
+        'attack_type', def.attack_type,
+        'description', def.description,
+        'linked_skill_id', def.linked_skill_id,
+        'character_skill_id', ability.character_skill_id,
+        'learned_level', ability.learned_level,
+        'effective_level', public.odyssey_get_character_ability_effective_level(ability.id),
+        'is_enabled', ability.is_enabled,
+        'is_hidden', ability.is_hidden,
+        'current_cooldown_rounds', ability.current_cooldown_rounds,
+        'current_charges', ability.current_charges,
+        'max_charges', ability.max_charges,
+        'source_equipment_item_id', ability.source_equipment_item_id,
+        'source_character_item_id', ability.source_character_item_id,
+        'source_character_weapon_id', ability.source_character_weapon_id,
+        'data', ability.data,
+        'notes', ability.notes,
+        'tags', def.tags
+      ) as ability
+    from public.odyssey_character_abilities ability
+    join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+    where ability.character_id = p_character_id
+      and ability.is_hidden = false
+      and ability.is_enabled = true
+  ) ability_rows
+  cross join lateral public.odyssey_get_character_ability_source_state(ability_rows.id, null) source_state;
+
+  return v_result || jsonb_build_object('abilities', v_abilities);
+end;
+$$;
+
+do $$
+begin
+  if to_regprocedure('public.odyssey_get_character_quick_actions_runtime(uuid)') is not null
+     and to_regprocedure('public.odyssey_get_character_quick_actions_runtime_legacy(uuid)') is null then
+    alter function public.odyssey_get_character_quick_actions_runtime(uuid)
+      rename to odyssey_get_character_quick_actions_runtime_legacy;
+  end if;
+end;
+$$;
+
+create or replace function public.odyssey_get_character_quick_actions_runtime(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+as $$
+declare
+  v_character_exists boolean;
+  v_is_alive boolean;
+  v_has_skip_turn_effect boolean;
+  v_quick_actions jsonb := '[]'::jsonb;
+  v_layout jsonb := jsonb_build_object('slots', '[]'::jsonb);
+  v_version integer := 0;
+  v_selected_weapon_id uuid := null;
+begin
+  select exists(
+    select 1
+    from public.odyssey_characters
+    where id = p_character_id
+      and not coalesce(is_deleted, false)
+  )
+  into v_character_exists;
+
+  if not v_character_exists then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_NOT_FOUND',
+      'message', 'Character does not exist or is deleted',
+      'characterId', p_character_id,
+      'quickActions', '[]'::jsonb,
+      'quickbar', jsonb_build_object('slots', '[]'::jsonb, 'maxSlots', 20, 'version', 0)
+    );
+  end if;
+
+  select coalesce(cs.is_alive, true)
+  into v_is_alive
+  from public.odyssey_characters c
+  left join public.odyssey_character_combat_state cs on cs.character_id = c.id
+  where c.id = p_character_id;
+
+  v_has_skip_turn_effect := public.odyssey_character_has_active_effect_flag(p_character_id, 'skip_turn');
+  v_selected_weapon_id := public.odyssey_get_character_active_weapon_id(p_character_id);
+
+  select t.layout, t.version
+  into v_layout, v_version
+  from public.odyssey_character_quickbar_layouts t
+  where t.character_id = p_character_id;
+
+  v_layout := coalesce(v_layout, jsonb_build_object('slots', '[]'::jsonb));
+  v_version := coalesce(v_version, 0);
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'characterActionId', ability.id,
+        'definitionId', def.id,
+        'characterSkillId', ability.character_skill_id,
+        'sourceCharacterWeaponId', nullif(source_state->>'sourceCharacterWeaponId', ''),
+        'sourceEquipmentItemId', nullif(source_state->>'sourceEquipmentItemId', ''),
+        'sourceCharacterItemId', nullif(source_state->>'sourceCharacterItemId', ''),
+        'sourceType', coalesce(source_state->>'sourceType', def.source_type),
+        'sourceLabel', source_state->>'sourceLabel',
+        'type',
+          case
+            when coalesce(def.effect_mode, '') = 'attack' or def.ability_kind = 'attack' then 'attack_technique'
+            when coalesce(def.target_type, 'none') in ('character', 'body_part') then 'directed'
+            else 'instant'
+          end,
+        'name', def.name,
+        'shortDescription', substring(def.description, 1, 100),
+        'fullDescription', def.description,
+        'iconKey', coalesce(def.data->>'icon_key', 'bolt'),
+        'semanticKind', def.ability_kind,
+        'targeting', jsonb_build_object(
+          'mode', coalesce(def.target_type, 'none'),
+          'minTargets', 1,
+          'maxTargets', 1,
+          'allowAllies', true,
+          'allowSelf', def.target_type = 'self',
+          'requiresBodyZone', def.target_type = 'body_part'
+        ),
+        'costs', jsonb_build_object(
+          'main', case when def.resource_mode = 'pool' then 1 else 0 end,
+          'move', 0,
+          'psi', case when def.resource_pool_code = 'psi' then coalesce((level_data.data->>'psi_cost')::integer, 0) else 0 end,
+          'charges', coalesce(ability.current_charges, 0)
+        ),
+        'cooldown', jsonb_build_object(
+          'current', ability.current_cooldown_rounds,
+          'max', coalesce(level_data.cooldown_rounds, 0),
+          'unit', 'turn'
+        ),
+        'reload',
+          jsonb_strip_nulls(
+            jsonb_build_object(
+              'required',
+                coalesce((source_state#>>'{reload,required}')::boolean, false)
+                and ability.max_charges is not null,
+              'itemCode', nullif(source_state#>>'{reload,itemCode}', ''),
+              'itemCost', coalesce(nullif(source_state#>>'{reload,itemCost}', '')::integer, 1)
+            )
+          ),
+        'state', jsonb_build_object(
+          'available',
+            ability.is_enabled
+            and not v_has_skip_turn_effect
+            and (v_is_alive or def.target_type = 'none')
+            and coalesce(ability.current_cooldown_rounds, 0) <= 0
+            and not coalesce(res.insufficient_pool, false)
+            and not coalesce(res.insufficient_charges, false)
+            and coalesce((source_state->>'available')::boolean, true),
+          'active', false,
+          'disabledReason',
+            case
+              when not ability.is_enabled then 'Ability is disabled'
+              when v_has_skip_turn_effect then 'Skipping turn'
+              when not v_is_alive and def.target_type <> 'none' then 'Character is dead'
+              when coalesce(ability.current_cooldown_rounds, 0) > 0 then format('Cooldown: %s turns', ability.current_cooldown_rounds)
+              when coalesce(res.insufficient_pool, false) then format('Not enough %s', coalesce(def.resource_pool_code, 'resource'))
+              when coalesce(res.insufficient_charges, false)
+                then coalesce(
+                  case
+                    when nullif(source_state#>>'{reload,itemCode}', '') is not null
+                      then format('Reload with %s.', source_state#>>'{reload,itemCode}')
+                    else 'No charges left'
+                  end,
+                  'No charges left'
+                )
+              when coalesce((source_state->>'available')::boolean, true) = false then source_state->>'disabledReason'
+              else null
+            end,
+          'selectable',
+            ability.is_enabled
+            and not v_has_skip_turn_effect
+            and (v_is_alive or def.target_type = 'none')
+            and coalesce(ability.current_cooldown_rounds, 0) <= 0
+            and not coalesce(res.insufficient_pool, false)
+            and not coalesce(res.insufficient_charges, false)
+            and coalesce((source_state->>'available')::boolean, true),
+          'executionAvailable', true,
+          'executionReason', null,
+          'resourceSufficient', not (coalesce(res.insufficient_pool, false) or coalesce(res.insufficient_charges, false))
+        ),
+        'requirements',
+          jsonb_strip_nulls(
+            jsonb_build_object(
+              'weaponClass', null,
+              'weaponId', nullif(source_state#>>'{requirements,weaponId}', ''),
+              'equipmentItemId', nullif(source_state#>>'{requirements,equipmentItemId}', ''),
+              'itemId', nullif(source_state#>>'{requirements,itemId}', ''),
+              'requiresSelectedSource', coalesce((source_state#>>'{requirements,requiresSelectedSource}')::boolean, false),
+              'requiresEquipped', coalesce((source_state#>>'{requirements,requiresEquipped}')::boolean, false),
+              'requiresInstalled', coalesce((source_state#>>'{requirements,requiresInstalled}')::boolean, false),
+              'conditionSummary', nullif(source_state#>>'{requirements,conditionSummary}', '')
+            )
+          )
+      )
+      order by ability.sort_order, ability.created_at, ability.id
+    ),
+    '[]'::jsonb
+  )
+  into v_quick_actions
+  from public.odyssey_character_abilities ability
+  join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+  left join lateral (
+    select level_entry.*
+    from public.odyssey_ability_level_defs level_entry
+    where level_entry.ability_def_id = def.id
+      and level_entry.ability_level <= public.odyssey_get_character_ability_effective_level(ability.id)
+    order by level_entry.ability_level desc
+    limit 1
+  ) level_data on true
+  left join public.odyssey_resource_pool_defs rpd on rpd.code = def.resource_pool_code
+  left join public.odyssey_character_resource_pools rp
+    on rp.character_id = ability.character_id
+   and rp.resource_pool_def_id = rpd.id
+  cross join lateral public.odyssey_get_character_ability_source_state(
+    ability.id,
+    v_selected_weapon_id
+  ) source_state
+  left join lateral (
+    select
+      (def.resource_mode = 'pool' and coalesce(rp.current_value, 0) < coalesce(level_data.resource_cost, 0)) as insufficient_pool,
+      ((ability.max_charges is not null and coalesce(ability.current_charges, 0) <= 0)) as insufficient_charges
+  ) res on true
+  where ability.character_id = p_character_id
+    and ability.is_hidden = false
+    and ability.is_enabled = true
+    and def.ability_kind != 'passive'
+    and def.activation_type in ('manual', 'custom');
+
+  return jsonb_build_object(
+    'ok', true,
+    'error', null,
+    'characterId', p_character_id,
+    'quickActions', v_quick_actions,
+    'quickbar', jsonb_build_object(
+      'slots', coalesce(v_layout->'slots', '[]'::jsonb),
+      'maxSlots', 20,
+      'version', v_version
+    )
+  );
+end;
+$$;
+
+do $$
+begin
+  if to_regprocedure('public.odyssey_use_ability_with_weapon_support(jsonb)') is not null
+     and to_regprocedure('public.odyssey_use_ability_with_weapon_support_legacy(jsonb)') is null then
+    alter function public.odyssey_use_ability_with_weapon_support(jsonb)
+      rename to odyssey_use_ability_with_weapon_support_legacy;
+  end if;
+end;
+$$;
+
+create or replace function public.odyssey_use_ability_with_weapon_support(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_character_ability_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_ability_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_id');
+  v_ability_code text := lower(trim(coalesce(v_payload->>'ability_code', '')));
+  v_selected_character_weapon_id uuid := public.odyssey_try_parse_uuid(v_payload->>'selected_character_weapon_id');
+  v_source_validation jsonb := '{}'::jsonb;
+  v_ability record;
+  v_level record;
+  v_effective_level integer := 0;
+  v_merged_ability_data jsonb := '{}'::jsonb;
+  v_resource_result jsonb := '{}'::jsonb;
+  v_activation_result jsonb := '{}'::jsonb;
+  v_refresh jsonb := '{}'::jsonb;
+  v_feature_code text := '';
+begin
+  if v_character_ability_id is null then
+    if v_character_id is null or v_ability_code = '' then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'ABILITY_NOT_FOUND',
+        'message', 'character_ability_id or character_id + ability_code is required.'
+      );
+    end if;
+
+    select ability.id
+    into v_character_ability_id
+    from public.odyssey_character_abilities ability
+    join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+    where ability.character_id = v_character_id
+      and def.code = v_ability_code
+      and ability.is_enabled = true
+    order by ability.sort_order, ability.created_at, ability.id
+    limit 1;
+  end if;
+
+  v_source_validation := public.odyssey_validate_character_ability_source(
+    v_character_ability_id,
+    v_selected_character_weapon_id
+  );
+  if coalesce((v_source_validation->>'ok')::boolean, false) = false then
+    return v_source_validation;
+  end if;
+
+  select
+    ability.*,
+    def.code as ability_code,
+    def.name as ability_name,
+    def.ability_kind,
+    def.source_type,
+    def.activation_type,
+    def.target_type,
+    def.effect_mode,
+    def.attack_type,
+    def.resource_item_code,
+    def.data as def_data
+  into v_ability
+  from public.odyssey_character_abilities ability
+  join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+  where ability.id = v_character_ability_id
+    and ability.is_enabled = true
+  for update of ability;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_NOT_FOUND',
+      'character_ability_id', v_character_ability_id
+    );
+  end if;
+
+  if v_ability.effect_mode <> 'activate_weapon_feature' then
+    return public.odyssey_use_ability_with_weapon_support_legacy(v_payload);
+  end if;
+
+  v_effective_level := public.odyssey_get_character_ability_effective_level(v_character_ability_id);
+  select *
+  into v_level
+  from public.odyssey_ability_level_defs level_data
+  where level_data.ability_def_id = v_ability.ability_def_id
+    and level_data.ability_level <= v_effective_level
+  order by level_data.ability_level desc
+  limit 1;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_LEVEL_NOT_AVAILABLE',
+      'character_ability_id', v_character_ability_id,
+      'effective_level', v_effective_level
+    );
+  end if;
+
+  v_merged_ability_data := public.odyssey_merge_runtime_data(
+    public.odyssey_merge_runtime_data(
+      coalesce(v_ability.def_data, '{}'::jsonb),
+      coalesce(v_ability.data, '{}'::jsonb)
+    ),
+    coalesce(v_level.data, '{}'::jsonb)
+  );
+
+  v_feature_code := lower(trim(coalesce(
+    nullif(v_merged_ability_data->>'weapon_feature_code', ''),
+    nullif(v_merged_ability_data->>'feature_code', ''),
+    v_ability.ability_code
+  )));
+
+  if v_ability.source_character_weapon_id is null or v_feature_code = '' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_FEATURE_NOT_CONFIGURED',
+      'message', 'The bridge ability does not define a weapon_feature_code.'
+    );
+  end if;
+
+  v_resource_result := public.odyssey_consume_character_ability_cost(v_character_ability_id);
+  if coalesce((v_resource_result->>'ok')::boolean, false) = false then
+    return v_resource_result;
+  end if;
+
+  if coalesce(v_level.cooldown_rounds, 0) > 0 then
+    update public.odyssey_character_abilities
+    set current_cooldown_rounds = v_level.cooldown_rounds
+    where id = v_character_ability_id;
+  end if;
+
+  v_activation_result := public.activate_weapon_feature(
+    jsonb_build_object(
+      'character_weapon_id', v_ability.source_character_weapon_id::text,
+      'feature_code', v_feature_code
+    )
+  );
+
+  if coalesce((v_activation_result->>'ok')::boolean, false) = false then
+    return v_activation_result;
+  end if;
+
+  v_refresh := coalesce(public.odyssey_refresh_character_combat_state(v_ability.character_id)->'combat_state', '{}'::jsonb);
+
+  return jsonb_build_object(
+    'ok', true,
+    'character_ability_id', v_character_ability_id,
+    'character_id', v_ability.character_id,
+    'source_character_weapon_id', v_ability.source_character_weapon_id,
+    'ability',
+      jsonb_build_object(
+        'code', v_ability.ability_code,
+        'name', v_ability.ability_name,
+        'ability_kind', v_ability.ability_kind,
+        'source_type', v_ability.source_type,
+        'effect_mode', v_ability.effect_mode,
+        'effective_level', v_effective_level
+      ),
+    'resource', v_resource_result,
+    'result', jsonb_build_object('weapon_feature', v_activation_result),
+    'combat_state', v_refresh,
+    'message', format('%s activated.', v_ability.ability_name)
+  );
+end;
+$$;
+
+create or replace function public.use_ability(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_weapon_id');
+  v_selected_character_weapon_id uuid := public.odyssey_try_parse_uuid(v_payload->>'selected_character_weapon_id');
+  v_character_id uuid := public.odyssey_try_parse_uuid(coalesce(v_payload->>'character_id', v_payload->>'attacker_character_id'));
+  v_character_ability_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_ability_id');
+  v_ability_code text := lower(trim(coalesce(v_payload->>'ability_code', '')));
+  v_lock_state jsonb := '{}'::jsonb;
+  v_source_validation jsonb := '{}'::jsonb;
+  v_ability record;
+begin
+  if v_character_ability_id is not null or (v_character_id is not null and v_ability_code <> '') then
+    select
+      ability.id,
+      ability.character_id,
+      ability.source_character_weapon_id
+    into v_ability
+    from public.odyssey_character_abilities ability
+    join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+    where (
+      (v_character_ability_id is not null and ability.id = v_character_ability_id)
+      or (
+        v_character_ability_id is null
+        and ability.character_id = v_character_id
+        and def.code = v_ability_code
+      )
+    )
+    order by ability.sort_order, ability.created_at, ability.id
+    limit 1;
+
+    if found then
+      v_source_validation := public.odyssey_validate_character_ability_source(
+        v_ability.id,
+        v_selected_character_weapon_id
+      );
+      if coalesce((v_source_validation->>'ok')::boolean, false) = false then
+        return v_source_validation;
+      end if;
+
+      v_character_id := v_ability.character_id;
+      if v_ability.source_character_weapon_id is not null then
+        v_character_weapon_id := v_ability.source_character_weapon_id;
+        v_payload := v_payload || jsonb_build_object(
+          'character_weapon_id', v_character_weapon_id::text,
+          'character_id', v_character_id::text
+        );
+      end if;
+    end if;
+  end if;
+
+  if v_character_weapon_id is not null and v_character_id is not null then
+    v_lock_state := public.odyssey_get_weapon_lock_state(v_character_id, v_character_weapon_id);
+    if coalesce((v_lock_state->>'locked')::boolean, false)
+       or coalesce((v_lock_state->>'actor_attack_locked')::boolean, false) then
+      return jsonb_build_object(
+        'ok', false,
+        'error', coalesce(v_lock_state->>'error', 'WEAPON_LOCKED'),
+        'message', coalesce(v_lock_state->>'message', 'Weapon is locked.')
+      );
+    end if;
+  end if;
+
+  return public.odyssey_use_ability_with_weapon_support(v_payload);
+end;
+$$;
+
+create or replace function public.odyssey_perform_ability_attack(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_character_ability_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_ability_id');
+  v_attacker_character_id uuid := public.odyssey_try_parse_uuid(coalesce(v_payload->>'attacker_character_id', v_payload->>'character_id'));
+  v_ability_code text := lower(trim(coalesce(v_payload->>'ability_code', '')));
+  v_selected_character_weapon_id uuid := public.odyssey_try_parse_uuid(v_payload->>'selected_character_weapon_id');
+  v_ability record;
+  v_source_validation jsonb := '{}'::jsonb;
+  v_weapon_effect_summary jsonb := '{}'::jsonb;
+  v_runtime_modifiers jsonb := '[]'::jsonb;
+  v_existing_runtime_data jsonb := case
+    when jsonb_typeof(v_payload->'runtime_data') = 'object' then v_payload->'runtime_data'
+    else '{}'::jsonb
+  end;
+  v_runtime_data jsonb := '{}'::jsonb;
+  v_result jsonb := '{}'::jsonb;
+begin
+  if v_character_ability_id is not null or (v_attacker_character_id is not null and v_ability_code <> '') then
+    select
+      ability.id,
+      ability.character_id,
+      ability.source_character_weapon_id
+    into v_ability
+    from public.odyssey_character_abilities ability
+    join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+    where (
+      (v_character_ability_id is not null and ability.id = v_character_ability_id)
+      or (
+        v_character_ability_id is null
+        and ability.character_id = v_attacker_character_id
+        and def.code = v_ability_code
+      )
+    )
+    order by ability.sort_order, ability.created_at, ability.id
+    limit 1;
+  end if;
+
+  if found then
+    v_source_validation := public.odyssey_validate_character_ability_source(
+      v_ability.id,
+      v_selected_character_weapon_id
+    );
+    if coalesce((v_source_validation->>'ok')::boolean, false) = false then
+      return v_source_validation;
+    end if;
+  end if;
+
+  if found and v_ability.source_character_weapon_id is not null then
+    v_attacker_character_id := v_ability.character_id;
+    v_weapon_effect_summary := public.odyssey_get_weapon_effect_summary(
+      v_attacker_character_id,
+      v_ability.source_character_weapon_id
+    );
+
+    if coalesce(nullif(v_weapon_effect_summary->>'attack_accuracy', '')::integer, 0) <> 0 then
+      v_runtime_modifiers := v_runtime_modifiers || jsonb_build_array(
+        jsonb_build_object('target', 'attack_accuracy', 'value', coalesce(nullif(v_weapon_effect_summary->>'attack_accuracy', '')::integer, 0))
+      );
+    end if;
+    if coalesce(nullif(v_weapon_effect_summary->>'damage', '')::integer, 0) <> 0 then
+      v_runtime_modifiers := v_runtime_modifiers || jsonb_build_array(
+        jsonb_build_object('target', 'damage', 'value', coalesce(nullif(v_weapon_effect_summary->>'damage', '')::integer, 0))
+      );
+    end if;
+    if coalesce(nullif(v_weapon_effect_summary->>'armor_pierce', '')::integer, 0) <> 0 then
+      v_runtime_modifiers := v_runtime_modifiers || jsonb_build_array(
+        jsonb_build_object('target', 'armor_pierce', 'value', coalesce(nullif(v_weapon_effect_summary->>'armor_pierce', '')::integer, 0))
+      );
+    end if;
+    if coalesce(nullif(v_weapon_effect_summary->>'aim_difficulty', '')::integer, 0) <> 0 then
+      v_runtime_modifiers := v_runtime_modifiers || jsonb_build_array(
+        jsonb_build_object('target', 'aim_difficulty', 'value', coalesce(nullif(v_weapon_effect_summary->>'aim_difficulty', '')::integer, 0))
+      );
+    end if;
+    if coalesce(nullif(v_weapon_effect_summary->>'range', '')::integer, 0) <> 0 then
+      v_runtime_modifiers := v_runtime_modifiers || jsonb_build_array(
+        jsonb_build_object('target', 'range', 'value', coalesce(nullif(v_weapon_effect_summary->>'range', '')::integer, 0))
+      );
+    end if;
+
+    if jsonb_array_length(v_runtime_modifiers) > 0 then
+      v_runtime_data := public.odyssey_merge_runtime_data(
+        v_existing_runtime_data,
+        jsonb_build_object('modifiers', v_runtime_modifiers)
+      );
+      v_payload := v_payload || jsonb_build_object('runtime_data', v_runtime_data);
+    end if;
+
+    v_payload := v_payload || jsonb_build_object(
+      'character_weapon_id', v_ability.source_character_weapon_id::text,
+      'attacker_character_id', v_attacker_character_id::text,
+      'character_id', v_attacker_character_id::text
+    );
+  end if;
+
+  v_result := public.odyssey_perform_ability_attack_legacy(v_payload);
+  if found and v_ability.source_character_weapon_id is not null and coalesce((v_result->>'ok')::boolean, false) = true then
+    v_result := v_result || jsonb_build_object(
+      'weapon_effects', v_weapon_effect_summary
+    );
+  end if;
+
+  return v_result;
+end;
+$$;
+
+create or replace function public.reload_character_ability(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_character_ability_id uuid := public.odyssey_try_parse_uuid(v_payload->>'character_ability_id');
+  v_source_validation jsonb := '{}'::jsonb;
+  v_ability record;
+  v_result jsonb := '{}'::jsonb;
+begin
+  if v_character_ability_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_NOT_FOUND',
+      'message', 'character_ability_id is required.'
+    );
+  end if;
+
+  select
+    ability.id,
+    ability.character_id,
+    ability.current_charges,
+    ability.max_charges
+  into v_ability
+  from public.odyssey_character_abilities ability
+  where ability.id = v_character_ability_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_NOT_FOUND',
+      'character_ability_id', v_character_ability_id
+    );
+  end if;
+
+  v_source_validation := public.odyssey_validate_character_ability_source(v_character_ability_id, null);
+  if coalesce((v_source_validation->>'ok')::boolean, false) = false then
+    return v_source_validation;
+  end if;
+
+  if v_ability.max_charges is null or v_ability.max_charges <= 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_NOT_RELOADABLE',
+      'character_ability_id', v_character_ability_id
+    );
+  end if;
+
+  if coalesce(v_ability.current_charges, 0) >= v_ability.max_charges then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'ABILITY_ALREADY_FULL',
+      'character_ability_id', v_character_ability_id
+    );
+  end if;
+
+  v_result := public.reload_feature_resource(
+    jsonb_build_object(
+      'feature_instance_type', 'character_ability',
+      'feature_instance_id', v_character_ability_id::text,
+      'quantity', 1
+    )
+  );
+
+  if coalesce((v_result->>'ok')::boolean, false) = false then
+    return jsonb_build_object(
+      'ok', false,
+      'error',
+        case coalesce(v_result->>'error', '')
+          when 'FEATURE_NOT_RELOADABLE' then 'ABILITY_NOT_RELOADABLE'
+          when 'FEATURE_INSTANCE_NOT_FOUND' then 'ABILITY_NOT_FOUND'
+          when 'NO_RESOURCE_ITEM' then 'RELOAD_ITEM_NOT_FOUND'
+          when 'INSUFFICIENT_RESOURCE_ITEM' then 'RELOAD_ITEM_INSUFFICIENT'
+          when 'NO_CHARGE_CAPACITY' then 'ABILITY_ALREADY_FULL'
+          else coalesce(v_result->>'error', 'ABILITY_RELOAD_FAILED')
+        end,
+      'message', coalesce(v_result->>'message', 'Unable to reload ability.'),
+      'character_ability_id', v_character_ability_id,
+      'details', v_result
+    );
+  end if;
+
+  return v_result || jsonb_build_object(
+    'character_ability_id', v_character_ability_id
+  );
+end;
+$$;
+
+grant execute on function public.odyssey_get_unified_ability_grants() to anon, authenticated;
+grant execute on function public.odyssey_get_character_active_weapon_id(uuid) to anon, authenticated;
+grant execute on function public.odyssey_get_character_ability_source_state(uuid, uuid) to anon, authenticated;
+grant execute on function public.odyssey_validate_character_ability_source(uuid, uuid) to anon, authenticated;
+grant execute on function public.reload_character_ability(jsonb) to anon, authenticated;
+
+-- ===== END 106_universal_granted_abilities.sql =====
+
+-- ===== BEGIN 107_ranged_weapon_feed_modes.sql =====
+-- Feed mode is now defined per weapon profile:
+-- - detachable_magazine
+-- - internal_magazine
+--
+-- Detachable magazines keep the existing behavior.
+-- Internal magazines store ammo directly in odyssey_character_weapon_profile_states.
+
+alter table public.odyssey_weapon_model_profiles
+  add column if not exists feed_mode text not null default 'detachable_magazine'
+    check (feed_mode in ('detachable_magazine', 'internal_magazine'));
+
+alter table public.odyssey_weapon_model_profiles
+  add column if not exists internal_capacity integer null
+    check (internal_capacity is null or internal_capacity >= 0);
+
+alter table public.odyssey_character_weapon_profile_states
+  add column if not exists internal_ammo_type_id uuid null references public.odyssey_ammo_type_defs(id) on delete set null;
+
+alter table public.odyssey_character_weapon_profile_states
+  add column if not exists internal_current_rounds integer not null default 0
+    check (internal_current_rounds >= 0);
+
+alter table public.odyssey_character_weapon_profile_states
+  add column if not exists internal_max_rounds integer not null default 0
+    check (internal_max_rounds >= 0);
+
+update public.odyssey_weapon_model_profiles
+set
+  feed_mode = case
+    when coalesce(feed_mode, '') in ('detachable_magazine', 'internal_magazine') then feed_mode
+    else 'detachable_magazine'
+  end,
+  internal_capacity = case
+    when coalesce(feed_mode, 'detachable_magazine') = 'internal_magazine'
+      then greatest(coalesce(internal_capacity, 0), 0)
+    else null
+  end
+where true;
+
+update public.odyssey_character_weapon_profile_states state
+set
+  internal_max_rounds = case
+    when coalesce(profile.feed_mode, 'detachable_magazine') = 'internal_magazine'
+      then greatest(coalesce(profile.internal_capacity, 0), 0)
+    else 0
+  end,
+  internal_current_rounds = greatest(coalesce(state.internal_current_rounds, 0), 0),
+  internal_ammo_type_id = case
+    when greatest(coalesce(state.internal_current_rounds, 0), 0) <= 0 then null
+    else state.internal_ammo_type_id
+  end,
+  loaded_magazine_id = case
+    when coalesce(profile.feed_mode, 'detachable_magazine') = 'internal_magazine' then null
+    else state.loaded_magazine_id
+  end
+from public.odyssey_weapon_model_profiles profile
+where profile.id = state.profile_id;
+
+create or replace function public.odyssey_is_internal_ammo_compatible_with_profile(
+  p_profile_id uuid,
+  p_ammo_type_id uuid
+)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  with profile_row as (
+    select coalesce(p.caliber_id, wm.caliber_id) as caliber_id
+    from public.odyssey_weapon_model_profiles p
+    join public.odyssey_weapon_model_defs wm on wm.id = p.weapon_model_id
+    where p.id = p_profile_id
+  )
+  select exists (
+    select 1
+    from profile_row pr
+    join public.odyssey_ammo_type_defs ammo on ammo.id = p_ammo_type_id
+    where pr.caliber_id is not null
+      and ammo.caliber_id = pr.caliber_id
+  );
+$$;
+
+create or replace function public.odyssey_ensure_default_weapon_profile(
+  p_weapon_model_id uuid
+)
+returns uuid
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_profile_id uuid := null;
+begin
+  select p.id
+  into v_profile_id
+  from public.odyssey_weapon_model_profiles p
+  where p.weapon_model_id = p_weapon_model_id
+    and p.is_default = true
+  order by p.sort_order, p.created_at, p.id
+  limit 1;
+
+  if v_profile_id is not null then
+    return v_profile_id;
+  end if;
+
+  insert into public.odyssey_weapon_model_profiles (
+    weapon_model_id,
+    code,
+    name,
+    description,
+    weapon_class_id,
+    linked_skill_id,
+    caliber_id,
+    range_profile_id,
+    accuracy_modifier,
+    base_melee_damage,
+    attack_type,
+    feed_mode,
+    internal_capacity,
+    is_default,
+    data,
+    tags,
+    sort_order
+  )
+  select
+    wm.id,
+    'default',
+    'Default',
+    'Auto-generated default weapon profile.',
+    wm.weapon_class_id,
+    wm.linked_skill_id,
+    wm.caliber_id,
+    wm.range_profile_id,
+    wm.base_accuracy_bonus,
+    coalesce(wm.base_melee_damage, 0),
+    case
+      when wm.caliber_id is null then 'melee'
+      else 'ranged'
+    end,
+    'detachable_magazine',
+    null,
+    true,
+    '{}'::jsonb,
+    coalesce(wm.tags, '[]'::jsonb),
+    0
+  from public.odyssey_weapon_model_defs wm
+  where wm.id = p_weapon_model_id
+  on conflict (weapon_model_id, code) do update
+  set
+    name = excluded.name,
+    description = excluded.description,
+    weapon_class_id = excluded.weapon_class_id,
+    linked_skill_id = excluded.linked_skill_id,
+    caliber_id = excluded.caliber_id,
+    range_profile_id = excluded.range_profile_id,
+    accuracy_modifier = excluded.accuracy_modifier,
+    base_melee_damage = excluded.base_melee_damage,
+    attack_type = excluded.attack_type,
+    feed_mode = coalesce(public.odyssey_weapon_model_profiles.feed_mode, excluded.feed_mode),
+    internal_capacity = case
+      when coalesce(public.odyssey_weapon_model_profiles.feed_mode, excluded.feed_mode) = 'internal_magazine'
+        then greatest(coalesce(public.odyssey_weapon_model_profiles.internal_capacity, excluded.internal_capacity, 0), 0)
+      else null
+    end,
+    is_default = true,
+    data = excluded.data,
+    tags = excluded.tags,
+    sort_order = excluded.sort_order
+  returning id into v_profile_id;
+
+  update public.odyssey_weapon_model_profiles
+  set is_default = (id = v_profile_id)
+  where weapon_model_id = p_weapon_model_id
+    and is_default is distinct from (id = v_profile_id);
+
+  return v_profile_id;
+end;
+$$;
+
+create or replace function public.initialize_character_weapon_profile_states(
+  p_character_weapon_id uuid
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_weapon public.odyssey_character_weapons%rowtype;
+  v_default_profile_id uuid := null;
+  v_active_profile_id uuid := null;
+begin
+  select *
+  into v_weapon
+  from public.odyssey_character_weapons w
+  where w.id = p_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'weapon_id', p_character_weapon_id
+    );
+  end if;
+
+  v_default_profile_id := public.odyssey_ensure_default_weapon_profile(v_weapon.weapon_model_id);
+  v_active_profile_id := coalesce(v_weapon.active_profile_id, v_default_profile_id);
+
+  if not exists(
+    select 1
+    from public.odyssey_weapon_model_profiles p
+    where p.id = v_active_profile_id
+      and p.weapon_model_id = v_weapon.weapon_model_id
+  ) then
+    v_active_profile_id := v_default_profile_id;
+  end if;
+
+  insert into public.odyssey_character_weapon_profile_states (
+    character_weapon_id,
+    profile_id,
+    loaded_magazine_id,
+    selected_fire_mode_id,
+    internal_ammo_type_id,
+    internal_current_rounds,
+    internal_max_rounds,
+    is_active,
+    data
+  )
+  select
+    v_weapon.id,
+    p.id,
+    case
+      when coalesce(p.feed_mode, 'detachable_magazine') <> 'internal_magazine'
+           and p.id = v_active_profile_id
+        then v_weapon.loaded_magazine_id
+      else null
+    end,
+    case
+      when p.id = v_active_profile_id
+           and v_weapon.selected_fire_mode_id is not null
+           and public.odyssey_is_fire_mode_allowed_for_profile(p.id, v_weapon.selected_fire_mode_id)
+        then v_weapon.selected_fire_mode_id
+      else public.odyssey_get_default_profile_fire_mode_id(p.id)
+    end,
+    null,
+    0,
+    case
+      when coalesce(p.feed_mode, 'detachable_magazine') = 'internal_magazine'
+        then greatest(coalesce(p.internal_capacity, 0), 0)
+      else 0
+    end,
+    p.id = v_active_profile_id,
+    '{}'::jsonb
+  from public.odyssey_weapon_model_profiles p
+  where p.weapon_model_id = v_weapon.weapon_model_id
+  on conflict (character_weapon_id, profile_id) do nothing;
+
+  update public.odyssey_character_weapon_profile_states state
+  set
+    is_active = (state.profile_id = v_active_profile_id),
+    internal_max_rounds = case
+      when coalesce(profile.feed_mode, 'detachable_magazine') = 'internal_magazine'
+        then greatest(coalesce(profile.internal_capacity, 0), 0)
+      else 0
+    end,
+    loaded_magazine_id = case
+      when coalesce(profile.feed_mode, 'detachable_magazine') = 'internal_magazine' then null
+      when state.profile_id = v_active_profile_id then state.loaded_magazine_id
+      else state.loaded_magazine_id
+    end,
+    internal_ammo_type_id = case
+      when greatest(coalesce(state.internal_current_rounds, 0), 0) <= 0 then null
+      else state.internal_ammo_type_id
+    end
+  from public.odyssey_weapon_model_profiles profile
+  where profile.id = state.profile_id
+    and state.character_weapon_id = v_weapon.id;
+
+  update public.odyssey_character_weapons
+  set active_profile_id = v_active_profile_id
+  where id = v_weapon.id
+    and active_profile_id is distinct from v_active_profile_id;
+
+  return public.odyssey_sync_character_weapon_profile_cache(v_weapon.id);
+end;
+$$;
+
+create or replace function public.odyssey_sync_character_weapon_profile_cache(
+  p_character_weapon_id uuid
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_weapon public.odyssey_character_weapons%rowtype;
+  v_default_profile_id uuid := null;
+  v_active_state record;
+  v_resolved_fire_mode_id uuid := null;
+  v_resolved_magazine_id uuid := null;
+  v_resolved_internal_ammo_type_id uuid := null;
+  v_resolved_internal_current_rounds integer := 0;
+  v_resolved_internal_max_rounds integer := 0;
+begin
+  select *
+  into v_weapon
+  from public.odyssey_character_weapons w
+  where w.id = p_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'weapon_id', p_character_weapon_id
+    );
+  end if;
+
+  v_default_profile_id := public.odyssey_ensure_default_weapon_profile(v_weapon.weapon_model_id);
+
+  if v_weapon.active_profile_id is null then
+    update public.odyssey_character_weapons
+    set active_profile_id = v_default_profile_id
+    where id = v_weapon.id;
+
+    v_weapon.active_profile_id := v_default_profile_id;
+  end if;
+
+  select
+    s.*,
+    coalesce(p.feed_mode, 'detachable_magazine') as feed_mode,
+    greatest(coalesce(p.internal_capacity, 0), 0) as profile_internal_capacity
+  into v_active_state
+  from public.odyssey_character_weapon_profile_states s
+  join public.odyssey_weapon_model_profiles p on p.id = s.profile_id
+  where s.character_weapon_id = v_weapon.id
+    and s.profile_id = coalesce(v_weapon.active_profile_id, v_default_profile_id)
+  limit 1;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'PROFILE_STATE_NOT_FOUND',
+      'weapon_id', p_character_weapon_id,
+      'profile_id', coalesce(v_weapon.active_profile_id, v_default_profile_id)
+    );
+  end if;
+
+  update public.odyssey_character_weapon_profile_states
+  set is_active = (id = v_active_state.id)
+  where character_weapon_id = v_weapon.id
+    and is_active is distinct from (id = v_active_state.id);
+
+  if v_active_state.selected_fire_mode_id is not null
+     and public.odyssey_is_fire_mode_allowed_for_profile(v_active_state.profile_id, v_active_state.selected_fire_mode_id) then
+    v_resolved_fire_mode_id := v_active_state.selected_fire_mode_id;
+  else
+    v_resolved_fire_mode_id := public.odyssey_get_default_profile_fire_mode_id(v_active_state.profile_id);
+
+    update public.odyssey_character_weapon_profile_states
+    set selected_fire_mode_id = v_resolved_fire_mode_id
+    where id = v_active_state.id
+      and selected_fire_mode_id is distinct from v_resolved_fire_mode_id;
+  end if;
+
+  if v_active_state.feed_mode = 'internal_magazine' then
+    v_resolved_magazine_id := null;
+    v_resolved_internal_max_rounds := greatest(coalesce(v_active_state.internal_max_rounds, v_active_state.profile_internal_capacity, 0), 0);
+    v_resolved_internal_current_rounds := greatest(least(coalesce(v_active_state.internal_current_rounds, 0), v_resolved_internal_max_rounds), 0);
+    v_resolved_internal_ammo_type_id := v_active_state.internal_ammo_type_id;
+
+    if v_resolved_internal_current_rounds <= 0 then
+      v_resolved_internal_current_rounds := 0;
+      v_resolved_internal_ammo_type_id := null;
+    elsif v_resolved_internal_ammo_type_id is not null
+      and not public.odyssey_is_internal_ammo_compatible_with_profile(v_active_state.profile_id, v_resolved_internal_ammo_type_id) then
+      v_resolved_internal_current_rounds := 0;
+      v_resolved_internal_ammo_type_id := null;
+    end if;
+
+    update public.odyssey_character_weapon_profile_states
+    set
+      loaded_magazine_id = null,
+      internal_ammo_type_id = v_resolved_internal_ammo_type_id,
+      internal_current_rounds = v_resolved_internal_current_rounds,
+      internal_max_rounds = v_resolved_internal_max_rounds
+    where id = v_active_state.id
+      and (
+        loaded_magazine_id is not null
+        or internal_ammo_type_id is distinct from v_resolved_internal_ammo_type_id
+        or internal_current_rounds is distinct from v_resolved_internal_current_rounds
+        or internal_max_rounds is distinct from v_resolved_internal_max_rounds
+      );
+  else
+    if v_active_state.loaded_magazine_id is not null
+       and public.odyssey_is_magazine_compatible_with_profile(v_active_state.profile_id, v_active_state.loaded_magazine_id) then
+      v_resolved_magazine_id := v_active_state.loaded_magazine_id;
+    else
+      v_resolved_magazine_id := null;
+
+      update public.odyssey_character_weapon_profile_states
+      set loaded_magazine_id = null
+      where id = v_active_state.id
+        and loaded_magazine_id is not null;
+    end if;
+  end if;
+
+  update public.odyssey_character_weapons
+  set
+    active_profile_id = v_active_state.profile_id,
+    loaded_magazine_id = v_resolved_magazine_id,
+    selected_fire_mode_id = v_resolved_fire_mode_id
+  where id = v_weapon.id
+    and (
+      active_profile_id is distinct from v_active_state.profile_id
+      or loaded_magazine_id is distinct from v_resolved_magazine_id
+      or selected_fire_mode_id is distinct from v_resolved_fire_mode_id
+    );
+
+  return jsonb_build_object(
+    'ok', true,
+    'weapon_id', v_weapon.id,
+    'active_profile_id', v_active_state.profile_id,
+    'feed_mode', v_active_state.feed_mode,
+    'loaded_magazine_id', v_resolved_magazine_id,
+    'selected_fire_mode_id', v_resolved_fire_mode_id,
+    'internal_ammo_type_id', v_resolved_internal_ammo_type_id,
+    'internal_current_rounds', v_resolved_internal_current_rounds,
+    'internal_max_rounds', v_resolved_internal_max_rounds
+  );
+end;
+$$;
+
+create or replace function public.odyssey_get_character_weapon_profile(
+  p_character_weapon_id uuid,
+  p_profile_id uuid
+)
+returns jsonb
+language sql
+stable
+set search_path = public
+as $$
+  with weapon_row as (
+    select
+      w.id,
+      w.weapon_model_id,
+      w.active_profile_id,
+      w.loaded_magazine_id,
+      w.selected_fire_mode_id
+    from public.odyssey_character_weapons w
+    where w.id = p_character_weapon_id
+  ),
+  profile_rows as (
+    select
+      p.id,
+      p.weapon_model_id,
+      p.code,
+      p.name,
+      p.description,
+      p.attack_type,
+      coalesce(p.feed_mode, 'detachable_magazine') as feed_mode,
+      greatest(coalesce(p.internal_capacity, 0), 0) as internal_capacity,
+      p.data,
+      p.tags,
+      p.sort_order,
+      p.is_default,
+      coalesce(pwc.code, mwc.code) as weapon_class_code,
+      coalesce(pwc.name, mwc.name) as weapon_class_name,
+      coalesce(pskill.code, mskill.code) as linked_skill_code,
+      coalesce(pskill.name, mskill.name) as linked_skill_name,
+      coalesce(pcal.code, mcal.code) as caliber_code,
+      coalesce(pcal.name, mcal.name) as caliber_name,
+      coalesce(prp.code, mrp.code) as range_profile_code,
+      coalesce(prp.name, mrp.name) as range_profile_name,
+      coalesce(p.accuracy_modifier, wm.base_accuracy_bonus) as accuracy_modifier,
+      coalesce(p.base_melee_damage, wm.base_melee_damage) as base_melee_damage,
+      coalesce(pcal.base_damage_per_round, mcal.base_damage_per_round, 0) as base_damage_per_round,
+      case
+        when coalesce(p.feed_mode, 'detachable_magazine') = 'internal_magazine' then null
+        when s.id is not null then s.loaded_magazine_id
+        when coalesce(w.active_profile_id = p.id, p.is_default) then w.loaded_magazine_id
+        else null
+      end as candidate_loaded_magazine_id,
+      case
+        when s.id is not null
+             and s.selected_fire_mode_id is not null
+             and public.odyssey_is_fire_mode_allowed_for_profile(p.id, s.selected_fire_mode_id)
+          then s.selected_fire_mode_id
+        when coalesce(w.active_profile_id = p.id, p.is_default)
+             and w.selected_fire_mode_id is not null
+             and public.odyssey_is_fire_mode_allowed_for_profile(p.id, w.selected_fire_mode_id)
+          then w.selected_fire_mode_id
+        else public.odyssey_get_default_profile_fire_mode_id(p.id)
+      end as candidate_selected_fire_mode_id,
+      coalesce(s.internal_ammo_type_id, null) as candidate_internal_ammo_type_id,
+      greatest(coalesce(s.internal_current_rounds, 0), 0) as candidate_internal_current_rounds,
+      greatest(coalesce(s.internal_max_rounds, p.internal_capacity, 0), 0) as candidate_internal_max_rounds,
+      coalesce(
+        s.is_active,
+        case
+          when w.active_profile_id is not null then w.active_profile_id = p.id
+          else p.is_default
+        end,
+        false
+      ) as is_active
+    from weapon_row w
+    join public.odyssey_weapon_model_profiles p
+      on p.weapon_model_id = w.weapon_model_id
+     and p.id = p_profile_id
+    join public.odyssey_weapon_model_defs wm on wm.id = w.weapon_model_id
+    left join public.odyssey_weapon_class_defs pwc on pwc.id = p.weapon_class_id
+    left join public.odyssey_weapon_class_defs mwc on mwc.id = wm.weapon_class_id
+    left join public.odyssey_skill_defs pskill on pskill.id = p.linked_skill_id
+    left join public.odyssey_skill_defs mskill on mskill.id = wm.linked_skill_id
+    left join public.odyssey_caliber_defs pcal on pcal.id = p.caliber_id
+    left join public.odyssey_caliber_defs mcal on mcal.id = wm.caliber_id
+    left join public.odyssey_range_profile_defs prp on prp.id = p.range_profile_id
+    left join public.odyssey_range_profile_defs mrp on mrp.id = wm.range_profile_id
+    left join public.odyssey_character_weapon_profile_states s
+      on s.character_weapon_id = w.id
+     and s.profile_id = p.id
+  ),
+  resolved_profile as (
+    select
+      pr.*,
+      case
+        when pr.feed_mode = 'internal_magazine' then null
+        when pr.candidate_loaded_magazine_id is not null
+             and public.odyssey_is_magazine_compatible_with_profile(pr.id, pr.candidate_loaded_magazine_id)
+          then pr.candidate_loaded_magazine_id
+        else null
+      end as loaded_magazine_id,
+      case
+        when pr.candidate_selected_fire_mode_id is not null
+             and public.odyssey_is_fire_mode_allowed_for_profile(pr.id, pr.candidate_selected_fire_mode_id)
+          then pr.candidate_selected_fire_mode_id
+        else public.odyssey_get_default_profile_fire_mode_id(pr.id)
+      end as selected_fire_mode_id,
+      case
+        when pr.feed_mode = 'internal_magazine' then greatest(pr.candidate_internal_max_rounds, pr.internal_capacity, 0)
+        else 0
+      end as internal_max_rounds,
+      case
+        when pr.feed_mode = 'internal_magazine'
+          then greatest(least(pr.candidate_internal_current_rounds, greatest(pr.candidate_internal_max_rounds, pr.internal_capacity, 0)), 0)
+        else 0
+      end as internal_current_rounds
+    from profile_rows pr
+  )
+  select coalesce(
+    (
+      select jsonb_build_object(
+        'id', pr.id,
+        'code', pr.code,
+        'name', pr.name,
+        'description', pr.description,
+        'attack_type', pr.attack_type,
+        'feed_mode', pr.feed_mode,
+        'internal_capacity', pr.internal_capacity,
+        'weapon_class', pr.weapon_class_code,
+        'weapon_class_name', pr.weapon_class_name,
+        'linked_skill', pr.linked_skill_code,
+        'linked_skill_name', pr.linked_skill_name,
+        'caliber', pr.caliber_code,
+        'caliber_name', pr.caliber_name,
+        'range_profile', pr.range_profile_code,
+        'range_profile_name', pr.range_profile_name,
+        'accuracy_modifier', pr.accuracy_modifier,
+        'base_melee_damage', pr.base_melee_damage,
+        'base_damage_per_round', pr.base_damage_per_round,
+        'data', pr.data,
+        'tags', pr.tags,
+        'sort_order', pr.sort_order,
+        'is_default', pr.is_default,
+        'is_active', pr.is_active,
+        'loaded_magazine',
+          case
+            when cm.id is null then null
+            else jsonb_build_object(
+              'id', cm.id,
+              'name', coalesce(nullif(trim(cm.custom_name), ''), md.name),
+              'custom_name', cm.custom_name,
+              'current_rounds', cm.current_rounds,
+              'capacity', md.capacity,
+              'ammo_type', ammo.code,
+              'ammo_type_name', ammo.name,
+              'magazine_def', md.code,
+              'magazine_def_name', md.name
+            )
+          end,
+        'selected_fire_mode',
+          case
+            when fm.id is null then null
+            else jsonb_build_object(
+              'id', fm.id,
+              'code', fm.code,
+              'name', fm.name,
+              'fixed_rounds', fm.fixed_rounds,
+              'min_rounds', fm.min_rounds,
+              'max_rounds', fm.max_rounds,
+              'is_random', fm.is_random,
+              'accuracy_modifier', fm.accuracy_modifier
+            )
+          end,
+        'internal_ammo_type',
+          case
+            when pr.feed_mode <> 'internal_magazine'
+              or pr.internal_current_rounds <= 0
+              or pr.candidate_internal_ammo_type_id is null
+              or not public.odyssey_is_internal_ammo_compatible_with_profile(pr.id, pr.candidate_internal_ammo_type_id)
+              then null
+            else jsonb_build_object(
+              'id', iammo.id,
+              'code', iammo.code,
+              'name', iammo.name,
+              'caliber', ical.code,
+              'caliber_name', ical.name
+            )
+          end,
+        'internal_current_rounds',
+          case when pr.feed_mode = 'internal_magazine' then pr.internal_current_rounds else 0 end,
+        'internal_max_rounds',
+          case when pr.feed_mode = 'internal_magazine' then pr.internal_max_rounds else 0 end,
+        'ammo',
+          case
+            when pr.feed_mode = 'internal_magazine' then jsonb_build_object(
+              'current_rounds', pr.internal_current_rounds,
+              'max_rounds', pr.internal_max_rounds,
+              'ammo_type', iammo.code,
+              'ammo_type_code', iammo.code,
+              'ammo_type_name', iammo.name,
+              'caliber', ical.code,
+              'caliber_name', ical.name
+            )
+            when cm.id is null then null
+            else jsonb_build_object(
+              'current_rounds', cm.current_rounds,
+              'max_rounds', md.capacity,
+              'ammo_type', ammo.code,
+              'ammo_type_code', ammo.code,
+              'ammo_type_name', ammo.name,
+              'caliber', cmdc.code,
+              'caliber_name', cmdc.name
+            )
+          end,
+        'available_fire_modes',
+          coalesce(
+            (
+              select jsonb_agg(
+                jsonb_build_object(
+                  'id', afm.id,
+                  'code', afm.code,
+                  'name', afm.name,
+                  'fixed_rounds', afm.fixed_rounds,
+                  'min_rounds', afm.min_rounds,
+                  'max_rounds', afm.max_rounds,
+                  'is_random', afm.is_random,
+                  'accuracy_modifier', afm.accuracy_modifier,
+                  'is_default', pfm.is_default
+                )
+                order by pfm.is_default desc, pfm.sort_order, afm.sort_order, afm.name
+              )
+              from public.odyssey_weapon_profile_fire_modes pfm
+              join public.odyssey_fire_mode_defs afm on afm.id = pfm.fire_mode_id
+              where pfm.profile_id = pr.id
+            ),
+            '[]'::jsonb
+          ),
+        'compatible_magazines',
+          case
+            when pr.feed_mode = 'internal_magazine' then '[]'::jsonb
+            else coalesce(
+              (
+                select jsonb_agg(
+                  jsonb_build_object(
+                    'id', cmd.id,
+                    'code', cmd.code,
+                    'name', cmd.name,
+                    'capacity', cmd.capacity,
+                    'caliber', cmdc.code,
+                    'caliber_name', cmdc.name,
+                    'is_default', ppm.is_default
+                  )
+                  order by ppm.is_default desc, ppm.sort_order, cmd.sort_order, cmd.name
+                )
+                from public.odyssey_weapon_profile_magazines ppm
+                join public.odyssey_magazine_defs cmd on cmd.id = ppm.magazine_def_id
+                join public.odyssey_caliber_defs cmdc on cmdc.id = cmd.caliber_id
+                where ppm.profile_id = pr.id
+              ),
+              '[]'::jsonb
+            )
+          end
+      )
+      from resolved_profile pr
+      left join public.odyssey_character_magazines cm on cm.id = pr.loaded_magazine_id
+      left join public.odyssey_magazine_defs md on md.id = cm.magazine_def_id
+      left join public.odyssey_caliber_defs cmdc on cmdc.id = md.caliber_id
+      left join public.odyssey_ammo_type_defs ammo on ammo.id = cm.ammo_type_id
+      left join public.odyssey_fire_mode_defs fm on fm.id = pr.selected_fire_mode_id
+      left join public.odyssey_ammo_type_defs iammo
+        on iammo.id = pr.candidate_internal_ammo_type_id
+       and pr.feed_mode = 'internal_magazine'
+       and pr.internal_current_rounds > 0
+       and public.odyssey_is_internal_ammo_compatible_with_profile(pr.id, pr.candidate_internal_ammo_type_id)
+      left join public.odyssey_caliber_defs ical on ical.id = iammo.caliber_id
+    ),
+    null
+  );
+$$;
+
+create or replace function public.load_weapon_profile_magazine(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_profile_id uuid := public.odyssey_try_parse_uuid(p_payload->>'profile_id');
+  v_character_magazine_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_magazine_id');
+  v_weapon public.odyssey_character_weapons%rowtype;
+  v_target_state_id uuid := null;
+  v_target_feed_mode text := 'detachable_magazine';
+  v_affected_weapons uuid[];
+  v_item uuid;
+  v_magazine public.odyssey_character_magazines%rowtype;
+begin
+  if v_character_weapon_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_WEAPON_ID_REQUIRED',
+      'message', 'character_weapon_id is required.'
+    );
+  end if;
+
+  if v_profile_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'PROFILE_ID_REQUIRED',
+      'message', 'profile_id is required.'
+    );
+  end if;
+
+  if v_character_magazine_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_MAGAZINE_ID_REQUIRED',
+      'message', 'character_magazine_id is required.'
+    );
+  end if;
+
+  select *
+  into v_weapon
+  from public.odyssey_character_weapons w
+  where w.id = v_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'message', 'Weapon was not found.'
+    );
+  end if;
+
+  perform public.initialize_character_weapon_profile_states(v_weapon.id);
+
+  select
+    s.id,
+    coalesce(p.feed_mode, 'detachable_magazine')
+  into
+    v_target_state_id,
+    v_target_feed_mode
+  from public.odyssey_character_weapon_profile_states s
+  join public.odyssey_weapon_model_profiles p on p.id = s.profile_id
+  where s.character_weapon_id = v_weapon.id
+    and s.profile_id = v_profile_id
+    and p.weapon_model_id = v_weapon.weapon_model_id
+  limit 1;
+
+  if v_target_state_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'PROFILE_NOT_FOUND',
+      'message', 'Selected profile was not found for this weapon.'
+    );
+  end if;
+
+  if v_target_feed_mode <> 'detachable_magazine' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_FEED_MODE_INVALID',
+      'message', 'This weapon profile uses an internal magazine and cannot load detachable magazines.'
+    );
+  end if;
+
+  select *
+  into v_magazine
+  from public.odyssey_character_magazines cm
+  where cm.id = v_character_magazine_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'MAGAZINE_NOT_FOUND',
+      'message', 'Magazine was not found.'
+    );
+  end if;
+
+  if v_magazine.character_id <> v_weapon.character_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'MAGAZINE_CHARACTER_MISMATCH',
+      'message', 'Magazine does not belong to the weapon owner.'
+    );
+  end if;
+
+  if not public.odyssey_is_magazine_compatible_with_profile(v_profile_id, v_character_magazine_id) then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'MAGAZINE_INCOMPATIBLE',
+      'message', 'Magazine is not compatible with the selected weapon profile.'
+    );
+  end if;
+
+  with cleared as (
+    update public.odyssey_character_weapon_profile_states
+    set loaded_magazine_id = null
+    where loaded_magazine_id = v_character_magazine_id
+      and id <> v_target_state_id
+    returning character_weapon_id
+  )
+  select coalesce(array_agg(distinct character_weapon_id), '{}'::uuid[])
+  into v_affected_weapons
+  from cleared;
+
+  update public.odyssey_character_weapon_profile_states
+  set loaded_magazine_id = v_character_magazine_id
+  where id = v_target_state_id;
+
+  for v_item in
+    select distinct weapon_id
+    from (
+      select unnest(coalesce(v_affected_weapons, '{}'::uuid[])) as weapon_id
+      union all
+      select v_weapon.id
+    ) q
+  loop
+    perform public.odyssey_sync_character_weapon_profile_cache(v_item);
+  end loop;
+
+  return jsonb_build_object(
+    'ok', true,
+    'weapon_id', v_weapon.id,
+    'profile_id', v_profile_id,
+    'profile', public.odyssey_get_character_weapon_profile(v_weapon.id, v_profile_id),
+    'armory', public.get_character_armory(v_weapon.character_id)
+  );
+end;
+$$;
+
+create or replace function public.unload_weapon_magazine(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_profile_id uuid := public.odyssey_try_parse_uuid(p_payload->>'profile_id');
+  v_weapon public.odyssey_character_weapons%rowtype;
+  v_target_state_id uuid := null;
+  v_target_feed_mode text := 'detachable_magazine';
+  v_loaded_magazine_id uuid := null;
+begin
+  if v_character_weapon_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_WEAPON_ID_REQUIRED',
+      'message', 'character_weapon_id is required.'
+    );
+  end if;
+
+  select *
+  into v_weapon
+  from public.odyssey_character_weapons w
+  where w.id = v_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'message', 'Weapon was not found.'
+    );
+  end if;
+
+  perform public.initialize_character_weapon_profile_states(v_weapon.id);
+
+  if v_profile_id is null then
+    v_profile_id := v_weapon.active_profile_id;
+  end if;
+
+  select
+    s.id,
+    coalesce(p.feed_mode, 'detachable_magazine'),
+    s.loaded_magazine_id
+  into
+    v_target_state_id,
+    v_target_feed_mode,
+    v_loaded_magazine_id
+  from public.odyssey_character_weapon_profile_states s
+  join public.odyssey_weapon_model_profiles p on p.id = s.profile_id
+  where s.character_weapon_id = v_weapon.id
+    and s.profile_id = v_profile_id
+  limit 1;
+
+  if v_target_state_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'PROFILE_NOT_FOUND',
+      'message', 'Selected profile was not found for this weapon.'
+    );
+  end if;
+
+  if v_target_feed_mode <> 'detachable_magazine' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_FEED_MODE_INVALID',
+      'message', 'This weapon profile uses an internal magazine and has no detachable magazine to unload.'
+    );
+  end if;
+
+  if v_loaded_magazine_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'NO_MAGAZINE',
+      'message', 'No magazine is currently loaded.'
+    );
+  end if;
+
+  update public.odyssey_character_weapon_profile_states
+  set loaded_magazine_id = null
+  where id = v_target_state_id;
+
+  perform public.odyssey_sync_character_weapon_profile_cache(v_weapon.id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'weapon_id', v_weapon.id,
+    'profile_id', v_profile_id,
+    'character_magazine_id', v_loaded_magazine_id,
+    'profile', public.odyssey_get_character_weapon_profile(v_weapon.id, v_profile_id),
+    'armory', public.get_character_armory(v_weapon.character_id)
+  );
+end;
+$$;
+
+create or replace function public.load_weapon_internal_rounds(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_profile_id uuid := public.odyssey_try_parse_uuid(p_payload->>'profile_id');
+  v_ammo_stock_id uuid := public.odyssey_try_parse_uuid(p_payload->>'ammo_stock_id');
+  v_quantity integer := greatest(coalesce(nullif(trim(coalesce(p_payload->>'quantity', '')), '')::integer, 0), 0);
+  v_allow_partial boolean := coalesce(nullif(trim(coalesce(p_payload->>'allow_partial', '')), '')::boolean, false);
+  v_weapon public.odyssey_character_weapons%rowtype;
+  v_state record;
+  v_stock record;
+  v_capacity integer := 0;
+  v_missing_rounds integer := 0;
+  v_available_rounds integer := 0;
+  v_requested_quantity integer := 0;
+  v_loaded_quantity integer := 0;
+  v_rounds_after integer := 0;
+  v_stock_quantity_after integer := 0;
+begin
+  if v_character_weapon_id is null or v_profile_id is null or v_ammo_stock_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'character_weapon_id, profile_id and ammo_stock_id are required.'
+    );
+  end if;
+
+  select *
+  into v_weapon
+  from public.odyssey_character_weapons w
+  where w.id = v_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'message', 'Weapon was not found.'
+    );
+  end if;
+
+  perform public.initialize_character_weapon_profile_states(v_weapon.id);
+
+  select
+    s.id,
+    s.character_weapon_id,
+    s.profile_id,
+    s.internal_ammo_type_id,
+    greatest(coalesce(s.internal_current_rounds, 0), 0) as internal_current_rounds,
+    greatest(coalesce(s.internal_max_rounds, p.internal_capacity, 0), 0) as internal_max_rounds,
+    coalesce(p.feed_mode, 'detachable_magazine') as feed_mode,
+    coalesce(p.caliber_id, wm.caliber_id) as caliber_id
+  into v_state
+  from public.odyssey_character_weapon_profile_states s
+  join public.odyssey_weapon_model_profiles p on p.id = s.profile_id
+  join public.odyssey_weapon_model_defs wm on wm.id = p.weapon_model_id
+  where s.character_weapon_id = v_weapon.id
+    and s.profile_id = v_profile_id
+  for update of s;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'PROFILE_NOT_FOUND',
+      'message', 'Selected profile was not found for this weapon.'
+    );
+  end if;
+
+  if v_state.feed_mode <> 'internal_magazine' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_FEED_MODE_INVALID',
+      'message', 'This weapon profile uses detachable magazines.'
+    );
+  end if;
+
+  select
+    s.id,
+    s.character_id,
+    s.display_name,
+    s.caliber_id,
+    s.ammo_type_id,
+    s.quantity,
+    ammo.code as ammo_type_code,
+    ammo.name as ammo_type_name,
+    ammo.caliber_id as ammo_caliber_id
+  into v_stock
+  from public.odyssey_character_ammo_stock s
+  join public.odyssey_ammo_type_defs ammo on ammo.id = s.ammo_type_id
+  where s.id = v_ammo_stock_id
+  for update of s;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'AMMO_STOCK_NOT_FOUND',
+      'message', 'Ammo stock was not found.'
+    );
+  end if;
+
+  if v_stock.character_id <> v_weapon.character_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CHARACTER_MISMATCH',
+      'message', 'Ammo stock does not belong to the weapon owner.'
+    );
+  end if;
+
+  if v_state.caliber_id is null or v_stock.ammo_caliber_id is null or v_state.caliber_id <> v_stock.ammo_caliber_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'CALIBER_MISMATCH',
+      'message', 'Ammo caliber does not match the weapon profile caliber.'
+    );
+  end if;
+
+  if v_state.internal_current_rounds > 0
+     and v_state.internal_ammo_type_id is not null
+     and v_state.internal_ammo_type_id <> v_stock.ammo_type_id then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_HAS_DIFFERENT_AMMO_TYPE',
+      'message', 'The internal magazine already contains a different ammo type.'
+    );
+  end if;
+
+  v_capacity := greatest(coalesce(v_state.internal_max_rounds, 0), 0);
+  v_missing_rounds := greatest(v_capacity - v_state.internal_current_rounds, 0);
+  if v_missing_rounds <= 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INTERNAL_MAGAZINE_FULL',
+      'message', 'The internal magazine is already full.'
+    );
+  end if;
+
+  v_available_rounds := greatest(coalesce(v_stock.quantity, 0), 0);
+  if v_quantity <= 0 then
+    v_requested_quantity := v_missing_rounds;
+  else
+    v_requested_quantity := least(v_quantity, v_missing_rounds);
+  end if;
+
+  if v_requested_quantity <= 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'Requested quantity must resolve to at least one round.'
+    );
+  end if;
+
+  if v_available_rounds <= 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'NOT_ENOUGH_AMMO_STOCK',
+      'requested_quantity', v_requested_quantity,
+      'available_quantity', v_available_rounds
+    );
+  end if;
+
+  if not v_allow_partial and v_available_rounds < v_requested_quantity then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'NOT_ENOUGH_AMMO_STOCK',
+      'requested_quantity', v_requested_quantity,
+      'available_quantity', v_available_rounds
+    );
+  end if;
+
+  v_loaded_quantity := least(v_requested_quantity, v_available_rounds);
+  if v_loaded_quantity <= 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'NOT_ENOUGH_AMMO_STOCK',
+      'requested_quantity', v_requested_quantity,
+      'available_quantity', v_available_rounds
+    );
+  end if;
+
+  v_rounds_after := v_state.internal_current_rounds + v_loaded_quantity;
+  v_stock_quantity_after := greatest(v_available_rounds - v_loaded_quantity, 0);
+
+  if v_stock_quantity_after <= 0 then
+    delete from public.odyssey_character_ammo_stock
+    where id = v_stock.id;
+  else
+    update public.odyssey_character_ammo_stock
+    set quantity = v_stock_quantity_after
+    where id = v_stock.id;
+  end if;
+
+  update public.odyssey_character_weapon_profile_states
+  set
+    internal_ammo_type_id = case
+      when internal_current_rounds <= 0 then v_stock.ammo_type_id
+      else internal_ammo_type_id
+    end,
+    internal_current_rounds = v_rounds_after,
+    internal_max_rounds = v_capacity
+  where id = v_state.id;
+
+  perform public.odyssey_sync_character_weapon_profile_cache(v_weapon.id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'weapon_id', v_weapon.id,
+    'profile_id', v_profile_id,
+    'loaded_quantity', v_loaded_quantity,
+    'requested_quantity', v_requested_quantity,
+    'profile', public.odyssey_get_character_weapon_profile(v_weapon.id, v_profile_id),
+    'armory', public.get_character_armory(v_weapon.character_id)
+  );
+end;
+$$;
+
+create or replace function public.unload_weapon_internal_rounds(
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_character_weapon_id uuid := public.odyssey_try_parse_uuid(p_payload->>'character_weapon_id');
+  v_profile_id uuid := public.odyssey_try_parse_uuid(p_payload->>'profile_id');
+  v_quantity integer := coalesce(nullif(trim(coalesce(p_payload->>'quantity', '')), '')::integer, 0);
+  v_weapon public.odyssey_character_weapons%rowtype;
+  v_state record;
+  v_unload_quantity integer := 0;
+  v_rounds_after integer := 0;
+  v_stock record;
+  v_stock_id uuid := null;
+  v_stock_quantity_before integer := 0;
+  v_stock_quantity_after integer := 0;
+begin
+  if v_character_weapon_id is null or v_profile_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'character_weapon_id and profile_id are required.'
+    );
+  end if;
+
+  select *
+  into v_weapon
+  from public.odyssey_character_weapons w
+  where w.id = v_character_weapon_id;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_NOT_FOUND',
+      'message', 'Weapon was not found.'
+    );
+  end if;
+
+  perform public.initialize_character_weapon_profile_states(v_weapon.id);
+
+  select
+    s.id,
+    s.character_weapon_id,
+    s.profile_id,
+    s.internal_ammo_type_id,
+    greatest(coalesce(s.internal_current_rounds, 0), 0) as internal_current_rounds,
+    greatest(coalesce(s.internal_max_rounds, p.internal_capacity, 0), 0) as internal_max_rounds,
+    coalesce(p.feed_mode, 'detachable_magazine') as feed_mode,
+    coalesce(p.caliber_id, wm.caliber_id) as caliber_id
+  into v_state
+  from public.odyssey_character_weapon_profile_states s
+  join public.odyssey_weapon_model_profiles p on p.id = s.profile_id
+  join public.odyssey_weapon_model_defs wm on wm.id = p.weapon_model_id
+  where s.character_weapon_id = v_weapon.id
+    and s.profile_id = v_profile_id
+  for update of s;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'PROFILE_NOT_FOUND',
+      'message', 'Selected profile was not found for this weapon.'
+    );
+  end if;
+
+  if v_state.feed_mode <> 'internal_magazine' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'WEAPON_FEED_MODE_INVALID',
+      'message', 'This weapon profile uses detachable magazines.'
+    );
+  end if;
+
+  if v_state.internal_current_rounds <= 0 or v_state.internal_ammo_type_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'NO_AMMO',
+      'message', 'The internal magazine is empty.'
+    );
+  end if;
+
+  if v_quantity <= 0 then
+    v_unload_quantity := v_state.internal_current_rounds;
+  else
+    v_unload_quantity := least(v_quantity, v_state.internal_current_rounds);
+  end if;
+
+  if v_unload_quantity <= 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'INVALID_PAYLOAD',
+      'message', 'Requested quantity must resolve to at least one round.'
+    );
+  end if;
+
+  select *
+  into v_stock
+  from public.odyssey_character_ammo_stock s
+  where s.character_id = v_weapon.character_id
+    and s.caliber_id = v_state.caliber_id
+    and s.ammo_type_id = v_state.internal_ammo_type_id
+  order by s.created_at, s.id
+  limit 1
+  for update;
+
+  if found then
+    v_stock_id := v_stock.id;
+    v_stock_quantity_before := coalesce(v_stock.quantity, 0);
+    v_stock_quantity_after := v_stock_quantity_before + v_unload_quantity;
+
+    update public.odyssey_character_ammo_stock
+    set quantity = v_stock_quantity_after
+    where id = v_stock_id;
+  else
+    insert into public.odyssey_character_ammo_stock (
+      character_id,
+      display_name,
+      caliber_id,
+      ammo_type_id,
+      quantity
+    )
+    select
+      v_weapon.character_id,
+      coalesce(ammo.name, ammo.code),
+      v_state.caliber_id,
+      v_state.internal_ammo_type_id,
+      v_unload_quantity
+    from public.odyssey_ammo_type_defs ammo
+    where ammo.id = v_state.internal_ammo_type_id
+    returning id into v_stock_id;
+
+    v_stock_quantity_before := 0;
+    v_stock_quantity_after := v_unload_quantity;
+  end if;
+
+  v_rounds_after := greatest(v_state.internal_current_rounds - v_unload_quantity, 0);
+
+  update public.odyssey_character_weapon_profile_states
+  set
+    internal_current_rounds = v_rounds_after,
+    internal_ammo_type_id = case
+      when v_rounds_after <= 0 then null
+      else internal_ammo_type_id
+    end,
+    internal_max_rounds = greatest(coalesce(internal_max_rounds, 0), 0)
+  where id = v_state.id;
+
+  perform public.odyssey_sync_character_weapon_profile_cache(v_weapon.id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'weapon_id', v_weapon.id,
+    'profile_id', v_profile_id,
+    'unloaded_quantity', v_unload_quantity,
+    'ammo_stock_id', v_stock_id,
+    'profile', public.odyssey_get_character_weapon_profile(v_weapon.id, v_profile_id),
+    'armory', public.get_character_armory(v_weapon.character_id)
+  );
+end;
+$$;
+
+create or replace function public.odyssey_creator_build_weapon_bundle(
+  p_weapon_model_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+  v_weapon jsonb := null;
+  v_profiles jsonb := '[]'::jsonb;
+  v_fire_modes jsonb := '[]'::jsonb;
+  v_magazines jsonb := '[]'::jsonb;
+  v_features jsonb := '[]'::jsonb;
+  v_ability_links jsonb := '[]'::jsonb;
+begin
+  select jsonb_build_object(
+    'id', wm.id,
+    'code', wm.code,
+    'name', wm.name,
+    'weapon_class_id', wm.weapon_class_id,
+    'weapon_class_code', wc.code,
+    'weapon_class_name', wc.name,
+    'linked_skill_id', wm.linked_skill_id,
+    'linked_skill_code', skill.code,
+    'linked_skill_name', skill.name,
+    'caliber_id', wm.caliber_id,
+    'caliber_code', caliber.code,
+    'caliber_name', caliber.name,
+    'range_profile_id', wm.range_profile_id,
+    'range_profile_code', range_profile.code,
+    'range_profile_name', range_profile.name,
+    'base_accuracy_bonus', wm.base_accuracy_bonus,
+    'base_melee_damage', coalesce(wm.base_melee_damage, 0),
+    'description', coalesce(wm.description, ''),
+    'tags', coalesce(wm.tags, '[]'::jsonb),
+    'is_custom', wm.is_custom,
+    'sort_order', wm.sort_order,
+    'created_at', wm.created_at,
+    'updated_at', wm.updated_at
+  )
+  into v_weapon
+  from public.odyssey_weapon_model_defs wm
+  left join public.odyssey_weapon_class_defs wc on wc.id = wm.weapon_class_id
+  left join public.odyssey_skill_defs skill on skill.id = wm.linked_skill_id
+  left join public.odyssey_caliber_defs caliber on caliber.id = wm.caliber_id
+  left join public.odyssey_range_profile_defs range_profile on range_profile.id = wm.range_profile_id
+  where wm.id = p_weapon_model_id;
+
+  if v_weapon is null then
+    return public.odyssey_creator_error(
+      'WEAPON_NOT_FOUND',
+      'Weapon model was not found.',
+      jsonb_build_array(jsonb_build_object('field', 'id', 'message', 'Unknown weapon model id.'))
+    );
+  end if;
+
+  select coalesce(
+    jsonb_agg(profile_row.item order by profile_row.sort_order, profile_row.name, profile_row.code),
+    '[]'::jsonb
+  )
+  into v_profiles
+  from (
+    select
+      p.sort_order,
+      p.name,
+      p.code,
+      jsonb_build_object(
+        'id', p.id,
+        'code', p.code,
+        'name', p.name,
+        'description', p.description,
+        'attack_type', p.attack_type,
+        'feed_mode', coalesce(p.feed_mode, 'detachable_magazine'),
+        'internal_capacity', p.internal_capacity,
+        'weapon_class_id', p.weapon_class_id,
+        'weapon_class_code', wc.code,
+        'weapon_class_name', wc.name,
+        'linked_skill_id', p.linked_skill_id,
+        'linked_skill_code', skill.code,
+        'linked_skill_name', skill.name,
+        'caliber_id', p.caliber_id,
+        'caliber_code', caliber.code,
+        'caliber_name', caliber.name,
+        'range_profile_id', p.range_profile_id,
+        'range_profile_code', range_profile.code,
+        'range_profile_name', range_profile.name,
+        'accuracy_modifier', p.accuracy_modifier,
+        'base_melee_damage', p.base_melee_damage,
+        'is_default', p.is_default,
+        'sort_order', p.sort_order,
+        'data', coalesce(p.data, '{}'::jsonb),
+        'tags', coalesce(p.tags, '[]'::jsonb),
+        'default_fire_mode_id',
+          (
+            select pfm.fire_mode_id
+            from public.odyssey_weapon_profile_fire_modes pfm
+            where pfm.profile_id = p.id
+            order by pfm.is_default desc, pfm.sort_order, pfm.created_at, pfm.id
+            limit 1
+          ),
+        'default_magazine_def_id',
+          (
+            select ppm.magazine_def_id
+            from public.odyssey_weapon_profile_magazines ppm
+            where ppm.profile_id = p.id
+            order by ppm.is_default desc, ppm.sort_order, ppm.created_at, ppm.id
+            limit 1
+          ),
+        'fire_mode_ids',
+          coalesce(
+            (
+              select jsonb_agg(to_jsonb(pfm.fire_mode_id) order by pfm.sort_order, pfm.created_at, pfm.id)
+              from public.odyssey_weapon_profile_fire_modes pfm
+              where pfm.profile_id = p.id
+            ),
+            '[]'::jsonb
+          ),
+        'magazine_def_ids',
+          coalesce(
+            (
+              select jsonb_agg(to_jsonb(ppm.magazine_def_id) order by ppm.sort_order, ppm.created_at, ppm.id)
+              from public.odyssey_weapon_profile_magazines ppm
+              where ppm.profile_id = p.id
+            ),
+            '[]'::jsonb
+          )
+      ) as item
+    from public.odyssey_weapon_model_profiles p
+    left join public.odyssey_weapon_class_defs wc on wc.id = p.weapon_class_id
+    left join public.odyssey_skill_defs skill on skill.id = p.linked_skill_id
+    left join public.odyssey_caliber_defs caliber on caliber.id = p.caliber_id
+    left join public.odyssey_range_profile_defs range_profile on range_profile.id = p.range_profile_id
+    where p.weapon_model_id = p_weapon_model_id
+  ) profile_row;
+
+  select coalesce(
+    jsonb_agg(item order by sort_order, name, code),
+    '[]'::jsonb
+  )
+  into v_fire_modes
+  from (
+    select
+      fm.sort_order,
+      fm.name,
+      fm.code,
+      jsonb_build_object(
+        'id', fm.id,
+        'code', fm.code,
+        'name', fm.name,
+        'description', fm.description,
+        'fixed_rounds', fm.fixed_rounds,
+        'min_rounds', fm.min_rounds,
+        'max_rounds', fm.max_rounds,
+        'is_random', fm.is_random,
+        'accuracy_modifier', fm.accuracy_modifier,
+        'sort_order', fm.sort_order
+      ) as item
+    from public.odyssey_fire_mode_defs fm
+  ) fire_mode_row;
+
+  select coalesce(
+    jsonb_agg(item order by sort_order, name, code),
+    '[]'::jsonb
+  )
+  into v_magazines
+  from (
+    select
+      md.sort_order,
+      md.name,
+      md.code,
+      jsonb_build_object(
+        'id', md.id,
+        'code', md.code,
+        'name', md.name,
+        'description', md.description,
+        'capacity', md.capacity,
+        'caliber_id', md.caliber_id,
+        'caliber_code', caliber.code,
+        'caliber_name', caliber.name,
+        'sort_order', md.sort_order
+      ) as item
+    from public.odyssey_magazine_defs md
+    left join public.odyssey_caliber_defs caliber on caliber.id = md.caliber_id
+  ) magazine_row;
+
+  v_features := public.odyssey_creator_build_weapon_feature_links(p_weapon_model_id);
+  v_ability_links := public.odyssey_creator_build_weapon_ability_links(p_weapon_model_id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'weapon', v_weapon,
+    'profiles', coalesce(v_profiles, '[]'::jsonb),
+    'fire_modes', coalesce(v_fire_modes, '[]'::jsonb),
+    'magazines', coalesce(v_magazines, '[]'::jsonb),
+    'feature_links', coalesce(v_features, '[]'::jsonb),
+    'ability_links', coalesce(v_ability_links, '[]'::jsonb)
+  );
+end;
+$$;
+
+do $do$
+declare
+  v_function_def text := null;
+begin
+  select pg_get_functiondef(p.oid)
+  into v_function_def
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'creator_upsert_weapon'
+    and pg_get_function_identity_arguments(p.oid) = 'p_payload jsonb';
+
+  if v_function_def is null then
+    raise exception 'Function public.creator_upsert_weapon(jsonb) was not found.';
+  end if;
+
+  if position('v_profile_feed_mode' in v_function_def) = 0 then
+    v_function_def := replace(
+      v_function_def,
+      $old$
+  v_profile_attack_type text := '';
+  v_profile_weapon_class_id uuid := null;
+  v_profile_skill_id uuid := null;
+  v_profile_caliber_id uuid := null;
+  v_profile_range_profile_id uuid := null;
+  v_profile_accuracy_modifier integer := 0;
+  v_profile_base_melee_damage integer := 0;
+  v_profile_is_default boolean := false;
+  v_profile_sort_order integer := 0;
+  v_profile_data jsonb := '{}'::jsonb;
+  v_profile_tags jsonb := '[]'::jsonb;
+  v_profile_fire_mode_ids jsonb := '[]'::jsonb;
+  v_profile_magazine_ids jsonb := '[]'::jsonb;
+$old$,
+      $new$
+  v_profile_attack_type text := '';
+  v_profile_feed_mode text := 'detachable_magazine';
+  v_profile_internal_capacity integer := null;
+  v_profile_weapon_class_id uuid := null;
+  v_profile_skill_id uuid := null;
+  v_profile_caliber_id uuid := null;
+  v_profile_range_profile_id uuid := null;
+  v_profile_accuracy_modifier integer := 0;
+  v_profile_base_melee_damage integer := 0;
+  v_profile_is_default boolean := false;
+  v_profile_sort_order integer := 0;
+  v_profile_data jsonb := '{}'::jsonb;
+  v_profile_tags jsonb := '[]'::jsonb;
+  v_profile_fire_mode_ids jsonb := '[]'::jsonb;
+  v_profile_magazine_ids jsonb := '[]'::jsonb;
+$new$
+    );
+  end if;
+
+  if position($needle$v_profile_feed_mode :=$needle$ in v_function_def) = 0 then
+    v_function_def := replace(
+      v_function_def,
+      $old$
+    v_profile_attack_type := lower(trim(coalesce(v_profile->>'attack_type', 'ranged')));
+    v_profile_is_default := coalesce(nullif(trim(coalesce(v_profile->>'is_default', '')), '')::boolean, false);
+$old$,
+      $new$
+    v_profile_attack_type := lower(trim(coalesce(v_profile->>'attack_type', 'ranged')));
+    v_profile_feed_mode := case
+      when v_profile_attack_type = 'ranged'
+           and lower(trim(coalesce(v_profile->>'feed_mode', 'detachable_magazine'))) = 'internal_magazine'
+        then 'internal_magazine'
+      else 'detachable_magazine'
+    end;
+    v_profile_internal_capacity := case
+      when v_profile_attack_type = 'ranged' and v_profile_feed_mode = 'internal_magazine'
+        then greatest(coalesce(nullif(trim(coalesce(v_profile->>'internal_capacity', '')), '')::integer, 0), 0)
+      else null
+    end;
+    v_profile_is_default := coalesce(nullif(trim(coalesce(v_profile->>'is_default', '')), '')::boolean, false);
+$new$
+    );
+  end if;
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+    if v_profile_attack_type = 'ranged' then
+      if v_profile_caliber_id is null or not exists (select 1 from public.odyssey_caliber_defs where id = v_profile_caliber_id) then
+        return public.odyssey_creator_error(
+          'VALIDATION_ERROR',
+          'Ranged profiles require a valid caliber.',
+          jsonb_build_array(jsonb_build_object('field', 'profiles', 'message', 'Unknown or missing caliber_id for a ranged profile.'))
+        );
+      end if;
+
+      if jsonb_array_length(v_profile_magazine_ids) = 0 then
+        return public.odyssey_creator_error(
+          'VALIDATION_ERROR',
+          'Ranged profiles require at least one magazine definition.',
+          jsonb_build_array(jsonb_build_object('field', 'profiles', 'message', 'magazine_def_ids cannot be empty for ranged profiles.'))
+        );
+      end if;
+    end if;
+$old$,
+    $new$
+    if v_profile_attack_type = 'ranged' then
+      if v_profile_caliber_id is null or not exists (select 1 from public.odyssey_caliber_defs where id = v_profile_caliber_id) then
+        return public.odyssey_creator_error(
+          'VALIDATION_ERROR',
+          'Ranged profiles require a valid caliber.',
+          jsonb_build_array(jsonb_build_object('field', 'profiles', 'message', 'Unknown or missing caliber_id for a ranged profile.'))
+        );
+      end if;
+
+      if v_profile_feed_mode = 'internal_magazine' then
+        if greatest(coalesce(v_profile_internal_capacity, 0), 0) <= 0 then
+          return public.odyssey_creator_error(
+            'VALIDATION_ERROR',
+            'Internal magazine profiles require internal_capacity > 0.',
+            jsonb_build_array(jsonb_build_object('field', 'profiles', 'message', 'internal_capacity must be greater than 0 for internal magazine profiles.'))
+          );
+        end if;
+      elsif jsonb_array_length(v_profile_magazine_ids) = 0 then
+        return public.odyssey_creator_error(
+          'VALIDATION_ERROR',
+          'Ranged detachable-magazine profiles require at least one magazine definition.',
+          jsonb_build_array(jsonb_build_object('field', 'profiles', 'message', 'magazine_def_ids cannot be empty for detachable magazine profiles.'))
+        );
+      end if;
+    end if;
+$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+        accuracy_modifier = v_profile_accuracy_modifier,
+        base_melee_damage = v_profile_base_melee_damage,
+        attack_type = v_profile_attack_type,
+        is_default = v_profile_is_default,
+$old$,
+    $new$
+        accuracy_modifier = v_profile_accuracy_modifier,
+        base_melee_damage = v_profile_base_melee_damage,
+        attack_type = v_profile_attack_type,
+        feed_mode = v_profile_feed_mode,
+        internal_capacity = case
+          when v_profile_feed_mode = 'internal_magazine' then greatest(coalesce(v_profile_internal_capacity, 0), 0)
+          else null
+        end,
+        is_default = v_profile_is_default,
+$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+          base_melee_damage,
+          attack_type,
+          is_default,
+          data,
+          tags,
+          sort_order
+        )
+$old$,
+    $new$
+          base_melee_damage,
+          attack_type,
+          feed_mode,
+          internal_capacity,
+          is_default,
+          data,
+          tags,
+          sort_order
+        )
+$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+          v_profile_base_melee_damage,
+          v_profile_attack_type,
+          v_profile_is_default,
+          v_profile_data,
+          v_profile_tags,
+          v_profile_sort_order
+        )
+$old$,
+    $new$
+          v_profile_base_melee_damage,
+          v_profile_attack_type,
+          v_profile_feed_mode,
+          case
+            when v_profile_feed_mode = 'internal_magazine' then greatest(coalesce(v_profile_internal_capacity, 0), 0)
+            else null
+          end,
+          v_profile_is_default,
+          v_profile_data,
+          v_profile_tags,
+          v_profile_sort_order
+        )
+$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+            base_melee_damage = v_profile_base_melee_damage,
+            attack_type = v_profile_attack_type,
+            is_default = v_profile_is_default,
+            data = v_profile_data,
+            tags = v_profile_tags,
+            sort_order = v_profile_sort_order
+$old$,
+    $new$
+            base_melee_damage = v_profile_base_melee_damage,
+            attack_type = v_profile_attack_type,
+            feed_mode = v_profile_feed_mode,
+            internal_capacity = case
+              when v_profile_feed_mode = 'internal_magazine' then greatest(coalesce(v_profile_internal_capacity, 0), 0)
+              else null
+            end,
+            is_default = v_profile_is_default,
+            data = v_profile_data,
+            tags = v_profile_tags,
+            sort_order = v_profile_sort_order
+$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$    if v_profile_attack_type = 'ranged' then$old$,
+    $new$    if v_profile_attack_type = 'ranged' and v_profile_feed_mode = 'detachable_magazine' then$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+        v_profile_attack_type <> 'ranged'
+        or not exists (
+$old$,
+    $new$
+        v_profile_attack_type <> 'ranged'
+        or v_profile_feed_mode <> 'detachable_magazine'
+        or not exists (
+$new$
+  );
+
+  execute v_function_def;
+end;
+$do$;
+
+do $do$
+declare
+  v_function_def text := null;
+begin
+  select pg_get_functiondef(p.oid)
+  into v_function_def
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'odyssey_perform_weapon_attack'
+    and pg_get_function_identity_arguments(p.oid) = 'p_payload jsonb';
+
+  if v_function_def is null then
+    raise exception 'Function public.odyssey_perform_weapon_attack(jsonb) was not found.';
+  end if;
+
+  if position('v_internal_ammo_type_id uuid := null;' in v_function_def) = 0 then
+    v_function_def := replace(
+      v_function_def,
+      $old$
+  v_attack_type text := null;
+  v_magazine record;
+  v_magazine_id uuid := null;
+  v_ammo_code text := null;
+  v_bullets_spent integer := 0;
+  v_remaining_rounds integer := null;
+$old$,
+      $new$
+  v_attack_type text := null;
+  v_profile_feed_mode text := 'detachable_magazine';
+  v_internal_ammo_type_id uuid := null;
+  v_internal_current_rounds integer := 0;
+  v_internal_max_rounds integer := 0;
+  v_magazine record;
+  v_magazine_id uuid := null;
+  v_ammo_code text := null;
+  v_bullets_spent integer := 0;
+  v_remaining_rounds integer := null;
+$new$
+    );
+  end if;
+
+  if position('coalesce(p.feed_mode, ''detachable_magazine'') as feed_mode' in v_function_def) = 0 then
+    v_function_def := replace(
+      v_function_def,
+      $old$
+      select
+        s.id as profile_state_id,
+        p.id as profile_id,
+        p.code,
+        p.name,
+        p.attack_type,
+        coalesce(p.weapon_class_id, v_weapon_model.weapon_class_id) as weapon_class_id,
+        coalesce(pwc.code, v_weapon_model.weapon_class_code) as weapon_class_code,
+        coalesce(pwc.name, v_weapon_model.weapon_class_name) as weapon_class_name,
+        coalesce(p.linked_skill_id, v_weapon_model.linked_skill_id) as linked_skill_id,
+        coalesce(pskill.code, v_weapon_model.linked_skill_code) as linked_skill_code,
+        coalesce(pskill.name, v_weapon_model.linked_skill_name) as linked_skill_name,
+        coalesce(p.caliber_id, v_weapon_model.caliber_id) as caliber_id,
+        coalesce(pcal.code, v_weapon_model.caliber_code) as caliber_code,
+        coalesce(pcal.name, v_weapon_model.caliber_name) as caliber_name,
+        coalesce(pcal.base_damage_per_round, v_weapon_model.base_damage_per_round, 0) as base_damage_per_round,
+        coalesce(p.range_profile_id, v_weapon_model.range_profile_id) as range_profile_id,
+        coalesce(prp.code, v_weapon_model.range_profile_code) as range_profile_code,
+        coalesce(prp.name, v_weapon_model.range_profile_name) as range_profile_name,
+        coalesce(p.accuracy_modifier, v_weapon_model.base_accuracy_bonus) as accuracy_modifier,
+        coalesce(p.base_melee_damage, v_weapon_model.base_melee_damage) as base_melee_damage
+      into v_weapon_profile
+$old$,
+      $new$
+      select
+        s.id as profile_state_id,
+        p.id as profile_id,
+        p.code,
+        p.name,
+        p.attack_type,
+        coalesce(p.feed_mode, 'detachable_magazine') as feed_mode,
+        greatest(coalesce(p.internal_capacity, 0), 0) as internal_capacity,
+        greatest(coalesce(s.internal_current_rounds, 0), 0) as internal_current_rounds,
+        greatest(coalesce(s.internal_max_rounds, p.internal_capacity, 0), 0) as internal_max_rounds,
+        s.internal_ammo_type_id,
+        coalesce(p.weapon_class_id, v_weapon_model.weapon_class_id) as weapon_class_id,
+        coalesce(pwc.code, v_weapon_model.weapon_class_code) as weapon_class_code,
+        coalesce(pwc.name, v_weapon_model.weapon_class_name) as weapon_class_name,
+        coalesce(p.linked_skill_id, v_weapon_model.linked_skill_id) as linked_skill_id,
+        coalesce(pskill.code, v_weapon_model.linked_skill_code) as linked_skill_code,
+        coalesce(pskill.name, v_weapon_model.linked_skill_name) as linked_skill_name,
+        coalesce(p.caliber_id, v_weapon_model.caliber_id) as caliber_id,
+        coalesce(pcal.code, v_weapon_model.caliber_code) as caliber_code,
+        coalesce(pcal.name, v_weapon_model.caliber_name) as caliber_name,
+        coalesce(pcal.base_damage_per_round, v_weapon_model.base_damage_per_round, 0) as base_damage_per_round,
+        coalesce(p.range_profile_id, v_weapon_model.range_profile_id) as range_profile_id,
+        coalesce(prp.code, v_weapon_model.range_profile_code) as range_profile_code,
+        coalesce(prp.name, v_weapon_model.range_profile_name) as range_profile_name,
+        coalesce(p.accuracy_modifier, v_weapon_model.base_accuracy_bonus) as accuracy_modifier,
+        coalesce(p.base_melee_damage, v_weapon_model.base_melee_damage) as base_melee_damage
+      into v_weapon_profile
+$new$
+    );
+  end if;
+
+  if position($needle$v_profile_feed_mode := coalesce(v_weapon_profile.feed_mode, 'detachable_magazine');$needle$ in v_function_def) = 0 then
+    v_function_def := replace(
+      v_function_def,
+      $old$
+  if v_error_code is null then
+    v_attack_type := coalesce(v_weapon_profile.attack_type, '');
+    if v_attack_type not in ('ranged', 'melee') then
+      v_error_code := 'ATTACK_TYPE_REQUIRED_FOR_PROFILE';
+      v_error_message := 'Active weapon profile must be a strict ranged or melee profile.';
+    end if;
+  end if;
+$old$,
+      $new$
+  if v_error_code is null then
+    v_attack_type := coalesce(v_weapon_profile.attack_type, '');
+    v_profile_feed_mode := coalesce(v_weapon_profile.feed_mode, 'detachable_magazine');
+    v_internal_ammo_type_id := v_weapon_profile.internal_ammo_type_id;
+    v_internal_current_rounds := greatest(coalesce(v_weapon_profile.internal_current_rounds, 0), 0);
+    v_internal_max_rounds := greatest(coalesce(v_weapon_profile.internal_max_rounds, v_weapon_profile.internal_capacity, 0), 0);
+    if v_attack_type not in ('ranged', 'melee') then
+      v_error_code := 'ATTACK_TYPE_REQUIRED_FOR_PROFILE';
+      v_error_message := 'Active weapon profile must be a strict ranged or melee profile.';
+    end if;
+  end if;
+$new$
+    );
+  end if;
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+  if v_error_code is null and v_attack_type = 'ranged' then
+    if v_weapon.loaded_magazine_id is null then
+      v_error_code := 'NO_MAGAZINE';
+      v_error_message := 'Weapon requires a loaded magazine.';
+    else
+      select
+        cm.id,
+        cm.character_id,
+        cm.magazine_def_id,
+        cm.ammo_type_id,
+        cm.current_rounds,
+        md.code as magazine_def_code,
+        md.name as magazine_def_name,
+        md.capacity,
+        md.caliber_id as magazine_caliber_id,
+        caliber.code as magazine_caliber_code,
+        ammo.code as ammo_code,
+        ammo.name as ammo_name,
+        ammo.caliber_id as ammo_caliber_id,
+        ammo.damage_modifier,
+        ammo.accuracy_modifier,
+        ammo.armor_pierce
+      into v_magazine
+      from public.odyssey_character_magazines cm
+      join public.odyssey_magazine_defs md on md.id = cm.magazine_def_id
+      join public.odyssey_caliber_defs caliber on caliber.id = md.caliber_id
+      join public.odyssey_ammo_type_defs ammo on ammo.id = cm.ammo_type_id
+      where cm.id = v_weapon.loaded_magazine_id
+        and cm.character_id = v_attacker_character_id;
+
+      if not found then
+        v_error_code := 'INVALID_MAGAZINE';
+        v_error_message := 'Loaded magazine was not found or does not belong to the attacker.';
+      else
+        v_magazine_id := v_magazine.id;
+        v_ammo_code := v_magazine.ammo_code;
+      end if;
+
+      if v_error_code is null then
+        if not public.odyssey_is_magazine_compatible_with_profile(v_weapon_profile.profile_id, v_magazine.id)
+           or (v_weapon_profile.caliber_id is not null and v_magazine.magazine_caliber_id <> v_weapon_profile.caliber_id)
+           or v_magazine.ammo_caliber_id <> v_magazine.magazine_caliber_id then
+          v_error_code := 'INVALID_MAGAZINE';
+          v_error_message := 'Loaded magazine is incompatible with the active profile.';
+        elsif coalesce(v_magazine.current_rounds, 0) <= 0 then
+          v_error_code := 'NO_AMMO';
+          v_error_message := 'Loaded magazine is empty.';
+        else
+          if coalesce(v_fire_mode.is_random, false) then
+            if v_magazine.current_rounds >= coalesce(v_fire_mode.min_rounds, 1) then
+              v_bullets_spent :=
+                floor(
+                  random()
+                  * (
+                      least(
+                        coalesce(v_fire_mode.max_rounds, v_magazine.current_rounds),
+                        v_magazine.current_rounds
+                      )
+                      - coalesce(v_fire_mode.min_rounds, 1)
+                      + 1
+                    )
+                )::integer + coalesce(v_fire_mode.min_rounds, 1);
+            else
+              v_bullets_spent := v_magazine.current_rounds;
+            end if;
+          else
+            v_bullets_spent := least(coalesce(v_fire_mode.fixed_rounds, 0), v_magazine.current_rounds);
+          end if;
+
+          if v_bullets_spent <= 0 then
+            v_error_code := 'NO_AMMO';
+            v_error_message := 'Attack cannot be made because there is no ammunition to spend.';
+          else
+            v_ammo_accuracy_modifier := coalesce(v_magazine.accuracy_modifier, 0);
+            v_ammo_damage_modifier := coalesce(v_magazine.damage_modifier, 0);
+            v_armor_pierce := coalesce(v_magazine.armor_pierce, 0);
+            v_bullet_damage := greatest(coalesce(v_weapon_profile.base_damage_per_round, 0) + v_ammo_damage_modifier, 0);
+            v_total_weapon_damage := v_bullet_damage * v_bullets_spent;
+            v_remaining_rounds := v_magazine.current_rounds - v_bullets_spent;
+          end if;
+        end if;
+      end if;
+    end if;
+  elsif v_error_code is null then
+$old$,
+    $new$
+  if v_error_code is null and v_attack_type = 'ranged' then
+    if v_profile_feed_mode = 'internal_magazine' then
+      if v_internal_current_rounds <= 0 or v_internal_ammo_type_id is null then
+        v_error_code := 'NO_AMMO';
+        v_error_message := 'Weapon internal magazine is empty.';
+      else
+        select
+          ammo.id,
+          ammo.code as ammo_code,
+          ammo.name as ammo_name,
+          ammo.caliber_id as ammo_caliber_id,
+          ammo.damage_modifier,
+          ammo.accuracy_modifier,
+          ammo.armor_pierce
+        into v_magazine
+        from public.odyssey_ammo_type_defs ammo
+        where ammo.id = v_internal_ammo_type_id;
+
+        if not found or not public.odyssey_is_internal_ammo_compatible_with_profile(v_weapon_profile.profile_id, v_internal_ammo_type_id) then
+          v_error_code := 'NO_AMMO';
+          v_error_message := 'Weapon internal magazine contains invalid ammunition.';
+        else
+          v_magazine_id := null;
+          v_ammo_code := v_magazine.ammo_code;
+          if coalesce(v_fire_mode.is_random, false) then
+            if v_internal_current_rounds < coalesce(v_fire_mode.min_rounds, 1) then
+              v_error_code := 'NOT_ENOUGH_AMMO';
+              v_error_message := 'Not enough rounds are loaded for this fire mode.';
+            else
+              v_bullets_spent :=
+                floor(
+                  random()
+                  * (
+                      least(
+                        coalesce(v_fire_mode.max_rounds, v_internal_current_rounds),
+                        v_internal_current_rounds
+                      )
+                      - coalesce(v_fire_mode.min_rounds, 1)
+                      + 1
+                    )
+                )::integer + coalesce(v_fire_mode.min_rounds, 1);
+            end if;
+          else
+            if v_internal_current_rounds < coalesce(v_fire_mode.fixed_rounds, 0) then
+              v_error_code := 'NOT_ENOUGH_AMMO';
+              v_error_message := 'Not enough rounds are loaded for this fire mode.';
+            else
+              v_bullets_spent := coalesce(v_fire_mode.fixed_rounds, 0);
+            end if;
+          end if;
+
+          if v_error_code is null then
+            if v_bullets_spent <= 0 then
+              v_error_code := 'NO_AMMO';
+              v_error_message := 'Attack cannot be made because there is no ammunition to spend.';
+            else
+              v_ammo_accuracy_modifier := coalesce(v_magazine.accuracy_modifier, 0);
+              v_ammo_damage_modifier := coalesce(v_magazine.damage_modifier, 0);
+              v_armor_pierce := coalesce(v_magazine.armor_pierce, 0);
+              v_bullet_damage := greatest(coalesce(v_weapon_profile.base_damage_per_round, 0) + v_ammo_damage_modifier, 0);
+              v_total_weapon_damage := v_bullet_damage * v_bullets_spent;
+              v_remaining_rounds := v_internal_current_rounds - v_bullets_spent;
+            end if;
+          end if;
+        end if;
+      end if;
+    elsif v_weapon.loaded_magazine_id is null then
+      v_error_code := 'NO_MAGAZINE';
+      v_error_message := 'Weapon requires a loaded magazine.';
+    else
+      select
+        cm.id,
+        cm.character_id,
+        cm.magazine_def_id,
+        cm.ammo_type_id,
+        cm.current_rounds,
+        md.code as magazine_def_code,
+        md.name as magazine_def_name,
+        md.capacity,
+        md.caliber_id as magazine_caliber_id,
+        caliber.code as magazine_caliber_code,
+        ammo.code as ammo_code,
+        ammo.name as ammo_name,
+        ammo.caliber_id as ammo_caliber_id,
+        ammo.damage_modifier,
+        ammo.accuracy_modifier,
+        ammo.armor_pierce
+      into v_magazine
+      from public.odyssey_character_magazines cm
+      join public.odyssey_magazine_defs md on md.id = cm.magazine_def_id
+      join public.odyssey_caliber_defs caliber on caliber.id = md.caliber_id
+      join public.odyssey_ammo_type_defs ammo on ammo.id = cm.ammo_type_id
+      where cm.id = v_weapon.loaded_magazine_id
+        and cm.character_id = v_attacker_character_id;
+
+      if not found then
+        v_error_code := 'INVALID_MAGAZINE';
+        v_error_message := 'Loaded magazine was not found or does not belong to the attacker.';
+      else
+        v_magazine_id := v_magazine.id;
+        v_ammo_code := v_magazine.ammo_code;
+      end if;
+
+      if v_error_code is null then
+        if not public.odyssey_is_magazine_compatible_with_profile(v_weapon_profile.profile_id, v_magazine.id)
+           or (v_weapon_profile.caliber_id is not null and v_magazine.magazine_caliber_id <> v_weapon_profile.caliber_id)
+           or v_magazine.ammo_caliber_id <> v_magazine.magazine_caliber_id then
+          v_error_code := 'INVALID_MAGAZINE';
+          v_error_message := 'Loaded magazine is incompatible with the active profile.';
+        elsif coalesce(v_magazine.current_rounds, 0) <= 0 then
+          v_error_code := 'NO_AMMO';
+          v_error_message := 'Loaded magazine is empty.';
+        else
+          if coalesce(v_fire_mode.is_random, false) then
+            if v_magazine.current_rounds < coalesce(v_fire_mode.min_rounds, 1) then
+              v_error_code := 'NOT_ENOUGH_AMMO';
+              v_error_message := 'Not enough rounds are loaded for this fire mode.';
+            else
+              v_bullets_spent :=
+                floor(
+                  random()
+                  * (
+                      least(
+                        coalesce(v_fire_mode.max_rounds, v_magazine.current_rounds),
+                        v_magazine.current_rounds
+                      )
+                      - coalesce(v_fire_mode.min_rounds, 1)
+                      + 1
+                    )
+                )::integer + coalesce(v_fire_mode.min_rounds, 1);
+            end if;
+          else
+            if v_magazine.current_rounds < coalesce(v_fire_mode.fixed_rounds, 0) then
+              v_error_code := 'NOT_ENOUGH_AMMO';
+              v_error_message := 'Not enough rounds are loaded for this fire mode.';
+            else
+              v_bullets_spent := coalesce(v_fire_mode.fixed_rounds, 0);
+            end if;
+          end if;
+
+          if v_error_code is null then
+            if v_bullets_spent <= 0 then
+              v_error_code := 'NO_AMMO';
+              v_error_message := 'Attack cannot be made because there is no ammunition to spend.';
+            else
+              v_ammo_accuracy_modifier := coalesce(v_magazine.accuracy_modifier, 0);
+              v_ammo_damage_modifier := coalesce(v_magazine.damage_modifier, 0);
+              v_armor_pierce := coalesce(v_magazine.armor_pierce, 0);
+              v_bullet_damage := greatest(coalesce(v_weapon_profile.base_damage_per_round, 0) + v_ammo_damage_modifier, 0);
+              v_total_weapon_damage := v_bullet_damage * v_bullets_spent;
+              v_remaining_rounds := v_magazine.current_rounds - v_bullets_spent;
+            end if;
+          end if;
+        end if;
+      end if;
+    end if;
+  elsif v_error_code is null then
+$new$
+  );
+
+  v_function_def := replace(
+    v_function_def,
+    $old$
+    if v_attack_type = 'ranged' then
+      update public.odyssey_character_magazines
+      set current_rounds = v_remaining_rounds
+      where id = v_magazine_id;
+    end if;
+$old$,
+    $new$
+    if v_attack_type = 'ranged' then
+      if v_profile_feed_mode = 'internal_magazine' then
+        update public.odyssey_character_weapon_profile_states
+        set
+          internal_current_rounds = greatest(coalesce(v_remaining_rounds, 0), 0),
+          internal_ammo_type_id = case
+            when greatest(coalesce(v_remaining_rounds, 0), 0) <= 0 then null
+            else internal_ammo_type_id
+          end
+        where id = v_weapon_profile.profile_state_id;
+      else
+        update public.odyssey_character_magazines
+        set current_rounds = v_remaining_rounds
+        where id = v_magazine_id;
+      end if;
+    end if;
+$new$
+  );
+
+  execute v_function_def;
+end;
+$do$;
+
+create or replace function public.get_character_armory(
+  p_character_id uuid
+)
+returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_weapons jsonb := '[]'::jsonb;
+  v_magazines jsonb := '[]'::jsonb;
+begin
+  perform public.initialize_character_weapon_abilities(weapon.id)
+  from public.odyssey_character_weapons weapon
+  where weapon.character_id = p_character_id;
+
+  select
+    coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', w.id,
+          'character_id', w.character_id,
+          'custom_name', w.custom_name,
+          'name', coalesce(nullif(trim(w.custom_name), ''), wm.name),
+          'notes', w.notes,
+          'sort_order', w.sort_order,
+          'active_profile_id', w.active_profile_id,
+          'data', coalesce(w.data, '{}'::jsonb),
+          'equipped_slot', w.equipped_slot,
+          'model',
+            jsonb_build_object(
+              'id', wm.id,
+              'code', wm.code,
+              'name', wm.name,
+              'weapon_class', mwc.code,
+              'weapon_class_name', mwc.name,
+              'linked_skill', mskill.code,
+              'linked_skill_name', mskill.name,
+              'caliber', mcal.code,
+              'caliber_name', mcal.name,
+              'base_accuracy_bonus', wm.base_accuracy_bonus,
+              'base_melee_damage', wm.base_melee_damage,
+              'range_profile', mrp.code,
+              'range_profile_name', mrp.name,
+              'tags', wm.tags
+            ),
+          'feed_mode', coalesce(runtime.active_profile_json->>'feed_mode', 'detachable_magazine'),
+          'internal_capacity', coalesce(nullif(runtime.active_profile_json->>'internal_capacity', '')::integer, 0),
+          'internal_current_rounds', coalesce(nullif(runtime.active_profile_json->>'internal_current_rounds', '')::integer, 0),
+          'internal_max_rounds', coalesce(nullif(runtime.active_profile_json->>'internal_max_rounds', '')::integer, 0),
+          'internal_ammo_type', coalesce(runtime.active_profile_json->'internal_ammo_type', 'null'::jsonb),
+          'ammo', coalesce(runtime.active_profile_json->'ammo', 'null'::jsonb),
+          'uses_magazine',
+            case
+              when coalesce(runtime.active_profile_json->>'attack_type', 'ranged') <> 'ranged' then false
+              when coalesce(runtime.active_profile_json->>'feed_mode', 'detachable_magazine') = 'internal_magazine' then false
+              else true
+            end,
+          'requires_ammo',
+            coalesce(runtime.active_profile_json->>'attack_type', 'ranged') = 'ranged',
+          'can_reload',
+            case
+              when coalesce(runtime.active_profile_json->>'attack_type', 'ranged') <> 'ranged' then false
+              when coalesce(runtime.active_profile_json->>'feed_mode', 'detachable_magazine') = 'internal_magazine' then false
+              else true
+            end,
+          'active_profile', runtime.active_profile_json,
+          'profiles', runtime.profiles_json,
+          'features', coalesce(runtime.features_bundle->'features', '[]'::jsonb),
+          'loaded_magazine', coalesce(runtime.active_profile_json->'loaded_magazine', 'null'::jsonb),
+          'selected_fire_mode', coalesce(runtime.active_profile_json->'selected_fire_mode', 'null'::jsonb),
+          'available_fire_modes', coalesce(runtime.active_profile_json->'available_fire_modes', '[]'::jsonb),
+          'compatible_magazines', coalesce(runtime.active_profile_json->'compatible_magazines', '[]'::jsonb),
+          'lock_state', public.odyssey_get_weapon_lock_state(w.character_id, w.id),
+          'weapon_abilities',
+            coalesce(
+              (
+                select jsonb_agg(
+                  jsonb_build_object(
+                    'id', ability.id,
+                    'character_weapon_id', w.id,
+                    'ability_def_id', ability.ability_def_id,
+                    'code', def.code,
+                    'name', def.name,
+                    'ability_kind', def.ability_kind,
+                    'activation_type', def.activation_type,
+                    'effect_mode', def.effect_mode,
+                    'attack_type', def.attack_type,
+                    'effective_level', greatest(coalesce(skill.level, ability.learned_level, 0), 0),
+                    'is_enabled', ability.is_enabled,
+                    'is_hidden', ability.is_hidden,
+                    'current_cooldown_rounds', ability.current_cooldown_rounds,
+                    'current_charges', ability.current_charges,
+                    'max_charges', ability.max_charges,
+                    'required_profile_id', nullif(trim(coalesce(ability.data->>'required_profile_id', '')), ''),
+                    'required_profile_code', nullif(trim(coalesce(ability.data->>'required_profile_code', '')), ''),
+                    'is_available_for_active_profile',
+                      case
+                        when nullif(trim(coalesce(ability.data->>'required_profile_id', '')), '') is null then true
+                        else w.active_profile_id::text = nullif(trim(coalesce(ability.data->>'required_profile_id', '')), '')
+                      end
+                  )
+                  order by ability.sort_order, def.sort_order, def.code
+                )
+                from public.odyssey_character_abilities ability
+                join public.odyssey_ability_defs def on def.id = ability.ability_def_id
+                left join public.odyssey_character_skills skill
+                  on skill.character_id = ability.character_id
+                 and skill.skill_def_id = def.linked_skill_id
+                where ability.character_id = p_character_id
+                  and ability.source_character_weapon_id = w.id
+              ),
+              '[]'::jsonb
+            )
+        )
+        order by w.sort_order, coalesce(nullif(trim(w.custom_name), ''), wm.name), w.id
+      ),
+      '[]'::jsonb
+    )
+  into v_weapons
+  from public.odyssey_character_weapons w
+  join public.odyssey_weapon_model_defs wm on wm.id = w.weapon_model_id
+  join public.odyssey_weapon_class_defs mwc on mwc.id = wm.weapon_class_id
+  join public.odyssey_skill_defs mskill on mskill.id = wm.linked_skill_id
+  left join public.odyssey_caliber_defs mcal on mcal.id = wm.caliber_id
+  join public.odyssey_range_profile_defs mrp on mrp.id = wm.range_profile_id
+  left join lateral (
+    select
+      public.odyssey_get_active_character_weapon_profile(w.id) as active_profile_json,
+      public.odyssey_get_character_weapon_profiles(w.id) as profiles_json,
+      public.get_character_weapon_features(w.id) as features_bundle
+  ) runtime on true
+  where w.character_id = p_character_id;
+
+  select
+    coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', cm.id,
+          'character_id', cm.character_id,
+          'custom_name', cm.custom_name,
+          'name', coalesce(nullif(trim(cm.custom_name), ''), md.name),
+          'notes', cm.notes,
+          'current_rounds', cm.current_rounds,
+          'magazine_def',
+            jsonb_build_object(
+              'id', md.id,
+              'code', md.code,
+              'name', md.name,
+              'capacity', md.capacity,
+              'caliber', caliber.code,
+              'caliber_name', caliber.name
+            ),
+          'ammo_type',
+            jsonb_build_object(
+              'id', ammo.id,
+              'code', ammo.code,
+              'name', ammo.name,
+              'caliber', ammo_caliber.code,
+              'caliber_name', ammo_caliber.name
+            )
+        )
+        order by md.sort_order, md.name, cm.created_at, cm.id
+      ),
+      '[]'::jsonb
+    )
+  into v_magazines
+  from public.odyssey_character_magazines cm
+  join public.odyssey_magazine_defs md on md.id = cm.magazine_def_id
+  join public.odyssey_caliber_defs caliber on caliber.id = md.caliber_id
+  join public.odyssey_ammo_type_defs ammo on ammo.id = cm.ammo_type_id
+  join public.odyssey_caliber_defs ammo_caliber on ammo_caliber.id = ammo.caliber_id
+  where cm.character_id = p_character_id;
+
+  return jsonb_build_object(
+    'character_id', p_character_id,
+    'weapons', coalesce(v_weapons, '[]'::jsonb),
+    'magazines', coalesce(v_magazines, '[]'::jsonb)
+  );
+end;
+$$;
+
+grant execute on function public.odyssey_is_internal_ammo_compatible_with_profile(uuid, uuid) to anon, authenticated;
+grant execute on function public.unload_weapon_magazine(jsonb) to anon, authenticated;
+grant execute on function public.load_weapon_internal_rounds(jsonb) to anon, authenticated;
+grant execute on function public.unload_weapon_internal_rounds(jsonb) to anon, authenticated;
+
+-- ===== END 107_ranged_weapon_feed_modes.sql =====
+
 

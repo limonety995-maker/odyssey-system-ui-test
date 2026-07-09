@@ -4280,6 +4280,7 @@ var ABILITY_RPC_NAMES = Object.freeze({
   getCharacterAbilities: "get_character_abilities",
   syncCharacterResourcePools: "odyssey_sync_character_resource_pools",
   useAbility: "use_ability",
+  reloadCharacterAbility: "reload_character_ability",
   advanceCharacterAbilityStates: "advance_character_ability_states",
   // Phase 4.0 — quick-actions runtime + quickbar layout persistence (migration 92).
   getQuickActionsRuntime: "odyssey_get_character_quick_actions_runtime",
@@ -4294,6 +4295,9 @@ var WEAPON_RPC_NAMES = Object.freeze({
   switchWeaponProfile: "switch_weapon_profile",
   switchWeaponFireMode: "switch_weapon_fire_mode",
   loadWeaponProfileMagazine: "load_weapon_profile_magazine",
+  unloadWeaponMagazine: "unload_weapon_magazine",
+  loadWeaponInternalRounds: "load_weapon_internal_rounds",
+  unloadWeaponInternalRounds: "unload_weapon_internal_rounds",
   activateWeaponFeature: "activate_weapon_feature",
   deactivateWeaponFeature: "deactivate_weapon_feature",
   getCharacterWeaponFeatures: "get_character_weapon_features"
@@ -4746,9 +4750,12 @@ __export(weaponApi_exports, {
   deactivateWeaponFeature: () => deactivateWeaponFeature,
   getCharacterArmory: () => getCharacterArmory,
   getCharacterWeaponFeatures: () => getCharacterWeaponFeatures,
+  loadWeaponInternalRounds: () => loadWeaponInternalRounds,
   loadWeaponProfileMagazine: () => loadWeaponProfileMagazine,
   switchWeaponFireMode: () => switchWeaponFireMode,
-  switchWeaponProfile: () => switchWeaponProfile
+  switchWeaponProfile: () => switchWeaponProfile,
+  unloadWeaponInternalRounds: () => unloadWeaponInternalRounds,
+  unloadWeaponMagazine: () => unloadWeaponMagazine
 });
 function getCharacterArmory(characterId, settings) {
   return callSupabaseRpc(
@@ -4781,6 +4788,27 @@ function switchWeaponFireMode(characterId, weaponId, fireModeId, settings) {
 function loadWeaponProfileMagazine(payload, settings) {
   return callSupabaseRpc(
     WEAPON_RPC_NAMES.loadWeaponProfileMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function unloadWeaponMagazine(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.unloadWeaponMagazine,
+    { p_payload: payload },
+    settings
+  );
+}
+function loadWeaponInternalRounds(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.loadWeaponInternalRounds,
+    { p_payload: payload },
+    settings
+  );
+}
+function unloadWeaponInternalRounds(payload, settings) {
+  return callSupabaseRpc(
+    WEAPON_RPC_NAMES.unloadWeaponInternalRounds,
     { p_payload: payload },
     settings
   );
@@ -5474,12 +5502,14 @@ function isInstantAbilityResultStale(requestCtx, currentCtx) {
 function buildInstantAbilityExecutionPayload(input = {}) {
   const payload = {
     kind: "ability",
+    include_runtime: false,
     character_id: String(input.sourceCharacterId ?? "").trim(),
     encounter_id: String(input.encounterId ?? "").trim(),
     actor_player_id: String(input.actorPlayerId ?? "").trim(),
     actor_is_gm: !!input.actorIsGm,
     intent: {
-      character_ability_id: String(input.abilityId ?? "").trim()
+      character_ability_id: String(input.abilityId ?? "").trim(),
+      selected_character_weapon_id: String(input.selectedWeaponId ?? "").trim()
     }
   };
   if (input.expectedEncounterVersion !== null && input.expectedEncounterVersion !== void 0 && Number.isFinite(Number(input.expectedEncounterVersion))) {
@@ -5584,12 +5614,14 @@ function isDirectedAbilityResultStale(requestCtx, currentCtx) {
 function buildDirectedAbilityExecutionPayload(input = {}) {
   const payload = {
     kind: "ability",
+    include_runtime: false,
     character_id: String(input.sourceCharacterId ?? "").trim(),
     encounter_id: String(input.encounterId ?? "").trim(),
     actor_player_id: String(input.actorPlayerId ?? "").trim(),
     actor_is_gm: !!input.actorIsGm,
     intent: {
       character_ability_id: String(input.abilityId ?? "").trim(),
+      selected_character_weapon_id: String(input.selectedWeaponId ?? "").trim(),
       target_character_id: String(input.targetCharacterId ?? "").trim()
     }
   };
@@ -7058,7 +7090,12 @@ var QUICK_ACTION_TYPES = Object.freeze({
 var QUICK_ACTION_SOURCES = Object.freeze({
   perk: "perk",
   psi: "psi",
+  skill: "skill",
+  weapon: "weapon",
+  armor: "armor",
   implant: "implant",
+  prosthetic: "prosthetic",
+  equipment: "equipment",
   item: "item",
   technique: "technique"
 });
@@ -7100,8 +7137,6 @@ function normalizeSource(raw) {
   if (VALID_SOURCES.has(v)) return v;
   const aliases = {
     psionic: QUICK_ACTION_SOURCES.psi,
-    prosthetic: QUICK_ACTION_SOURCES.implant,
-    equipment: QUICK_ACTION_SOURCES.item,
     innate: QUICK_ACTION_SOURCES.perk,
     custom: QUICK_ACTION_SOURCES.technique
   };
@@ -7171,7 +7206,20 @@ function mapRequirements(raw) {
   return {
     weaponClass: str(r.weaponClass),
     weaponId: str(r.weaponId),
+    equipmentItemId: str(r.equipmentItemId),
+    itemId: str(r.itemId),
+    requiresSelectedSource: bool(r.requiresSelectedSource, false),
+    requiresEquipped: bool(r.requiresEquipped, false),
+    requiresInstalled: bool(r.requiresInstalled, false),
     conditionSummary: str(r.conditionSummary)
+  };
+}
+function mapReload(raw) {
+  const r = raw?.reload && typeof raw.reload === "object" ? raw.reload : {};
+  return {
+    required: bool(r.required, false),
+    itemCode: str(r.itemCode) ?? str(r.item_code),
+    itemCost: num2(r.itemCost ?? r.item_cost, 1)
   };
 }
 function mapQuickAction(raw) {
@@ -7179,6 +7227,11 @@ function mapQuickAction(raw) {
   return {
     characterActionId: str(q.characterActionId) ?? str(q.character_action_id) ?? null,
     definitionId: str(q.definitionId) ?? str(q.definition_id) ?? null,
+    characterSkillId: str(q.characterSkillId) ?? str(q.character_skill_id) ?? null,
+    sourceCharacterWeaponId: str(q.sourceCharacterWeaponId) ?? str(q.source_character_weapon_id) ?? null,
+    sourceEquipmentItemId: str(q.sourceEquipmentItemId) ?? str(q.source_equipment_item_id) ?? null,
+    sourceCharacterItemId: str(q.sourceCharacterItemId) ?? str(q.source_character_item_id) ?? null,
+    sourceLabel: str(q.sourceLabel) ?? str(q.source_label) ?? null,
     sourceType: normalizeSource(q),
     type: normalizeType(q),
     name: str(q.name) ?? "Unknown action",
@@ -7190,7 +7243,8 @@ function mapQuickAction(raw) {
     costs: mapCosts(q),
     cooldown: mapCooldown(q),
     state: mapState(q),
-    requirements: mapRequirements(q)
+    requirements: mapRequirements(q),
+    reload: mapReload(q)
   };
 }
 function mapSlots(rawSlots, actionIdSet) {
@@ -7760,15 +7814,35 @@ function mapWeapon(armory, selectedWeaponId = null) {
   const w = pickActiveWeapon(armory, selectedWeaponId);
   if (!w) return null;
   const isMelee = !str3(w.model?.caliber) && !str3(w.caliber);
+  const feedMode = String(
+    w.feed_mode ?? w.active_profile?.feed_mode ?? "detachable_magazine"
+  ).trim().toLowerCase() === "internal_magazine" ? "internal_magazine" : "detachable_magazine";
+  const isInternal = !isMelee && feedMode === "internal_magazine";
   const rawMag = w.loaded_magazine ?? w.active_profile?.loaded_magazine ?? null;
-  const loadedMag = readMagazine(rawMag);
+  const loadedMag = isInternal ? null : readMagazine(rawMag);
+  const internalAmmo = isInternal ? {
+    current: num5(
+      w.internal_current_rounds ?? w.active_profile?.internal_current_rounds ?? w.ammo?.current_rounds ?? w.ammo?.current,
+      0
+    ),
+    max: num5(
+      w.internal_max_rounds ?? w.active_profile?.internal_max_rounds ?? w.internal_capacity ?? w.active_profile?.internal_capacity ?? w.ammo?.max_rounds ?? w.ammo?.max,
+      0
+    ),
+    ammoTypeCode: str3(
+      w.internal_ammo_type?.code ?? w.active_profile?.internal_ammo_type?.code ?? w.ammo?.ammo_type ?? w.ammo?.ammo_type_code
+    ),
+    ammoTypeName: str3(
+      w.internal_ammo_type?.name ?? w.active_profile?.internal_ammo_type?.name ?? w.ammo?.ammo_type_name
+    )
+  } : null;
   const fireModes = readFireModes(w);
   const currentFireMode = readCurrentFireMode(w) ?? fireModes[0] ?? null;
-  const reserve = readReserveMagazines(armory, w, loadedMag);
-  const usesMagazine = w.uses_magazine != null ? bool2(w.uses_magazine) : !isMelee;
+  const reserve = isInternal ? [] : readReserveMagazines(armory, w, loadedMag);
+  const usesMagazine = w.uses_magazine != null ? bool2(w.uses_magazine) : !isMelee && !isInternal;
   const requiresAmmo = w.requires_ammo != null ? bool2(w.requires_ammo) : !isMelee;
   const usesConsumable = bool2(w.uses_consumable, false);
-  const canReload = w.can_reload != null ? bool2(w.can_reload) : !isMelee && reserve.length > 0;
+  const canReload = w.can_reload != null ? bool2(w.can_reload) : !isMelee && !isInternal && reserve.length > 0;
   return {
     id: str3(w.id) ?? "wpn-unknown",
     name: str3(w.name) ?? str3(w.weapon_name) ?? "Unknown Weapon",
@@ -7777,14 +7851,17 @@ function mapWeapon(armory, selectedWeaponId = null) {
     fireModes,
     currentFireMode,
     fireMode: readFireMode(w),
+    feedMode,
     usesMagazine,
     usesConsumable,
     requiresAmmo,
     loadedMagazine: loadedMag,
     reserveMagazines: reserve,
     ammo: {
-      current: loadedMag ? loadedMag.current : num5(w.ammo_current, 0),
-      max: loadedMag ? loadedMag.max : num5(w.ammo_max, 0)
+      current: loadedMag ? loadedMag.current : internalAmmo ? internalAmmo.current : num5(w.ammo_current, 0),
+      max: loadedMag ? loadedMag.max : internalAmmo ? internalAmmo.max : num5(w.ammo_max, 0),
+      ammoTypeCode: internalAmmo?.ammoTypeCode ?? null,
+      ammoTypeName: internalAmmo?.ammoTypeName ?? null
     },
     reloadCandidateId: reserve[0]?.id ?? null,
     canReload,
@@ -7825,12 +7902,13 @@ function mapWeaponOption(armory, weapon, selectedWeaponId) {
   const vm = mapWeapon({ ...armory, weapons: [weapon] }, str3(weapon?.id));
   const cls = str3(weapon?.model?.weapon_class_name) ?? str3(weapon?.model?.weapon_class);
   const mag = vm?.loadedMagazine ?? null;
+  const ammoLabel = mag ? `${mag.current}/${mag.max}` : vm?.requiresAmmo ? `${num5(vm?.ammo?.current, 0)}/${num5(vm?.ammo?.max, 0)}` : "-";
   return {
     id: str3(weapon?.id) ?? "wpn-unknown",
     name: str3(weapon?.name) ?? str3(weapon?.weapon_name) ?? "Unknown Weapon",
     type: cls,
     selected: vm?.id === selectedWeaponId,
-    ammoLabel: mag ? `${mag.current}/${mag.max}` : vm?.requiresAmmo ? "no magazine" : "\u2014"
+    ammoLabel
   };
 }
 function mapWeaponInventory(armory, selectedWeaponId) {
@@ -8561,6 +8639,10 @@ function setupSceneSelection(hooks = {}) {
   let lastState = null;
   let sceneTimer = null;
   let currentSelectionIds = [];
+  let skillAdminDeleteInFlight = null;
+  let refetchCurrentPromise = null;
+  let refetchCurrentQueued = false;
+  let lastRefetchAt = 0;
   const selectedWeaponMemory = createSelectedWeaponMemory();
   const armedTechniqueMemory = createArmedTechniqueMemory();
   let combatLog = [];
@@ -8770,9 +8852,33 @@ function setupSceneSelection(hooks = {}) {
       broadcast(lastPayload);
       return lastPayload;
     }
-    async function refetchCurrent() {
-      if (currentSelectionIds.length === 1) await resolveAndPublish(currentSelectionIds);
-      else if (lastState) publishState(lastState);
+    async function refetchCurrent(reason = "generic") {
+      if (refetchCurrentPromise) {
+        refetchCurrentQueued = true;
+        return refetchCurrentPromise;
+      }
+      refetchCurrentPromise = (async () => {
+        const now = Date.now();
+        const waitMs = Math.max(0, 350 - (now - lastRefetchAt));
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+        if (currentSelectionIds.length === 1) {
+          await resolveAndPublish(currentSelectionIds);
+        } else if (lastState) {
+          publishState(lastState);
+        }
+        lastRefetchAt = Date.now();
+      })();
+      try {
+        await refetchCurrentPromise;
+      } finally {
+        refetchCurrentPromise = null;
+        if (refetchCurrentQueued) {
+          refetchCurrentQueued = false;
+          void refetchCurrent(`${reason}:queued`);
+        }
+      }
     }
     function applyTargetingPayload(payload) {
       const target = payload?.target && typeof payload.target === "object" ? payload.target : null;
@@ -8798,6 +8904,95 @@ function setupSceneSelection(hooks = {}) {
     async function handleCommand(command) {
       if (!command || typeof command !== "object") return;
       if (!lastPayload || lastPayload.status !== "ready") return;
+      if (command?.scope === "combat-hud" && command?.feature === "gm-skill-admin") {
+        const viewerIsGm = String(viewer?.role ?? "").toUpperCase() === "GM";
+        const deleteType = String(command.type ?? "");
+        const characterSkillId = String(command.characterSkillId ?? command.skillId ?? "").trim() || null;
+        const characterActionId = String(command.characterActionId ?? "").trim() || null;
+        const deleteKey = deleteType === "delete-skill" ? `skill:${characterSkillId ?? ""}` : `ability:${characterActionId ?? ""}`;
+        logDebugEvent("skills", "gm-delete-click", {
+          type: deleteType,
+          characterSkillId,
+          characterActionId
+        });
+        if (!viewerIsGm) {
+          ephemeral.commandStatus = {
+            type: "error",
+            message: "GM delete is available only for the GM.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (skillAdminDeleteInFlight) return;
+        if (deleteType !== "delete-skill" && deleteType !== "delete-ability") return;
+        if (deleteType === "delete-skill" && !characterSkillId) {
+          ephemeral.commandStatus = {
+            type: "error",
+            message: "Missing character skill id.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (deleteType === "delete-ability" && !characterActionId) {
+          ephemeral.commandStatus = {
+            type: "error",
+            message: "Missing character ability id.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          if (lastState) publishState(lastState);
+          return;
+        }
+        skillAdminDeleteInFlight = deleteKey;
+        try {
+          if (deleteType === "delete-skill") {
+            await mutateSupabaseRows(
+              `odyssey_character_skills?id=eq.${encodeURIComponent(characterSkillId)}&character_id=eq.${encodeURIComponent(ephemeral.characterId)}`,
+              null,
+              settings,
+              { method: "DELETE", prefer: "return=minimal", fallbackMessage: "Unable to delete character skill." }
+            );
+          } else {
+            await mutateSupabaseRows(
+              `odyssey_character_abilities?id=eq.${encodeURIComponent(characterActionId)}&character_id=eq.${encodeURIComponent(ephemeral.characterId)}`,
+              null,
+              settings,
+              { method: "DELETE", prefer: "return=minimal", fallbackMessage: "Unable to delete character ability." }
+            );
+            if (armedTechniqueMemory.get(ephemeral.characterId) === characterActionId) {
+              armedTechniqueMemory.forget(ephemeral.characterId);
+            }
+          }
+          ephemeral.commandStatus = {
+            type: "ok",
+            message: deleteType === "delete-skill" ? "Skill deleted." : "Ability deleted.",
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          logDebugEvent("skills", "gm-delete-result", { ok: true, type: deleteType, deleteKey }, true);
+          await Promise.allSettled([
+            quickbarController?.refresh?.(),
+            refetchCurrent()
+          ]);
+        } catch (error) {
+          const message = String(error?.message ?? error ?? "Delete failed.");
+          ephemeral.commandStatus = {
+            type: "error",
+            message,
+            source: "gm-skill-admin",
+            deleteKey
+          };
+          logDebugEvent("skills", "gm-delete-result", { ok: false, type: deleteType, deleteKey, error: message }, false);
+          if (lastState) publishState(lastState);
+        } finally {
+          skillAdminDeleteInFlight = null;
+        }
+        return;
+      }
       if (command?.scope === "combat-hud" && command?.feature === "fire-mode") {
         const fmType = String(command.type ?? "");
         if (fmType === "toggle-selector") {
@@ -9042,6 +9237,7 @@ function setupSceneSelection(hooks = {}) {
         const ctx = {
           sourceCharacterId: evalCtx.sourceCharacterId,
           abilityId: actionId,
+          selectedWeaponId: ephemeral.selectedWeaponId ?? null,
           encounterId: sessionAtRequest.id ?? "",
           actorPlayerId: viewer?.playerId ?? null,
           actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
@@ -9166,6 +9362,7 @@ function setupSceneSelection(hooks = {}) {
         const ctx = {
           sourceCharacterId: evalCtx.sourceCharacterId,
           abilityId: actionId,
+          selectedWeaponId: ephemeral.selectedWeaponId ?? null,
           targetCharacterId: evalCtx.targetCharacterId,
           encounterId: sessionAtRequest.id ?? "",
           actorPlayerId: viewer?.playerId ?? null,
@@ -11604,6 +11801,7 @@ var abilityApi_exports = {};
 __export(abilityApi_exports, {
   advanceCharacterAbilityStates: () => advanceCharacterAbilityStates,
   getCharacterAbilities: () => getCharacterAbilities,
+  reloadCharacterAbility: () => reloadCharacterAbility,
   syncCharacterResourcePools: () => syncCharacterResourcePools,
   useAbility: () => useAbility
 });
@@ -11624,6 +11822,13 @@ function syncCharacterResourcePools(characterId, settings) {
 function useAbility(payload, settings) {
   return callSupabaseRpc(
     ABILITY_RPC_NAMES.useAbility,
+    { p_payload: payload },
+    settings
+  );
+}
+function reloadCharacterAbility(payload, settings) {
+  return callSupabaseRpc(
+    ABILITY_RPC_NAMES.reloadCharacterAbility,
     { p_payload: payload },
     settings
   );
@@ -12472,7 +12677,7 @@ function resolveCombatMovementPermission({
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.61";
+var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.69";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
