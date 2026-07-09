@@ -7902,7 +7902,7 @@ function mapWeaponOption(armory, weapon, selectedWeaponId) {
   const vm = mapWeapon({ ...armory, weapons: [weapon] }, str3(weapon?.id));
   const cls = str3(weapon?.model?.weapon_class_name) ?? str3(weapon?.model?.weapon_class);
   const mag = vm?.loadedMagazine ?? null;
-  const ammoLabel = mag ? `${mag.current}/${mag.max}` : vm?.requiresAmmo ? `${num5(vm?.ammo?.current, 0)}/${num5(vm?.ammo?.max, 0)}` : "-";
+  const ammoLabel = mag ? `${mag.current}/${mag.max}` : vm?.requiresAmmo ? `${num5(vm?.ammo?.current, 0)}/${num5(vm?.ammo?.max, 0)}` : "\u2014";
   return {
     id: str3(weapon?.id) ?? "wpn-unknown",
     name: str3(weapon?.name) ?? str3(weapon?.weapon_name) ?? "Unknown Weapon",
@@ -12677,7 +12677,7 @@ function resolveCombatMovementPermission({
 }
 
 // movement/moveToolController.js
-var MOVE_TOOL_ICON_URL = "https://odyssey-services.github.io/Odyssey_System/icon.svg?v=1.8.69";
+var MOVE_TOOL_ICON_URL = "https://limonety995-maker.github.io/odyssey-system-ui-test/icon.svg?v=1.8.73";
 var PREVIEW_IDS = [PREVIEW_LINE_ID, PREVIEW_LABEL_ID, PREVIEW_GHOST_ID];
 var MARKER_TTL_MS = 15e3;
 var POSITION_EPSILON = 0.01;
