@@ -162,4 +162,7 @@ export const CREATOR_RPC_NAMES = Object.freeze({
   getEquipmentModel: "creator_get_equipment_model",
   upsertEquipmentModel: "creator_upsert_equipment_model",
   deleteEquipmentModel: "creator_delete_equipment_model",
+  // Phase 4.1C.0 — Ability Studio (migration 109).
+  assignAbilityToCharacter: "creator_assign_ability_to_character",
+  removeCharacterAbility: "creator_remove_character_ability",
 });

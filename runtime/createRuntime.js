@@ -32,6 +32,7 @@ import * as inventoryApi from "../api/inventoryApi.js";
 import * as logApi from "../api/logApi.js";
 import * as placementApi from "../api/characterPlacementApi.js";
 import * as creatorApi from "../api/creatorApi.js";
+import * as abilityStudioApi from "../api/abilityStudioApi.js";
 
 export function createOdysseyRuntime() {
   return {
@@ -72,6 +73,7 @@ export function createOdysseyRuntime() {
       log: logApi,
       placement: placementApi,
       creator: creatorApi,
+      abilityStudio: abilityStudioApi,
     },
   };
 }
