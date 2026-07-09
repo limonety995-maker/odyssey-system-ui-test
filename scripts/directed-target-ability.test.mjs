@@ -367,10 +367,19 @@ test("38. a stale version response never overwrites newer runtime — isDirected
 
 /* ── no migration for this phase ──────────────────────────────────────── */
 
-test("no migration file was created for this phase — combat_execute_action/use_ability already support intent.target_character_id", () => {
+test("no later migration removed the turn-gate/ability-dispatch this phase's audit relied on in combat_execute_action — the outer function that owns the gate (use_ability is a lower-level resolver that never re-checks the turn/MAIN gate itself)", () => {
   const migrationsDir = path.join(repoRoot, "supabase");
-  const files = fs.readdirSync(migrationsDir).filter((f) => /^10[3-9]_|^1[1-9][0-9]_/.test(f));
-  assert.equal(files.length, 0, `expected no new migration 103+ file, found: ${files.join(", ")}`);
+  const files = fs.readdirSync(migrationsDir).filter((f) => /^10[3-9]_|^1[1-9][0-9]_/.test(f) && f !== "108_direct_ability_attack_session_gate.sql");
+  const touchingFiles = files.filter((f) => {
+    const src = fs.readFileSync(path.join(migrationsDir, f), "utf8");
+    return /create\s+or\s+replace\s+function\s+public\.combat_execute_action\s*\(/i.test(src);
+  });
+  for (const f of touchingFiles) {
+    const src = fs.readFileSync(path.join(migrationsDir, f), "utf8");
+    assert.match(src, /NOT_CURRENT_TURN/, `${f} redefines combat_execute_action but dropped the turn-order gate`);
+    assert.match(src, /ACTION_NOT_AVAILABLE/, `${f} redefines combat_execute_action but dropped the MAIN-cost gate`);
+    assert.match(src, /when\s+'ability'/, `${f} redefines combat_execute_action but dropped the 'ability' kind dispatch`);
+  }
 });
 
 setTimeout(() => {

@@ -588,7 +588,7 @@ function mapWeaponOption(armory, weapon, selectedWeaponId) {
   const mag = vm?.loadedMagazine ?? null;
   const ammoLabel = mag
     ? `${mag.current}/${mag.max}`
-    : (vm?.requiresAmmo ? `${num(vm?.ammo?.current, 0)}/${num(vm?.ammo?.max, 0)}` : "-");
+    : (vm?.requiresAmmo ? `${num(vm?.ammo?.current, 0)}/${num(vm?.ammo?.max, 0)}` : "—");
   return {
     id: str(weapon?.id) ?? "wpn-unknown",
     name: str(weapon?.name) ?? str(weapon?.weapon_name) ?? "Unknown Weapon",
