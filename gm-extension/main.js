@@ -3,7 +3,6 @@ import { createOdysseyRuntime } from "../runtime/createRuntime.js";
 import { createTokenRealtimeSync } from "../bridge/tokenRealtimeSync.js";
 import { mountPlacementScreen } from "../screens/placement/placementScreen.js";
 import { mountCreatorScreen } from "./screens/creator/creatorScreen.js";
-import { mountAbilityStudioScreen } from "./screens/abilityStudio/abilityStudioScreen.js";
 
 const runtime = createOdysseyRuntime();
 const tokenRealtimeSync = createTokenRealtimeSync({ runtime });
@@ -22,19 +21,16 @@ root.innerHTML = `
     <button class="app-tab active" type="button" data-view="shell">GM Tools Shell</button>
     <button class="app-tab" type="button" data-view="creator">Creator</button>
     <button class="app-tab" type="button" data-view="placement">Placement</button>
-    <button class="app-tab" type="button" data-view="ability-studio">Ability Studio</button>
   </nav>
   <div class="app-view" data-view-host="shell"></div>
   <div class="app-view hidden" data-view-host="creator"></div>
   <div class="app-view hidden" data-view-host="placement"></div>
-  <div class="app-view hidden" data-view-host="ability-studio"></div>
 `;
 
 const hosts = {
   shell: root.querySelector('[data-view-host="shell"]'),
   creator: root.querySelector('[data-view-host="creator"]'),
   placement: root.querySelector('[data-view-host="placement"]'),
-  "ability-studio": root.querySelector('[data-view-host="ability-studio"]'),
 };
 
 const views = {
@@ -79,12 +75,6 @@ const views = {
     mounted: false,
     mount() {
       mountPlacementScreen({ root: hosts.placement, runtime });
-    },
-  },
-  "ability-studio": {
-    mounted: false,
-    mount() {
-      mountAbilityStudioScreen({ root: hosts["ability-studio"], runtime });
     },
   },
 };

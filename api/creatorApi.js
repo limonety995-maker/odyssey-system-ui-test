@@ -359,19 +359,3 @@ export function deleteEquipmentModel(equipmentModelId, settings) {
     settings,
   );
 }
-
-export function assignAbilityToCharacter({ abilityId, characterId }, settings) {
-  return callSupabaseRpc(
-    CREATOR_RPC_NAMES.assignAbilityToCharacter,
-    { p_ability_def_id: abilityId, p_character_id: characterId },
-    settings,
-  );
-}
-
-export function removeCharacterAbility({ characterAbilityId }, settings) {
-  return callSupabaseRpc(
-    CREATOR_RPC_NAMES.removeCharacterAbility,
-    { p_character_ability_id: characterAbilityId },
-    settings,
-  );
-}

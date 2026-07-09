@@ -334,10 +334,10 @@ var require_events = __commonJS({
     EventEmitter2.prototype.eventNames = function eventNames() {
       return this._eventsCount > 0 ? ReflectOwnKeys(this._events) : [];
     };
-    function arrayClone(arr3, n) {
+    function arrayClone(arr2, n) {
       var copy = new Array(n);
       for (var i = 0; i < n; ++i)
-        copy[i] = arr3[i];
+        copy[i] = arr2[i];
       return copy;
     }
     function spliceOne(list, index) {
@@ -345,10 +345,10 @@ var require_events = __commonJS({
         list[index] = list[index + 1];
       list.pop();
     }
-    function unwrapListeners(arr3) {
-      var ret = new Array(arr3.length);
+    function unwrapListeners(arr2) {
+      var ret = new Array(arr2.length);
       for (var i = 0; i < ret.length; ++i) {
-        ret[i] = arr3[i].listener || arr3[i];
+        ret[i] = arr2[i].listener || arr2[i];
       }
       return ret;
     }
@@ -818,8 +818,8 @@ var byteToHex = [];
 for (let i = 0; i < 256; ++i) {
   byteToHex.push((i + 256).toString(16).slice(1));
 }
-function unsafeStringify(arr3, offset = 0) {
-  return byteToHex[arr3[offset + 0]] + byteToHex[arr3[offset + 1]] + byteToHex[arr3[offset + 2]] + byteToHex[arr3[offset + 3]] + "-" + byteToHex[arr3[offset + 4]] + byteToHex[arr3[offset + 5]] + "-" + byteToHex[arr3[offset + 6]] + byteToHex[arr3[offset + 7]] + "-" + byteToHex[arr3[offset + 8]] + byteToHex[arr3[offset + 9]] + "-" + byteToHex[arr3[offset + 10]] + byteToHex[arr3[offset + 11]] + byteToHex[arr3[offset + 12]] + byteToHex[arr3[offset + 13]] + byteToHex[arr3[offset + 14]] + byteToHex[arr3[offset + 15]];
+function unsafeStringify(arr2, offset = 0) {
+  return byteToHex[arr2[offset + 0]] + byteToHex[arr2[offset + 1]] + byteToHex[arr2[offset + 2]] + byteToHex[arr2[offset + 3]] + "-" + byteToHex[arr2[offset + 4]] + byteToHex[arr2[offset + 5]] + "-" + byteToHex[arr2[offset + 6]] + byteToHex[arr2[offset + 7]] + "-" + byteToHex[arr2[offset + 8]] + byteToHex[arr2[offset + 9]] + "-" + byteToHex[arr2[offset + 10]] + byteToHex[arr2[offset + 11]] + byteToHex[arr2[offset + 12]] + byteToHex[arr2[offset + 13]] + byteToHex[arr2[offset + 14]] + byteToHex[arr2[offset + 15]];
 }
 
 // node_modules/uuid/dist/esm-browser/native.js
@@ -10006,10 +10006,7 @@ var CREATOR_RPC_NAMES = Object.freeze({
   listEquipmentModels: "creator_list_equipment_models",
   getEquipmentModel: "creator_get_equipment_model",
   upsertEquipmentModel: "creator_upsert_equipment_model",
-  deleteEquipmentModel: "creator_delete_equipment_model",
-  // Phase 4.1C.0 — Ability Studio (migration 109).
-  assignAbilityToCharacter: "creator_assign_ability_to_character",
-  removeCharacterAbility: "creator_remove_character_ability"
+  deleteEquipmentModel: "creator_delete_equipment_model"
 });
 
 // bridge/supabaseBridge.js
@@ -11327,7 +11324,6 @@ function purgeActiveNpcs(payload, settings) {
 // api/creatorApi.js
 var creatorApi_exports = {};
 __export(creatorApi_exports, {
-  assignAbilityToCharacter: () => assignAbilityToCharacter,
   deleteAbility: () => deleteAbility,
   deleteAmmoType: () => deleteAmmoType,
   deleteCaliber: () => deleteCaliber,
@@ -11359,7 +11355,6 @@ __export(creatorApi_exports, {
   listPerks: () => listPerks,
   listSkills: () => listSkills,
   listWeapons: () => listWeapons,
-  removeCharacterAbility: () => removeCharacterAbility,
   upsertAbility: () => upsertAbility,
   upsertAmmoType: () => upsertAmmoType,
   upsertCaliber: () => upsertCaliber,
@@ -11689,401 +11684,6 @@ function deleteEquipmentModel(equipmentModelId, settings) {
     settings
   );
 }
-function assignAbilityToCharacter({ abilityId, characterId }, settings) {
-  return callSupabaseRpc(
-    CREATOR_RPC_NAMES.assignAbilityToCharacter,
-    { p_ability_def_id: abilityId, p_character_id: characterId },
-    settings
-  );
-}
-function removeCharacterAbility({ characterAbilityId }, settings) {
-  return callSupabaseRpc(
-    CREATOR_RPC_NAMES.removeCharacterAbility,
-    { p_character_ability_id: characterAbilityId },
-    settings
-  );
-}
-
-// api/abilityStudioApi.js
-var abilityStudioApi_exports = {};
-__export(abilityStudioApi_exports, {
-  assignAbilityToCharacter: () => assignAbilityToCharacter2,
-  createAbilityFromTemplate: () => createAbilityFromTemplate,
-  getAbilityDetail: () => getAbilityDetail,
-  listAbilityCatalog: () => listAbilityCatalog,
-  listAssignableCharacters: () => listAssignableCharacters,
-  removeAbilityFromCharacter: () => removeAbilityFromCharacter,
-  validateAbilityDraft: () => validateAbilityDraft
-});
-
-// hud/abilities/abilityAvailabilityPolicy.js
-var SLOT_AVAILABILITY = Object.freeze({
-  ready: "ready",
-  armed: "armed",
-  cooldown: "cooldown",
-  insufficientResource: "insufficient_resource",
-  unsupported: "unsupported",
-  unavailable: "unavailable"
-});
-function isDirectAttackAbility(action) {
-  const a = action && typeof action === "object" ? action : {};
-  return a.type === "attack_technique" && a.state?.executionReason === "ACTION_EFFECT_NOT_IMPLEMENTED";
-}
-function isInstantSelfAbility(action) {
-  const a = action && typeof action === "object" ? action : {};
-  if (a.type !== "instant") return false;
-  const mode = a.targeting?.mode;
-  return mode !== "character" && mode !== "body_part";
-}
-function isDirectedTargetAbility(action) {
-  const a = action && typeof action === "object" ? action : {};
-  return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
-}
-
-// hud/abilities/abilityStudioClassification.js
-var HUD_CLASSIFICATION = Object.freeze({
-  armedAttackTechnique: "ARMED attack technique",
-  directAbilityAttack: "Direct ability attack",
-  instantSelfAbility: "Instant / self ability",
-  directedTargetAbility: "Directed target ability",
-  unsupported: "Unsupported"
-});
-function pickActiveLevel(levels) {
-  if (!Array.isArray(levels) || levels.length === 0) return null;
-  return [...levels].sort((a, b) => Number(a?.ability_level ?? 0) - Number(b?.ability_level ?? 0))[0] ?? null;
-}
-function synthesizeQuickActionShape(ability, levels) {
-  const a = ability && typeof ability === "object" ? ability : {};
-  const level = pickActiveLevel(levels) ?? {};
-  const isAttack = a.effect_mode === "attack" || a.ability_kind === "attack";
-  const targetType = a.target_type ?? "none";
-  const type = isAttack ? "attack_technique" : targetType === "character" || targetType === "body_part" ? "directed" : "instant";
-  const unsupportedEffect = Number(level.attack_damage_bonus ?? 0) !== 0 || Number(level.attack_armor_pierce ?? 0) !== 0 || Boolean(level.ignore_armor);
-  return {
-    type,
-    targeting: {
-      mode: targetType,
-      requiresBodyZone: targetType === "body_part"
-    },
-    state: {
-      executionAvailable: !unsupportedEffect,
-      executionReason: unsupportedEffect ? "ACTION_EFFECT_NOT_IMPLEMENTED" : null
-    },
-    costs: {
-      main: a.resource_mode === "pool" ? 1 : 0,
-      move: 0,
-      psi: a.resource_pool_code === "psi" ? Number(level.resource_cost ?? 0) : 0,
-      charges: a.resource_mode === "item" ? null : 0
-    },
-    cooldown: {
-      max: Number(level.cooldown_rounds ?? 0),
-      unit: "turn"
-    }
-  };
-}
-function classifyAbilityForStudio(ability, levels = []) {
-  const action = synthesizeQuickActionShape(ability, levels);
-  let classification = HUD_CLASSIFICATION.unsupported;
-  let executionPath = "none";
-  let unsupportedReason = null;
-  if (action.type === "attack_technique" && action.state.executionReason !== "ACTION_EFFECT_NOT_IMPLEMENTED") {
-    classification = HUD_CLASSIFICATION.armedAttackTechnique;
-    executionPath = "perform_attack (armed_action_ids)";
-  } else if (isDirectAttackAbility(action)) {
-    classification = HUD_CLASSIFICATION.directAbilityAttack;
-    executionPath = 'perform_attack (mode: "skill")';
-  } else if (isInstantSelfAbility(action)) {
-    classification = HUD_CLASSIFICATION.instantSelfAbility;
-    executionPath = 'combat_execute_action (kind: "ability")';
-  } else if (isDirectedTargetAbility(action)) {
-    classification = HUD_CLASSIFICATION.directedTargetAbility;
-    executionPath = 'combat_execute_action (kind: "ability") + intent.target_character_id';
-  } else {
-    unsupportedReason = action.type === "directed" && action.targeting.requiresBodyZone ? "target_type='body_part' without an attack effect_mode has no execution path in Skills Block today (see audit \xA75)." : "Effect type is not supported by the current server runtime.";
-  }
-  const canExecuteFromSkillsBlock = classification !== HUD_CLASSIFICATION.unsupported;
-  return {
-    classification,
-    executionPath,
-    requiresSelectedTarget: action.type === "attack_technique" || action.type === "directed",
-    requiresBodyZone: action.targeting.requiresBodyZone,
-    usesWeaponAmmo: false,
-    costs: action.costs,
-    cooldown: action.cooldown,
-    effectSupport: canExecuteFromSkillsBlock ? "supported" : "unsupported",
-    unsupportedReason,
-    canExecuteFromSkillsBlock,
-    // Assignment is always possible for a valid ability definition regardless
-    // of HUD classification — an "Unsupported" ability can still be assigned
-    // to a character (e.g. to author it ahead of a later phase), it just
-    // won't show an execute button in Skills Block yet.
-    canAssignToCharacter: true
-  };
-}
-
-// hud/abilities/abilityStudioTemplates.js
-var ABILITY_STUDIO_TEMPLATES = Object.freeze({
-  armedAttackTechnique: "armed_attack_technique",
-  directAbilityAttack: "direct_ability_attack",
-  instantSelfAbility: "instant_self_ability",
-  directedTargetAbility: "directed_target_ability"
-});
-var TEMPLATE_LABELS = Object.freeze({
-  [ABILITY_STUDIO_TEMPLATES.armedAttackTechnique]: "ARMED attack technique",
-  [ABILITY_STUDIO_TEMPLATES.directAbilityAttack]: "Direct ability attack",
-  [ABILITY_STUDIO_TEMPLATES.instantSelfAbility]: "Instant / self ability",
-  [ABILITY_STUDIO_TEMPLATES.directedTargetAbility]: "Directed target ability"
-});
-var CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
-function createEmptyDraft(template) {
-  return {
-    template,
-    id: null,
-    code: "",
-    name: "",
-    description: "",
-    iconKey: "bolt",
-    abilityKind: "utility",
-    sourceType: "custom",
-    targetType: template === ABILITY_STUDIO_TEMPLATES.instantSelfAbility ? "self" : template === ABILITY_STUDIO_TEMPLATES.directedTargetAbility ? "character" : "character",
-    resourceMode: "pool",
-    resourcePoolCode: "psionic_energy",
-    resourceCost: 0,
-    cooldownRounds: 0,
-    attackAccuracyBonus: 0,
-    attackDamageBonus: 0,
-    attackArmorPierce: 0,
-    ignoreArmor: false,
-    durationRounds: null,
-    rangeMode: "none",
-    rangeMaxDistanceM: null
-  };
-}
-function numberOrNull(value) {
-  if (value === null || value === void 0 || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : NaN;
-}
-function pushError(errors2, field, message) {
-  errors2.push({ field, message });
-}
-function validateAbilityDraft(draft) {
-  const errors2 = [];
-  const d = draft && typeof draft === "object" ? draft : {};
-  const code = String(d.code ?? "").trim().toLowerCase();
-  if (!code) {
-    pushError(errors2, "code", "Code is required.");
-  } else if (!CODE_PATTERN.test(code)) {
-    pushError(errors2, "code", "Code must be lowercase snake_case starting with a letter.");
-  }
-  if (!String(d.name ?? "").trim()) {
-    pushError(errors2, "name", "Name is required.");
-  }
-  if (!Object.values(ABILITY_STUDIO_TEMPLATES).includes(d.template)) {
-    pushError(errors2, "template", "Unknown template.");
-    return { ok: false, errors: errors2 };
-  }
-  const cooldown = numberOrNull(d.cooldownRounds);
-  if (cooldown !== null && (Number.isNaN(cooldown) || cooldown < 0)) {
-    pushError(errors2, "cooldownRounds", "Cooldown must be a non-negative number.");
-  }
-  const resourceCost = numberOrNull(d.resourceCost);
-  if (resourceCost !== null && (Number.isNaN(resourceCost) || resourceCost < 0)) {
-    pushError(errors2, "resourceCost", "Cost must be a non-negative number.");
-  }
-  if (d.rangeMode === "limited") {
-    const maxDistance = numberOrNull(d.rangeMaxDistanceM);
-    if (maxDistance === null || Number.isNaN(maxDistance) || maxDistance < 1) {
-      pushError(errors2, "rangeMaxDistanceM", "Provide a positive max distance when range is limited.");
-    }
-  }
-  const hasAttackEffect = Number(d.attackDamageBonus ?? 0) !== 0 || Number(d.attackArmorPierce ?? 0) !== 0 || Boolean(d.ignoreArmor);
-  switch (d.template) {
-    case ABILITY_STUDIO_TEMPLATES.armedAttackTechnique: {
-      if (!["character", "body_part"].includes(d.targetType)) {
-        pushError(errors2, "targetType", "ARMED attack techniques must target a character or a body part.");
-      }
-      if (hasAttackEffect) {
-        pushError(
-          errors2,
-          "attackDamageBonus",
-          "An ARMED technique must not set a damage/armor-pierce/ignore-armor effect \u2014 use the Direct Ability Attack template instead."
-        );
-      }
-      break;
-    }
-    case ABILITY_STUDIO_TEMPLATES.directAbilityAttack: {
-      if (!["character", "body_part"].includes(d.targetType)) {
-        pushError(errors2, "targetType", "Direct ability attacks must target a character or a body part.");
-      }
-      if (!hasAttackEffect) {
-        pushError(
-          errors2,
-          "attackDamageBonus",
-          "A direct ability attack needs a damage, armor-pierce, or ignore-armor effect \u2014 otherwise use the ARMED template."
-        );
-      }
-      break;
-    }
-    case ABILITY_STUDIO_TEMPLATES.instantSelfAbility: {
-      if (["character", "body_part"].includes(d.targetType)) {
-        pushError(errors2, "targetType", "Instant/self abilities must not target a character or body part.");
-      }
-      break;
-    }
-    case ABILITY_STUDIO_TEMPLATES.directedTargetAbility: {
-      if (d.targetType !== "character") {
-        pushError(errors2, "targetType", "Directed target abilities must target a character (no body zone).");
-      }
-      break;
-    }
-    default:
-      break;
-  }
-  if (errors2.length > 0) {
-    return { ok: false, errors: errors2 };
-  }
-  const expectedLabel = TEMPLATE_LABELS[d.template];
-  const preview = classifyAbilityForStudio(
-    {
-      ability_kind: d.abilityKind,
-      effect_mode: d.template === ABILITY_STUDIO_TEMPLATES.armedAttackTechnique || d.template === ABILITY_STUDIO_TEMPLATES.directAbilityAttack ? "attack" : "apply_effect",
-      target_type: d.targetType,
-      resource_mode: d.resourceMode,
-      resource_pool_code: d.resourcePoolCode
-    },
-    [
-      {
-        ability_level: 1,
-        resource_cost: resourceCost ?? 0,
-        cooldown_rounds: cooldown ?? 0,
-        attack_damage_bonus: d.attackDamageBonus ?? 0,
-        attack_armor_pierce: d.attackArmorPierce ?? 0,
-        ignore_armor: Boolean(d.ignoreArmor)
-      }
-    ]
-  );
-  if (preview.classification !== expectedLabel) {
-    pushError(
-      errors2,
-      "template",
-      `Internal consistency check failed: this draft would classify as "${preview.classification}", not "${expectedLabel}".`
-    );
-    return { ok: false, errors: errors2 };
-  }
-  return { ok: true, errors: [] };
-}
-function buildAbilityPayloadFromDraft(draft) {
-  const d = draft && typeof draft === "object" ? draft : {};
-  const isAttackTemplate = d.template === ABILITY_STUDIO_TEMPLATES.armedAttackTechnique || d.template === ABILITY_STUDIO_TEMPLATES.directAbilityAttack;
-  const payload = {
-    code: String(d.code ?? "").trim().toLowerCase(),
-    name: String(d.name ?? "").trim(),
-    ability_kind: d.abilityKind || "custom",
-    source_type: d.sourceType || "custom",
-    activation_type: "manual",
-    target_type: d.targetType,
-    effect_mode: isAttackTemplate ? "attack" : "apply_effect",
-    attack_type: isAttackTemplate ? d.attackType || "ranged" : null,
-    description: String(d.description ?? ""),
-    data: {
-      icon_key: d.iconKey || "bolt",
-      range: {
-        mode: d.rangeMode || "none",
-        max_distance_m: d.rangeMode === "limited" ? Number(d.rangeMaxDistanceM ?? 0) : null
-      }
-    },
-    resource_mode: d.resourceMode || "none",
-    resource_pool_code: d.resourceMode === "pool" ? d.resourcePoolCode || null : null,
-    resource_item_code: d.resourceMode === "item" ? d.resourceItemCode || null : null,
-    tags: [`studio_template:${d.template}`],
-    sort_order: 0,
-    levels: [
-      {
-        ability_level: 1,
-        resource_cost: Number(d.resourceCost ?? 0),
-        cooldown_rounds: Number(d.cooldownRounds ?? 0),
-        attack_accuracy_bonus: isAttackTemplate ? Number(d.attackAccuracyBonus ?? 0) : 0,
-        attack_damage_bonus: isAttackTemplate ? Number(d.attackDamageBonus ?? 0) : 0,
-        attack_armor_pierce: isAttackTemplate ? Number(d.attackArmorPierce ?? 0) : 0,
-        ignore_armor: isAttackTemplate ? Boolean(d.ignoreArmor) : false,
-        duration_rounds: d.durationRounds === null || d.durationRounds === "" ? null : Number(d.durationRounds)
-      }
-    ]
-  };
-  if (d.id) {
-    payload.id = d.id;
-  }
-  return payload;
-}
-
-// api/abilityStudioApi.js
-async function callSafe(fn, fallbackMessage) {
-  let raw;
-  try {
-    raw = await fn();
-  } catch (error) {
-    return { ok: false, data: null, code: null, error: toErrorMessage(error, fallbackMessage) };
-  }
-  if (!raw || raw.ok === false) {
-    return {
-      ok: false,
-      data: raw ?? null,
-      code: raw?.error ?? null,
-      error: raw?.message || fallbackMessage
-    };
-  }
-  return { ok: true, data: raw, code: null, error: null };
-}
-function listAbilityCatalog({ search = null } = {}, settings) {
-  return callSafe(
-    () => listAbilities({ search }, settings),
-    "Unable to load ability catalog."
-  );
-}
-function getAbilityDetail(abilityId, settings) {
-  return callSafe(
-    () => getAbility(abilityId, settings),
-    "Unable to load ability detail."
-  );
-}
-async function createAbilityFromTemplate(draft, settings) {
-  const validation = validateAbilityDraft(draft);
-  if (!validation.ok) {
-    return { ok: false, data: null, code: "VALIDATION_ERROR", error: validation.errors[0]?.message ?? "Invalid draft.", errors: validation.errors };
-  }
-  const payload = buildAbilityPayloadFromDraft(draft);
-  return callSafe(
-    () => upsertAbility(payload, settings),
-    "Unable to save ability."
-  );
-}
-function assignAbilityToCharacter2({ abilityId, characterId }, settings) {
-  if (!abilityId || !characterId) {
-    return Promise.resolve({
-      ok: false,
-      data: null,
-      code: "VALIDATION_ERROR",
-      error: !characterId ? "Select a character first." : "Select an ability first."
-    });
-  }
-  return callSafe(
-    () => assignAbilityToCharacter({ abilityId, characterId }, settings),
-    "Unable to assign ability to character."
-  );
-}
-function removeAbilityFromCharacter({ characterAbilityId }, settings) {
-  return callSafe(
-    () => removeCharacterAbility({ characterAbilityId }, settings),
-    "Unable to remove ability from character."
-  );
-}
-function listAssignableCharacters(payload, settings) {
-  return callSafe(
-    () => getCharacterSpawnCatalog(payload, settings),
-    "Unable to load character list."
-  );
-}
 
 // runtime/createRuntime.js
 function createOdysseyRuntime() {
@@ -12124,8 +11724,7 @@ function createOdysseyRuntime() {
       inventory: inventoryApi_exports,
       log: logApi_exports,
       placement: characterPlacementApi_exports,
-      creator: creatorApi_exports,
-      abilityStudio: abilityStudioApi_exports
+      creator: creatorApi_exports
     }
   };
 }
@@ -17973,14 +17572,14 @@ var toArray = (value, type) => {
   const closeBrace = value[lastIdx];
   const openBrace = value[0];
   if (openBrace === "{" && closeBrace === "}") {
-    let arr3;
+    let arr2;
     const valTrim = value.slice(1, lastIdx);
     try {
-      arr3 = JSON.parse("[" + valTrim + "]");
+      arr2 = JSON.parse("[" + valTrim + "]");
     } catch (_) {
-      arr3 = valTrim ? valTrim.split(",") : [];
+      arr2 = valTrim ? valTrim.split(",") : [];
     }
-    return arr3.map((val) => convertCell(type, val));
+    return arr2.map((val) => convertCell(type, val));
   }
   return value;
 };
@@ -34173,499 +33772,6 @@ async function mountCreatorScreen({ root: root2, runtime: runtime2 }) {
   };
 }
 
-// gm-extension/screens/abilityStudio/abilityStudioStyles.css
-var abilityStudioStyles_default = "/* Ability Studio \u2014 scoped styles (.as- prefix). Reuses shell design tokens, same\n   visual language as Placement/Creator (see placementStyles.css). */\n.as-screen { display: flex; flex-direction: column; gap: 14px; }\n.as-screen-nogm { align-items: center; justify-content: center; padding: 40px 0; }\n.as-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }\n.as-title { font-size: 14px; font-weight: 700; }\n.as-nav { display: flex; gap: 6px; }\n.as-muted { color: var(--muted); font-size: 12px; }\n.as-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }\n.as-section { display: flex; flex-direction: column; gap: 8px; }\n.as-section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }\n\n.as-banner { border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.45; }\n.as-banner.ok { background: rgba(62,166,255,.14); border: 1px solid rgba(62,166,255,.4); color: #d8eeff; }\n.as-banner.err { background: rgba(201,75,88,.16); border: 1px solid rgba(201,75,88,.4); color: #ffd9de; }\n.as-banner.warn { background: rgba(255,194,75,.14); border: 1px solid rgba(255,194,75,.45); color: #ffe6b3; }\n.as-banner.info { background: var(--panel-soft); border: 1px solid var(--line); color: var(--muted); }\n\n.as-search { font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; width: 100%; }\n.as-select { font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; width: 100%; }\n.as-input { font: inherit; background: rgba(8,17,28,.9); border: 1px solid rgba(61,92,129,.9); border-radius: 10px; color: var(--text); padding: 7px 10px; font-size: 12px; width: 100%; }\n.as-field { display: flex; flex-direction: column; gap: 4px; }\n.as-field-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }\n.as-field-row { display: flex; gap: 8px; flex-wrap: wrap; }\n.as-field-error { color: #ffb3ba; font-size: 11px; }\n.as-checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }\n\n.as-list { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }\n.as-item { background: rgba(21,34,53,.7); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }\n.as-item:hover { border-color: var(--accent); }\n.as-item-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }\n.as-item-name { font-size: 13px; font-weight: 600; flex: 1; }\n.as-item-sub { font-size: 11px; color: var(--muted); }\n\n.as-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 10px; border: 1px solid var(--line); background: var(--panel-soft); color: var(--muted); }\n.as-badge-armed { border-color: rgba(62,166,255,.4); color: #cfe6ff; background: rgba(62,166,255,.12); }\n.as-badge-direct { border-color: rgba(255,120,120,.4); color: #ffd0d0; background: rgba(255,120,120,.12); }\n.as-badge-instant { border-color: rgba(62,210,130,.4); color: #b3ffd9; background: rgba(62,210,130,.10); }\n.as-badge-directed { border-color: rgba(255,194,75,.4); color: #ffe6b3; background: rgba(255,194,75,.10); }\n.as-badge-unsupported { border-color: rgba(150,150,150,.4); color: #c9c9c9; background: rgba(150,150,150,.10); }\n\n.as-detail { background: rgba(21,34,53,.7); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }\n.as-detail-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }\n.as-detail-row dt { color: var(--muted); }\n.as-detail-row dd { margin: 0; text-align: right; }\n.as-classification-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: rgba(8,17,28,.6); display: flex; flex-direction: column; gap: 4px; font-size: 12px; }\n\n.as-templates { display: flex; gap: 8px; flex-wrap: wrap; }\n.as-template-btn { font: inherit; font-size: 12px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-soft); color: var(--text); cursor: pointer; flex: 1 1 auto; min-width: 140px; }\n.as-template-btn:hover { border-color: var(--accent); }\n.as-template-btn.active { border-color: var(--accent); background: rgba(62,166,255,.14); }\n\n.as-btn { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; transition: background .12s, border-color .12s; }\n.as-btn:disabled { opacity: .5; cursor: not-allowed; }\n.as-btn-primary { background: rgba(62,166,255,.18); border-color: rgba(62,166,255,.5); color: #d8eeff; }\n.as-btn-primary:not(:disabled):hover { background: rgba(62,166,255,.28); }\n.as-btn-secondary { background: var(--panel-soft); border-color: var(--line); color: var(--text); }\n.as-btn-secondary:not(:disabled):hover { border-color: var(--accent); }\n.as-btn-danger { background: rgba(201,75,88,.16); border-color: rgba(201,75,88,.45); color: #ffd9de; }\n.as-btn-danger:not(:disabled):hover { background: rgba(201,75,88,.26); }\n.as-btn-ghost { background: none; border-color: var(--line); color: var(--muted); }\n.as-btn-ghost:not(:disabled):hover { color: var(--text); border-color: var(--accent); }\n\n.as-events { display: flex; flex-direction: column; gap: 2px; max-height: 120px; overflow-y: auto; font-size: 10px; color: var(--muted); }\n";
-
-// hud/abilities/abilityStudioDebugEvents.js
-var SAFE_KEYS = [
-  "abilityId",
-  "abilityName",
-  "template",
-  "classification",
-  "characterId",
-  "serverCode",
-  "serverMessage"
-];
-function sanitize(fields) {
-  const safe = {};
-  const source = fields && typeof fields === "object" ? fields : {};
-  for (const key of SAFE_KEYS) {
-    if (source[key] !== void 0) {
-      safe[key] = source[key];
-    }
-  }
-  return safe;
-}
-function logAbilityStudioEvent(eventName, fields = {}) {
-  const safe = sanitize(fields);
-  return addDiagnosticEntry("info", `ability-studio: ${eventName}`, JSON.stringify(safe));
-}
-function logAbilityStudioError(eventName, message, fields = {}) {
-  const safe = sanitize(fields);
-  return addDiagnosticEntry("error", `ability-studio: ${eventName}`, `${message} ${JSON.stringify(safe)}`);
-}
-
-// gm-extension/screens/abilityStudio/abilityStudioScreen.js
-var esc2 = (v) => escapeHtml(v);
-var arr2 = (v) => Array.isArray(v) ? v : [];
-var OBR_TIMEOUT2 = 1500;
-function withTimeout3(promise, ms, fallback) {
-  return Promise.race([
-    Promise.resolve().then(() => promise).catch(() => fallback),
-    new Promise((resolve) => setTimeout(() => resolve(fallback), ms))
-  ]);
-}
-function injectStylesOnce2() {
-  if (document.getElementById("as-screen-styles")) return;
-  const s = document.createElement("style");
-  s.id = "as-screen-styles";
-  s.textContent = abilityStudioStyles_default;
-  document.head.appendChild(s);
-}
-function badgeClassFor(classification) {
-  if (classification === HUD_CLASSIFICATION.armedAttackTechnique) return "as-badge-armed";
-  if (classification === HUD_CLASSIFICATION.directAbilityAttack) return "as-badge-direct";
-  if (classification === HUD_CLASSIFICATION.instantSelfAbility) return "as-badge-instant";
-  if (classification === HUD_CLASSIFICATION.directedTargetAbility) return "as-badge-directed";
-  return "as-badge-unsupported";
-}
-function mountAbilityStudioScreen({ root: root2, runtime: runtime2 }) {
-  injectStylesOnce2();
-  const api = runtime2?.api ?? {};
-  const bridges = runtime2?.bridges ?? {};
-  const state = {
-    settings: loadDevSettings(),
-    role: "PLAYER",
-    obr: { roomId: "", sceneId: "", campaignId: "" },
-    view: "library",
-    // "library" | "detail" | "create"
-    catalog: [],
-    catalogLoading: false,
-    catalogSearch: "",
-    detailAbilityId: null,
-    detail: null,
-    // { ability, levels, classification }
-    detailLoading: false,
-    characters: [],
-    charactersLoading: false,
-    selectedCharacterId: "",
-    assignBusy: false,
-    lastAssignment: null,
-    // { characterAbilityId, characterId }
-    createTemplate: null,
-    draft: null,
-    draftErrors: [],
-    saveBusy: false,
-    notice: "",
-    noticeKind: "info",
-    events: []
-  };
-  const settings = () => state.settings;
-  const isGM = () => state.role === "GM";
-  function setNotice(kind, message) {
-    state.noticeKind = kind;
-    state.notice = message;
-  }
-  const unsubscribeEvents = subscribeDiagnostics((entries2) => {
-    state.events = arr2(entries2).filter((e) => e.title?.startsWith("ability-studio")).slice(0, 8);
-    render();
-  });
-  async function loadCatalog() {
-    state.catalogLoading = true;
-    render();
-    const res = await api.abilityStudio.listAbilityCatalog({ search: state.catalogSearch || null }, settings());
-    state.catalogLoading = false;
-    if (!res.ok) {
-      setNotice("err", res.error);
-      state.catalog = [];
-    } else {
-      state.catalog = arr2(res.data?.items);
-      logAbilityStudioEvent("ability-catalog-loaded", { classification: `${state.catalog.length} items` });
-    }
-    render();
-  }
-  async function openDetail(abilityId) {
-    state.view = "detail";
-    state.detailAbilityId = abilityId;
-    state.detail = null;
-    state.detailLoading = true;
-    state.lastAssignment = null;
-    state.selectedCharacterId = "";
-    render();
-    const res = await api.abilityStudio.getAbilityDetail(abilityId, settings());
-    state.detailLoading = false;
-    if (!res.ok) {
-      setNotice("err", res.error);
-      logAbilityStudioError("ability-detail-loaded", res.error, { abilityId });
-      render();
-      return;
-    }
-    const ability = res.data.ability;
-    const levels = arr2(res.data.levels);
-    const classification = classifyAbilityForStudio(ability, levels);
-    state.detail = { ability, levels, classification };
-    logAbilityStudioEvent("ability-detail-loaded", {
-      abilityId,
-      abilityName: ability?.name,
-      classification: classification.classification
-    });
-    render();
-  }
-  async function ensureCharactersLoaded() {
-    if (state.characters.length || state.charactersLoading) return;
-    state.charactersLoading = true;
-    render();
-    const res = await api.abilityStudio.listAssignableCharacters(
-      {
-        campaign_id: state.obr.campaignId,
-        room_id: state.obr.roomId,
-        scene_id: state.obr.sceneId,
-        limit: 200
-      },
-      settings()
-    );
-    state.charactersLoading = false;
-    if (res.ok) {
-      state.characters = arr2(res.data?.characters);
-    }
-    render();
-  }
-  async function onAssign() {
-    if (!state.detail || !state.selectedCharacterId || state.assignBusy) return;
-    state.assignBusy = true;
-    setNotice("info", "Assigning\u2026");
-    render();
-    const abilityId = state.detailAbilityId;
-    const characterId = state.selectedCharacterId;
-    logAbilityStudioEvent("ability-assign-requested", {
-      abilityId,
-      abilityName: state.detail.ability?.name,
-      characterId
-    });
-    const res = await api.abilityStudio.assignAbilityToCharacter({ abilityId, characterId }, settings());
-    state.assignBusy = false;
-    if (!res.ok) {
-      setNotice("err", res.error);
-      logAbilityStudioError("ability-assign-result", res.error, { abilityId, characterId, serverCode: res.code });
-      render();
-      return;
-    }
-    state.lastAssignment = { characterAbilityId: res.data.character_ability_id, characterId };
-    setNotice("ok", "Ability assigned. The character's Skills Block will pick it up on its next runtime refresh.");
-    logAbilityStudioEvent("ability-assign-result", { abilityId, characterId, classification: "ok" });
-    render();
-  }
-  async function onRemoveLastAssignment() {
-    if (!state.lastAssignment || state.assignBusy) return;
-    state.assignBusy = true;
-    render();
-    const { characterAbilityId } = state.lastAssignment;
-    const res = await api.abilityStudio.removeAbilityFromCharacter({ characterAbilityId }, settings());
-    state.assignBusy = false;
-    if (!res.ok) {
-      setNotice("err", res.error);
-      render();
-      return;
-    }
-    setNotice("ok", "Assignment removed.");
-    state.lastAssignment = null;
-    render();
-  }
-  function startCreate(template) {
-    state.view = "create";
-    state.createTemplate = template;
-    state.draft = createEmptyDraft(template);
-    state.draftErrors = [];
-    setNotice("info", "");
-    render();
-  }
-  function updateDraftField(field, value) {
-    if (!state.draft) return;
-    state.draft = { ...state.draft, [field]: value };
-    const validation = validateAbilityDraft(state.draft);
-    state.draftErrors = validation.errors;
-    render();
-  }
-  async function onSaveDraft() {
-    if (!state.draft || state.saveBusy) return;
-    const validation = validateAbilityDraft(state.draft);
-    state.draftErrors = validation.errors;
-    logAbilityStudioEvent("ability-draft-validated", {
-      template: state.draft.template,
-      classification: validation.ok ? "valid" : "invalid"
-    });
-    if (!validation.ok) {
-      render();
-      return;
-    }
-    state.saveBusy = true;
-    setNotice("info", "Saving\u2026");
-    render();
-    logAbilityStudioEvent("ability-create-requested", {
-      abilityName: state.draft.name,
-      template: state.draft.template
-    });
-    const res = await api.abilityStudio.createAbilityFromTemplate(state.draft, settings());
-    state.saveBusy = false;
-    if (!res.ok) {
-      setNotice("err", res.error);
-      logAbilityStudioError("ability-create-result", res.error, { abilityName: state.draft.name, serverCode: res.code });
-      render();
-      return;
-    }
-    setNotice("ok", `"${state.draft.name}" saved.`);
-    logAbilityStudioEvent("ability-create-result", {
-      abilityId: res.data.entity_id,
-      abilityName: state.draft.name,
-      template: state.draft.template
-    });
-    await loadCatalog();
-    await openDetail(res.data.entity_id);
-  }
-  function renderClassificationBadge(classification) {
-    return `<span class="as-badge ${badgeClassFor(classification)}">${esc2(classification)}</span>`;
-  }
-  function renderCatalogItem(item) {
-    return `
-      <div class="as-item" data-action="open-detail" data-ability="${esc2(item.id)}">
-        <div class="as-item-head">
-          <span class="as-item-name">${esc2(item.name)}</span>
-          <span class="as-badge">${esc2(item.ability_kind || "custom")}</span>
-        </div>
-        <div class="as-item-sub">${esc2(item.code)} \xB7 ${esc2(item.source_type || "custom")}</div>
-      </div>`;
-  }
-  function renderLibrary() {
-    return `
-      <section class="as-section">
-        <div class="as-section-title">Ability Catalog</div>
-        <input class="as-search" type="text" placeholder="Search abilities\u2026" value="${esc2(state.catalogSearch)}" data-ref="search">
-        ${state.catalogLoading ? `<div class="as-muted">Loading\u2026</div>` : !state.catalog.length ? `<div class="as-empty">No abilities found.</div>` : `<div class="as-list">${state.catalog.map(renderCatalogItem).join("")}</div>`}
-      </section>
-      <section class="as-section">
-        <div class="as-section-title">Create From Template</div>
-        <div class="as-templates">
-          ${Object.values(ABILITY_STUDIO_TEMPLATES).map((template) => `
-            <button class="as-template-btn" type="button" data-action="start-create" data-template="${esc2(template)}">
-              ${esc2(TEMPLATE_LABELS[template])}
-            </button>`).join("")}
-        </div>
-      </section>`;
-  }
-  function renderClassificationPreview(classification) {
-    const c = classification;
-    return `
-      <div class="as-classification-box">
-        <div><strong>HUD classification:</strong> ${esc2(c.classification)}</div>
-        <div><strong>Execution path:</strong> ${esc2(c.executionPath)}</div>
-        <div><strong>Requires selected target:</strong> ${c.requiresSelectedTarget ? "yes" : "no"}</div>
-        <div><strong>Requires body zone:</strong> ${c.requiresBodyZone ? "yes" : "no"}</div>
-        <div><strong>Uses weapon/ammo:</strong> ${c.usesWeaponAmmo ? "yes" : "no"}</div>
-        <div><strong>Effect support:</strong> ${esc2(c.effectSupport)}</div>
-        ${c.unsupportedReason ? `<div class="as-muted">Reason: ${esc2(c.unsupportedReason)}</div>` : ""}
-        <div><strong>Can assign to character:</strong> ${c.canAssignToCharacter ? "yes" : "no"}</div>
-        <div><strong>Can execute from Skills Block:</strong> ${c.canExecuteFromSkillsBlock ? "yes" : "no"}</div>
-      </div>`;
-  }
-  function renderAssignPanel() {
-    const chars = state.characters;
-    return `
-      <section class="as-section">
-        <div class="as-section-title">Assign to Character</div>
-        ${state.charactersLoading ? `<div class="as-muted">Loading characters\u2026</div>` : `
-          <select class="as-select" data-ref="character">
-            <option value="">Select a character\u2026</option>
-            ${chars.map((c) => `<option value="${esc2(c.id)}" ${state.selectedCharacterId === c.id ? "selected" : ""}>${esc2(c.name || c.character_key)}</option>`).join("")}
-          </select>`}
-        <div class="as-field-row">
-          <button class="as-btn as-btn-primary" type="button" data-action="assign" ${state.assignBusy || !state.selectedCharacterId ? "disabled" : ""}>Assign</button>
-          ${state.lastAssignment ? `<button class="as-btn as-btn-danger" type="button" data-action="remove-assignment" ${state.assignBusy ? "disabled" : ""}>Remove last assignment</button>` : ""}
-        </div>
-      </section>`;
-  }
-  function renderDetail() {
-    if (state.detailLoading || !state.detail) {
-      return `<div class="as-muted">Loading\u2026</div>`;
-    }
-    const { ability, classification } = state.detail;
-    return `
-      <button class="as-btn as-btn-ghost" type="button" data-action="back-to-library">&larr; Back to catalog</button>
-      <section class="as-section">
-        <div class="as-detail">
-          <div class="as-item-head">
-            <span class="as-item-name">${esc2(ability.name)}</span>
-            ${renderClassificationBadge(classification.classification)}
-          </div>
-          <div class="as-muted">${esc2(ability.description || "")}</div>
-          <dl>
-            <div class="as-detail-row"><dt>Code</dt><dd>${esc2(ability.code)}</dd></div>
-            <div class="as-detail-row"><dt>Semantic kind</dt><dd>${esc2(ability.ability_kind)}</dd></div>
-            <div class="as-detail-row"><dt>Target type</dt><dd>${esc2(ability.target_type)}</dd></div>
-            <div class="as-detail-row"><dt>Effect mode</dt><dd>${esc2(ability.effect_mode)}</dd></div>
-            <div class="as-detail-row"><dt>Cost</dt><dd>${classification.costs.main} MAIN${classification.costs.psi ? ` / ${classification.costs.psi} PSI` : ""}</dd></div>
-            <div class="as-detail-row"><dt>Cooldown</dt><dd>${classification.cooldown.max} ${esc2(classification.cooldown.unit)}(s)</dd></div>
-          </dl>
-        </div>
-        ${renderClassificationPreview(classification)}
-      </section>
-      ${renderAssignPanel()}`;
-  }
-  function renderTemplateFields() {
-    const d = state.draft;
-    const template = state.createTemplate;
-    const isAttackTemplate = template === ABILITY_STUDIO_TEMPLATES.armedAttackTechnique || template === ABILITY_STUDIO_TEMPLATES.directAbilityAttack;
-    const showTargetChoice = template === ABILITY_STUDIO_TEMPLATES.armedAttackTechnique || template === ABILITY_STUDIO_TEMPLATES.directAbilityAttack;
-    return `
-      <div class="as-field"><label class="as-field-label">Code</label>
-        <input class="as-input" data-ref="code" value="${esc2(d.code)}" placeholder="my_ability_code"></div>
-      <div class="as-field"><label class="as-field-label">Name</label>
-        <input class="as-input" data-ref="name" value="${esc2(d.name)}"></div>
-      <div class="as-field"><label class="as-field-label">Description</label>
-        <input class="as-input" data-ref="description" value="${esc2(d.description)}"></div>
-      <div class="as-field-row">
-        <div class="as-field"><label class="as-field-label">Cost</label>
-          <input class="as-input" data-ref="resourceCost" type="number" min="0" value="${esc2(d.resourceCost)}"></div>
-        <div class="as-field"><label class="as-field-label">Cooldown (rounds)</label>
-          <input class="as-input" data-ref="cooldownRounds" type="number" min="0" value="${esc2(d.cooldownRounds)}"></div>
-      </div>
-      ${showTargetChoice ? `
-        <div class="as-field"><label class="as-field-label">Target type</label>
-          <select class="as-select" data-ref="targetType">
-            <option value="character" ${d.targetType === "character" ? "selected" : ""}>Character</option>
-            <option value="body_part" ${d.targetType === "body_part" ? "selected" : ""}>Body part</option>
-          </select></div>` : ""}
-      ${isAttackTemplate ? `
-        <div class="as-field-row">
-          <div class="as-field"><label class="as-field-label">Accuracy bonus</label>
-            <input class="as-input" data-ref="attackAccuracyBonus" type="number" value="${esc2(d.attackAccuracyBonus)}"></div>
-          <div class="as-field"><label class="as-field-label">Damage bonus</label>
-            <input class="as-input" data-ref="attackDamageBonus" type="number" value="${esc2(d.attackDamageBonus)}"></div>
-          <div class="as-field"><label class="as-field-label">Armor pierce</label>
-            <input class="as-input" data-ref="attackArmorPierce" type="number" value="${esc2(d.attackArmorPierce)}"></div>
-        </div>
-        <label class="as-checkbox-row"><input type="checkbox" data-ref="ignoreArmor" ${d.ignoreArmor ? "checked" : ""}> Ignore armor</label>` : ""}
-    `;
-  }
-  function renderCreate() {
-    return `
-      <button class="as-btn as-btn-ghost" type="button" data-action="back-to-library">&larr; Back to catalog</button>
-      <section class="as-section">
-        <div class="as-section-title">${esc2(TEMPLATE_LABELS[state.createTemplate])}</div>
-        ${renderTemplateFields()}
-        ${state.draftErrors.length ? `<div class="as-field-error">${state.draftErrors.map((e) => esc2(e.message)).join("<br>")}</div>` : ""}
-        <div class="as-field-row">
-          <button class="as-btn as-btn-primary" type="button" data-action="save-draft" ${state.saveBusy || state.draftErrors.length ? "disabled" : ""}>Save</button>
-        </div>
-      </section>`;
-  }
-  function renderNotice() {
-    if (!state.notice) return "";
-    return `<div class="as-banner ${state.noticeKind}">${esc2(state.notice)}</div>`;
-  }
-  function render() {
-    if (!isGM()) {
-      root2.innerHTML = `<div class="as-screen as-screen-nogm"><p class="as-muted">Ability Studio is available to GMs only.</p></div>`;
-      return;
-    }
-    root2.innerHTML = `
-      <div class="as-screen">
-        <div class="as-header"><span class="as-title">Ability Studio</span></div>
-        ${renderNotice()}
-        ${state.view === "library" ? renderLibrary() : state.view === "detail" ? renderDetail() : renderCreate()}
-        <div class="as-events">${state.events.map((e) => `<div>${esc2(e.title)}</div>`).join("")}</div>
-      </div>`;
-    bindEvents();
-  }
-  function bindEvents() {
-    const searchEl = root2.querySelector("[data-ref='search']");
-    if (searchEl) {
-      searchEl.addEventListener("input", (e) => {
-        state.catalogSearch = e.target.value;
-        clearTimeout(state._searchTimer);
-        state._searchTimer = setTimeout(() => loadCatalog(), 300);
-      });
-    }
-    const characterEl = root2.querySelector("[data-ref='character']");
-    if (characterEl) {
-      characterEl.addEventListener("change", (e) => {
-        state.selectedCharacterId = e.target.value;
-        render();
-      });
-    }
-    if (state.view === "create" && state.draft) {
-      for (const key of Object.keys(state.draft)) {
-        const el = root2.querySelector(`[data-ref='${key}']`);
-        if (!el) continue;
-        const eventName = el.tagName === "SELECT" || el.type === "checkbox" || el.type === "number" ? "change" : "input";
-        el.addEventListener(eventName, (e) => {
-          const value = el.type === "checkbox" ? e.target.checked : e.target.value;
-          updateDraftField(key, value);
-        });
-      }
-    }
-  }
-  function onRootClick(e) {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    const action = btn.dataset.action;
-    if (action === "open-detail") {
-      openDetail(btn.dataset.ability);
-      return;
-    }
-    if (action === "start-create") {
-      startCreate(btn.dataset.template);
-      return;
-    }
-    if (action === "back-to-library") {
-      state.view = "library";
-      setNotice("info", "");
-      render();
-      return;
-    }
-    if (action === "assign") {
-      void ensureCharactersLoaded().then(onAssign);
-      return;
-    }
-    if (action === "remove-assignment") {
-      onRemoveLastAssignment();
-      return;
-    }
-    if (action === "save-draft") {
-      onSaveDraft();
-      return;
-    }
-  }
-  (async () => {
-    const dev = loadDevSettings();
-    if (hasUsableSettings(dev)) {
-      state.settings = dev;
-    } else {
-      const resolved = await resolveEffectiveSettings();
-      state.settings = resolved.settings;
-    }
-    const player = await withTimeout3(bridges.obr?.getPlayerInfo?.(), OBR_TIMEOUT2, null);
-    if (player?.role) state.role = String(player.role).toUpperCase() === "GM" ? "GM" : "PLAYER";
-    const ctx = await withTimeout3(bridges.obr?.getRoomSceneContext?.(), OBR_TIMEOUT2, null);
-    if (ctx) {
-      state.obr.roomId = ctx.roomId || "";
-      state.obr.sceneId = ctx.sceneId || "";
-      state.obr.campaignId = ctx.campaignId || "";
-    }
-    render();
-    logAbilityStudioEvent("ability-studio-opened", {});
-    if (isGM()) {
-      await ensureCharactersLoaded();
-      await loadCatalog();
-    }
-    root2.addEventListener("click", onRootClick);
-  })();
-  render();
-  return () => {
-    root2.removeEventListener("click", onRootClick);
-    if (typeof unsubscribeEvents === "function") unsubscribeEvents();
-  };
-}
-
 // gm-extension/main.js
 var runtime = createOdysseyRuntime();
 var tokenRealtimeSync = createTokenRealtimeSync({ runtime });
@@ -34680,18 +33786,15 @@ root.innerHTML = `
     <button class="app-tab active" type="button" data-view="shell">GM Tools Shell</button>
     <button class="app-tab" type="button" data-view="creator">Creator</button>
     <button class="app-tab" type="button" data-view="placement">Placement</button>
-    <button class="app-tab" type="button" data-view="ability-studio">Ability Studio</button>
   </nav>
   <div class="app-view" data-view-host="shell"></div>
   <div class="app-view hidden" data-view-host="creator"></div>
   <div class="app-view hidden" data-view-host="placement"></div>
-  <div class="app-view hidden" data-view-host="ability-studio"></div>
 `;
 var hosts = {
   shell: root.querySelector('[data-view-host="shell"]'),
   creator: root.querySelector('[data-view-host="creator"]'),
-  placement: root.querySelector('[data-view-host="placement"]'),
-  "ability-studio": root.querySelector('[data-view-host="ability-studio"]')
+  placement: root.querySelector('[data-view-host="placement"]')
 };
 var views = {
   shell: {
@@ -34734,12 +33837,6 @@ var views = {
     mounted: false,
     mount() {
       mountPlacementScreen({ root: hosts.placement, runtime });
-    }
-  },
-  "ability-studio": {
-    mounted: false,
-    mount() {
-      mountAbilityStudioScreen({ root: hosts["ability-studio"], runtime });
     }
   }
 };
