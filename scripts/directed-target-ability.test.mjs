@@ -222,7 +222,7 @@ test("16. pending state blocks duplicate clicks — per-ability, not whole-quick
   assert.ok(idx > -1);
   const block = controllerSrc.slice(idx);
   assert.match(block, /if \(ephemeral\.pendingDirectedAbilityActionId\) return;/);
-  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf \|\| directedTarget\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
+  assert.match(quickbarViewSrc, /const pending = \(directAttack \|\| instantSelf \|\| directedTarget \|\| toggleAbility\) && pendingActionId != null && pendingActionId === action\.characterActionId;/);
 });
 
 test("17. failure clears pending state unconditionally — reset to null right after the resolveDirectedAbilityExecution() try/catch, before any outcome.ok branching", () => {

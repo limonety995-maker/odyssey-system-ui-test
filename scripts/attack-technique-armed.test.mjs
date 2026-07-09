@@ -149,16 +149,17 @@ test("3. an occupied attack_technique slot dispatches toggle-armed-technique, no
 });
 
 test("3b. a non-attack_technique occupied slot (directed/instant/toggle) is COMPLETELY untouched by the ARMED mechanism — never becomes armable, never gets the armed highlight, even if its id happens to match armedActionId", () => {
-  // Phase 4.1B.2: this fixture's default targeting (mode:"character",
+  // Phase 4.1B.2/4.1B.3: this fixture's default targeting (mode:"character",
   // requiresBodyZone:false) makes a "directed"-typed action
   // execute-directed-ability-eligible (see abilityAvailabilityPolicy.js's
   // isDirectedTargetAbility) — a real, intentional click-behavior change for
-  // that ONE type in this loop. "toggle" has no execution wiring in any
-  // phase so far; "instant" here keeps targeting.mode:"character", which
-  // isInstantSelfAbility explicitly excludes, so it stays on
-  // show-ability-detail. The ARMED-specific assertions (never armable,
-  // never highlighted) remain true — and still checked — for all three.
-  const EXPECTED_DATA_ACTION = { directed: "execute-directed-ability", instant: "show-ability-detail", toggle: "show-ability-detail" };
+  // that type in this loop. "toggle" is now execute-toggle-ability-eligible
+  // too (isToggleAbility — Phase 4.1B.3). "instant" here keeps
+  // targeting.mode:"character", which isInstantSelfAbility explicitly
+  // excludes, so it stays on show-ability-detail. The ARMED-specific
+  // assertions (never armable, never highlighted) remain true — and still
+  // checked — for all three.
+  const EXPECTED_DATA_ACTION = { directed: "execute-directed-ability", instant: "show-ability-detail", toggle: "execute-toggle-ability" };
   for (const type of ["directed", "instant", "toggle"]) {
     const html = renderQuickbarStrip(runtime(undefined, [action({ id: "act-1", type })]), { armedActionId: "act-1" });
     const expected = EXPECTED_DATA_ACTION[type];
