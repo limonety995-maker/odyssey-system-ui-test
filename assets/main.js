@@ -10006,7 +10006,10 @@ var CREATOR_RPC_NAMES = Object.freeze({
   listEquipmentModels: "creator_list_equipment_models",
   getEquipmentModel: "creator_get_equipment_model",
   upsertEquipmentModel: "creator_upsert_equipment_model",
-  deleteEquipmentModel: "creator_delete_equipment_model"
+  deleteEquipmentModel: "creator_delete_equipment_model",
+  // Phase 4.1C.0 — Ability Studio (migration 109).
+  assignAbilityToCharacter: "creator_assign_ability_to_character",
+  removeCharacterAbility: "creator_remove_character_ability"
 });
 
 // bridge/supabaseBridge.js
@@ -11324,6 +11327,7 @@ function purgeActiveNpcs(payload, settings) {
 // api/creatorApi.js
 var creatorApi_exports = {};
 __export(creatorApi_exports, {
+  assignAbilityToCharacter: () => assignAbilityToCharacter,
   deleteAbility: () => deleteAbility,
   deleteAmmoType: () => deleteAmmoType,
   deleteCaliber: () => deleteCaliber,
@@ -11355,6 +11359,7 @@ __export(creatorApi_exports, {
   listPerks: () => listPerks,
   listSkills: () => listSkills,
   listWeapons: () => listWeapons,
+  removeCharacterAbility: () => removeCharacterAbility,
   upsertAbility: () => upsertAbility,
   upsertAmmoType: () => upsertAmmoType,
   upsertCaliber: () => upsertCaliber,
@@ -11684,6 +11689,377 @@ function deleteEquipmentModel(equipmentModelId, settings) {
     settings
   );
 }
+function assignAbilityToCharacter({ abilityId, characterId }, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.assignAbilityToCharacter,
+    { p_ability_def_id: abilityId, p_character_id: characterId },
+    settings
+  );
+}
+function removeCharacterAbility({ characterAbilityId }, settings) {
+  return callSupabaseRpc(
+    CREATOR_RPC_NAMES.removeCharacterAbility,
+    { p_character_ability_id: characterAbilityId },
+    settings
+  );
+}
+
+// api/abilityStudioApi.js
+var abilityStudioApi_exports = {};
+__export(abilityStudioApi_exports, {
+  assignAbilityToCharacter: () => assignAbilityToCharacter2,
+  createAbilityFromTemplate: () => createAbilityFromTemplate,
+  getAbilityDetail: () => getAbilityDetail,
+  listAbilityCatalog: () => listAbilityCatalog,
+  listAssignableCharacters: () => listAssignableCharacters,
+  removeAbilityFromCharacter: () => removeAbilityFromCharacter,
+  validateAbilityDraft: () => validateAbilityDraft
+});
+
+// hud/abilities/abilityAvailabilityPolicy.js
+var SLOT_AVAILABILITY = Object.freeze({
+  ready: "ready",
+  armed: "armed",
+  cooldown: "cooldown",
+  insufficientResource: "insufficient_resource",
+  unsupported: "unsupported",
+  unavailable: "unavailable"
+});
+function isDirectAttackAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "attack_technique" && a.state?.executionReason === "ACTION_EFFECT_NOT_IMPLEMENTED";
+}
+function isInstantSelfAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  if (a.type !== "instant") return false;
+  const mode = a.targeting?.mode;
+  return mode !== "character" && mode !== "body_part";
+}
+function isDirectedTargetAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
+}
+
+// hud/abilities/abilityStudioClassification.js
+var HUD_CLASSIFICATION = Object.freeze({
+  armedAttackTechnique: "ARMED attack technique",
+  directAbilityAttack: "Direct ability attack",
+  instantSelfAbility: "Instant / self ability",
+  directedTargetAbility: "Directed target ability",
+  unsupported: "Unsupported"
+});
+function pickActiveLevel(levels) {
+  if (!Array.isArray(levels) || levels.length === 0) return null;
+  return [...levels].sort((a, b) => Number(a?.ability_level ?? 0) - Number(b?.ability_level ?? 0))[0] ?? null;
+}
+function synthesizeQuickActionShape(ability, levels) {
+  const a = ability && typeof ability === "object" ? ability : {};
+  const level = pickActiveLevel(levels) ?? {};
+  const isAttack = a.effect_mode === "attack" || a.ability_kind === "attack";
+  const targetType = a.target_type ?? "none";
+  const type = isAttack ? "attack_technique" : targetType === "character" || targetType === "body_part" ? "directed" : "instant";
+  const unsupportedEffect = Number(level.attack_damage_bonus ?? 0) !== 0 || Number(level.attack_armor_pierce ?? 0) !== 0 || Boolean(level.ignore_armor);
+  return {
+    type,
+    targeting: {
+      mode: targetType,
+      requiresBodyZone: targetType === "body_part"
+    },
+    state: {
+      executionAvailable: !unsupportedEffect,
+      executionReason: unsupportedEffect ? "ACTION_EFFECT_NOT_IMPLEMENTED" : null
+    },
+    costs: {
+      main: a.resource_mode === "pool" ? 1 : 0,
+      move: 0,
+      psi: a.resource_pool_code === "psi" ? Number(level.resource_cost ?? 0) : 0,
+      charges: a.resource_mode === "item" ? null : 0
+    },
+    cooldown: {
+      max: Number(level.cooldown_rounds ?? 0),
+      unit: "turn"
+    }
+  };
+}
+function classifyAbilityForStudio(ability, levels = []) {
+  const action = synthesizeQuickActionShape(ability, levels);
+  let classification = HUD_CLASSIFICATION.unsupported;
+  let executionPath = "none";
+  let unsupportedReason = null;
+  if (action.type === "attack_technique" && action.state.executionReason !== "ACTION_EFFECT_NOT_IMPLEMENTED") {
+    classification = HUD_CLASSIFICATION.armedAttackTechnique;
+    executionPath = "perform_attack (armed_action_ids)";
+  } else if (isDirectAttackAbility(action)) {
+    classification = HUD_CLASSIFICATION.directAbilityAttack;
+    executionPath = 'perform_attack (mode: "skill")';
+  } else if (isInstantSelfAbility(action)) {
+    classification = HUD_CLASSIFICATION.instantSelfAbility;
+    executionPath = 'combat_execute_action (kind: "ability")';
+  } else if (isDirectedTargetAbility(action)) {
+    classification = HUD_CLASSIFICATION.directedTargetAbility;
+    executionPath = 'combat_execute_action (kind: "ability") + intent.target_character_id';
+  } else {
+    unsupportedReason = action.type === "directed" && action.targeting.requiresBodyZone ? "target_type='body_part' without an attack effect_mode has no execution path in Skills Block today (see audit \xA75)." : "Effect type is not supported by the current server runtime.";
+  }
+  const canExecuteFromSkillsBlock = classification !== HUD_CLASSIFICATION.unsupported;
+  return {
+    classification,
+    executionPath,
+    requiresSelectedTarget: action.type === "attack_technique" || action.type === "directed",
+    requiresBodyZone: action.targeting.requiresBodyZone,
+    usesWeaponAmmo: false,
+    costs: action.costs,
+    cooldown: action.cooldown,
+    effectSupport: canExecuteFromSkillsBlock ? "supported" : "unsupported",
+    unsupportedReason,
+    canExecuteFromSkillsBlock,
+    // Assignment is always possible for a valid ability definition regardless
+    // of HUD classification — an "Unsupported" ability can still be assigned
+    // to a character (e.g. to author it ahead of a later phase), it just
+    // won't show an execute button in Skills Block yet.
+    canAssignToCharacter: true
+  };
+}
+
+// hud/abilities/abilityStudioTemplates.js
+var ABILITY_STUDIO_TEMPLATES = Object.freeze({
+  armedAttackTechnique: "armed_attack_technique",
+  directAbilityAttack: "direct_ability_attack",
+  instantSelfAbility: "instant_self_ability",
+  directedTargetAbility: "directed_target_ability"
+});
+var TEMPLATE_LABELS = Object.freeze({
+  [ABILITY_STUDIO_TEMPLATES.armedAttackTechnique]: "ARMED attack technique",
+  [ABILITY_STUDIO_TEMPLATES.directAbilityAttack]: "Direct ability attack",
+  [ABILITY_STUDIO_TEMPLATES.instantSelfAbility]: "Instant / self ability",
+  [ABILITY_STUDIO_TEMPLATES.directedTargetAbility]: "Directed target ability"
+});
+var CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
+function numberOrNull(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+function pushError(errors2, field, message) {
+  errors2.push({ field, message });
+}
+function validateAbilityDraft(draft) {
+  const errors2 = [];
+  const d = draft && typeof draft === "object" ? draft : {};
+  const code = String(d.code ?? "").trim().toLowerCase();
+  if (!code) {
+    pushError(errors2, "code", "Code is required.");
+  } else if (!CODE_PATTERN.test(code)) {
+    pushError(errors2, "code", "Code must be lowercase snake_case starting with a letter.");
+  }
+  if (!String(d.name ?? "").trim()) {
+    pushError(errors2, "name", "Name is required.");
+  }
+  if (!Object.values(ABILITY_STUDIO_TEMPLATES).includes(d.template)) {
+    pushError(errors2, "template", "Unknown template.");
+    return { ok: false, errors: errors2 };
+  }
+  const cooldown = numberOrNull(d.cooldownRounds);
+  if (cooldown !== null && (Number.isNaN(cooldown) || cooldown < 0)) {
+    pushError(errors2, "cooldownRounds", "Cooldown must be a non-negative number.");
+  }
+  const resourceCost = numberOrNull(d.resourceCost);
+  if (resourceCost !== null && (Number.isNaN(resourceCost) || resourceCost < 0)) {
+    pushError(errors2, "resourceCost", "Cost must be a non-negative number.");
+  }
+  if (d.rangeMode === "limited") {
+    const maxDistance = numberOrNull(d.rangeMaxDistanceM);
+    if (maxDistance === null || Number.isNaN(maxDistance) || maxDistance < 1) {
+      pushError(errors2, "rangeMaxDistanceM", "Provide a positive max distance when range is limited.");
+    }
+  }
+  const hasAttackEffect = Number(d.attackDamageBonus ?? 0) !== 0 || Number(d.attackArmorPierce ?? 0) !== 0 || Boolean(d.ignoreArmor);
+  switch (d.template) {
+    case ABILITY_STUDIO_TEMPLATES.armedAttackTechnique: {
+      if (!["character", "body_part"].includes(d.targetType)) {
+        pushError(errors2, "targetType", "ARMED attack techniques must target a character or a body part.");
+      }
+      if (hasAttackEffect) {
+        pushError(
+          errors2,
+          "attackDamageBonus",
+          "An ARMED technique must not set a damage/armor-pierce/ignore-armor effect \u2014 use the Direct Ability Attack template instead."
+        );
+      }
+      break;
+    }
+    case ABILITY_STUDIO_TEMPLATES.directAbilityAttack: {
+      if (!["character", "body_part"].includes(d.targetType)) {
+        pushError(errors2, "targetType", "Direct ability attacks must target a character or a body part.");
+      }
+      if (!hasAttackEffect) {
+        pushError(
+          errors2,
+          "attackDamageBonus",
+          "A direct ability attack needs a damage, armor-pierce, or ignore-armor effect \u2014 otherwise use the ARMED template."
+        );
+      }
+      break;
+    }
+    case ABILITY_STUDIO_TEMPLATES.instantSelfAbility: {
+      if (["character", "body_part"].includes(d.targetType)) {
+        pushError(errors2, "targetType", "Instant/self abilities must not target a character or body part.");
+      }
+      break;
+    }
+    case ABILITY_STUDIO_TEMPLATES.directedTargetAbility: {
+      if (d.targetType !== "character") {
+        pushError(errors2, "targetType", "Directed target abilities must target a character (no body zone).");
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  if (errors2.length > 0) {
+    return { ok: false, errors: errors2 };
+  }
+  const expectedLabel = TEMPLATE_LABELS[d.template];
+  const preview = classifyAbilityForStudio(
+    {
+      ability_kind: d.abilityKind,
+      effect_mode: d.template === ABILITY_STUDIO_TEMPLATES.armedAttackTechnique || d.template === ABILITY_STUDIO_TEMPLATES.directAbilityAttack ? "attack" : "apply_effect",
+      target_type: d.targetType,
+      resource_mode: d.resourceMode,
+      resource_pool_code: d.resourcePoolCode
+    },
+    [
+      {
+        ability_level: 1,
+        resource_cost: resourceCost ?? 0,
+        cooldown_rounds: cooldown ?? 0,
+        attack_damage_bonus: d.attackDamageBonus ?? 0,
+        attack_armor_pierce: d.attackArmorPierce ?? 0,
+        ignore_armor: Boolean(d.ignoreArmor)
+      }
+    ]
+  );
+  if (preview.classification !== expectedLabel) {
+    pushError(
+      errors2,
+      "template",
+      `Internal consistency check failed: this draft would classify as "${preview.classification}", not "${expectedLabel}".`
+    );
+    return { ok: false, errors: errors2 };
+  }
+  return { ok: true, errors: [] };
+}
+function buildAbilityPayloadFromDraft(draft) {
+  const d = draft && typeof draft === "object" ? draft : {};
+  const isAttackTemplate = d.template === ABILITY_STUDIO_TEMPLATES.armedAttackTechnique || d.template === ABILITY_STUDIO_TEMPLATES.directAbilityAttack;
+  const payload = {
+    code: String(d.code ?? "").trim().toLowerCase(),
+    name: String(d.name ?? "").trim(),
+    ability_kind: d.abilityKind || "custom",
+    source_type: d.sourceType || "custom",
+    activation_type: "manual",
+    target_type: d.targetType,
+    effect_mode: isAttackTemplate ? "attack" : "apply_effect",
+    attack_type: isAttackTemplate ? d.attackType || "ranged" : null,
+    description: String(d.description ?? ""),
+    data: {
+      icon_key: d.iconKey || "bolt",
+      range: {
+        mode: d.rangeMode || "none",
+        max_distance_m: d.rangeMode === "limited" ? Number(d.rangeMaxDistanceM ?? 0) : null
+      }
+    },
+    resource_mode: d.resourceMode || "none",
+    resource_pool_code: d.resourceMode === "pool" ? d.resourcePoolCode || null : null,
+    resource_item_code: d.resourceMode === "item" ? d.resourceItemCode || null : null,
+    tags: [`studio_template:${d.template}`],
+    sort_order: 0,
+    levels: [
+      {
+        ability_level: 1,
+        resource_cost: Number(d.resourceCost ?? 0),
+        cooldown_rounds: Number(d.cooldownRounds ?? 0),
+        attack_accuracy_bonus: isAttackTemplate ? Number(d.attackAccuracyBonus ?? 0) : 0,
+        attack_damage_bonus: isAttackTemplate ? Number(d.attackDamageBonus ?? 0) : 0,
+        attack_armor_pierce: isAttackTemplate ? Number(d.attackArmorPierce ?? 0) : 0,
+        ignore_armor: isAttackTemplate ? Boolean(d.ignoreArmor) : false,
+        duration_rounds: d.durationRounds === null || d.durationRounds === "" ? null : Number(d.durationRounds)
+      }
+    ]
+  };
+  if (d.id) {
+    payload.id = d.id;
+  }
+  return payload;
+}
+
+// api/abilityStudioApi.js
+async function callSafe(fn, fallbackMessage) {
+  let raw;
+  try {
+    raw = await fn();
+  } catch (error) {
+    return { ok: false, data: null, code: null, error: toErrorMessage(error, fallbackMessage) };
+  }
+  if (!raw || raw.ok === false) {
+    return {
+      ok: false,
+      data: raw ?? null,
+      code: raw?.error ?? null,
+      error: raw?.message || fallbackMessage
+    };
+  }
+  return { ok: true, data: raw, code: null, error: null };
+}
+function listAbilityCatalog({ search = null } = {}, settings) {
+  return callSafe(
+    () => listAbilities({ search }, settings),
+    "Unable to load ability catalog."
+  );
+}
+function getAbilityDetail(abilityId, settings) {
+  return callSafe(
+    () => getAbility(abilityId, settings),
+    "Unable to load ability detail."
+  );
+}
+async function createAbilityFromTemplate(draft, settings) {
+  const validation = validateAbilityDraft(draft);
+  if (!validation.ok) {
+    return { ok: false, data: null, code: "VALIDATION_ERROR", error: validation.errors[0]?.message ?? "Invalid draft.", errors: validation.errors };
+  }
+  const payload = buildAbilityPayloadFromDraft(draft);
+  return callSafe(
+    () => upsertAbility(payload, settings),
+    "Unable to save ability."
+  );
+}
+function assignAbilityToCharacter2({ abilityId, characterId }, settings) {
+  if (!abilityId || !characterId) {
+    return Promise.resolve({
+      ok: false,
+      data: null,
+      code: "VALIDATION_ERROR",
+      error: !characterId ? "Select a character first." : "Select an ability first."
+    });
+  }
+  return callSafe(
+    () => assignAbilityToCharacter({ abilityId, characterId }, settings),
+    "Unable to assign ability to character."
+  );
+}
+function removeAbilityFromCharacter({ characterAbilityId }, settings) {
+  return callSafe(
+    () => removeCharacterAbility({ characterAbilityId }, settings),
+    "Unable to remove ability from character."
+  );
+}
+function listAssignableCharacters(payload, settings) {
+  return callSafe(
+    () => getCharacterSpawnCatalog(payload, settings),
+    "Unable to load character list."
+  );
+}
 
 // runtime/createRuntime.js
 function createOdysseyRuntime() {
@@ -11724,7 +12100,8 @@ function createOdysseyRuntime() {
       inventory: inventoryApi_exports,
       log: logApi_exports,
       placement: characterPlacementApi_exports,
-      creator: creatorApi_exports
+      creator: creatorApi_exports,
+      abilityStudio: abilityStudioApi_exports
     }
   };
 }
