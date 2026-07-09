@@ -158,11 +158,14 @@ to contradict, since no toggle ability exists yet):
 - **Deactivation cost**: **none.** Turning off is always free. This is the
   simplest, safest default and avoids inventing a refund/partial-cost system with
   no requirement backing it.
-- **Cooldown**: applied **only on activation → deactivation** transition (i.e.
-  cooldown starts counting only once the ability is turned back OFF), never while
-  entering/staying active. This deliberately avoids the incoherent state
-  "currently active AND on cooldown" and means an active toggle is never
-  involuntarily blocked from being turned off by its own cooldown.
+- **Cooldown**: applied **on activation only** — identical to every other
+  ability class already in this codebase (reusing
+  `odyssey_use_ability_with_weapon_support_legacy` unchanged for the ON
+  transition means this falls out for free, not as a separate invented rule).
+  Deactivation never sets or resets cooldown. Combined with the
+  availability fix below, an already-active toggle stays clickable (to turn
+  off) even while its own activation cooldown is still counting down — cooldown
+  only ever blocks a fresh *activation*, never a deactivation.
 - **Upkeep**: **not implemented.** No per-turn resource-drain mechanism exists
   anywhere in this schema to hook into safely, and inventing one is explicitly
   out of this phase's scope (no "complex scripting language", no new resource
@@ -193,14 +196,14 @@ Ability Studio's and no longer exists in this tree after the revert)
    unchanged.
 4. New function `public.toggle_character_ability(jsonb)` — validates the ability
    is `activation_type='toggle'`; looks up any existing active effect by
-   `source_id = character_ability_id`; if found, deactivates it (free, no cost,
-   no cooldown change) and returns `active:false`; if not found, consumes cost
-   (reusing `odyssey_consume_character_ability_cost` unchanged), applies the
-   effect (reusing the exact same effect-resolution logic
-   `odyssey_use_ability_with_weapon_support_legacy` already uses for
-   `apply_effect`, extracted so it isn't duplicated verbatim), and on
-   deactivation-transition only, sets `current_cooldown_rounds`; returns
-   `active:true`.
+   `source_id = character_ability_id`. If found: deactivates it directly (flips
+   `is_active=false` on that one row, free, no cost, no cooldown change) and
+   returns `active:false`. If not found: delegates the ENTIRE activation —
+   cost consumption, cooldown, and effect application — to the existing,
+   completely unchanged `odyssey_use_ability_with_weapon_support_legacy(jsonb)`
+   (the same function instant/self abilities already execute through), then
+   returns its result augmented with `active:true`. Zero effect-resolution
+   logic is duplicated.
 
 Migration created but **NOT applied remotely** (no `supabase db push` /
 `migration up`), per standing project rule.
