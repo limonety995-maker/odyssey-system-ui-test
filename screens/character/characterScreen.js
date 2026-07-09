@@ -2851,10 +2851,13 @@ export function mountCharacterScreen({ root, runtime }) {
   // unequipped item can always be re-equipped.
   function equipmentSlotOptions(it) {
     const def = normalizeBodyPartCode(it?.default_body_part_code || it?.model?.default_body_part_code || "");
+    const hasConfiguredInstallationSlot = collectAllowedBodyPartCodes(it).length > 0;
     const lastId = state.lastSlot[it.id]; // previously-equipped part wins as default
     let parts = compatibleBodyParts(it);
 
-    if (!parts.length) return `<option value="">This item has no configured installation slot.</option>`;
+    if (!parts.length) {
+      return `<option value="">${hasConfiguredInstallationSlot ? "No compatible body parts available." : "This item has no configured installation slot."}</option>`;
+    }
 
     // Pre-select: last slot > default > first available
     const selected = parts.find((b) => b.id === lastId) ||

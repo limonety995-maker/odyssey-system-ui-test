@@ -20,6 +20,35 @@ function readyBundle() {
     skills: [{ id: "skill-row", code: "etheric_coating", level: 1 }],
     abilities,
     weapons: [fx.characterWeapons.katanaEquipped],
+    equipment: [
+      {
+        id: "eq-torso-vest",
+        equipment_model_id: "model-torso-vest",
+        code: "torso_vest",
+        name: "Torso Vest",
+        item_type: "armor",
+        is_equipped: false,
+        default_body_part_code: "torso",
+        can_equip: true,
+        can_equip_to_body_part: true,
+        flags: { allowed_body_part_codes: ["torso"] },
+        tags: ["armor", "torso"],
+        effect_data: {},
+        model: {
+          id: "model-torso-vest",
+          code: "torso_vest",
+          name: "Torso Vest",
+          item_type: "armor",
+          default_body_part_code: "torso",
+          can_equip: true,
+          can_equip_to_body_part: true,
+          flags: { allowed_body_part_codes: ["torso"] },
+          tags: ["armor", "torso"],
+          effect_data: {},
+        },
+        effective_flags: { allowed_body_part_codes: ["torso"] },
+      },
+    ],
     combat: { id: "enc-1", round: 1, is_current_turn: true, move_current: 10, move_max: 10 },
     bodyParts: fx.bodyParts.healthy,
   });
@@ -46,6 +75,16 @@ test("bundle contains weapons", () => {
   assert.equal(bundle.snapshot.weapons.length, 1);
 });
 
+test("bundle equipment keeps installation slot metadata", () => {
+  const bundle = readyBundle();
+  const [item] = bundle.snapshot.equipment;
+  assert.equal(item.default_body_part_code, "torso");
+  assert.deepEqual(item.flags?.allowed_body_part_codes, ["torso"]);
+  assert.equal(item.can_equip, true);
+  assert.equal(item.can_equip_to_body_part, true);
+  assert.equal(item.model?.default_body_part_code, "torso");
+});
+
 test("bundle contains combat state", () => {
   const bundle = readyBundle();
   assert.equal(bundle.snapshot.combat.encounter_id, "enc-1");
@@ -65,4 +104,3 @@ test("hidden abilities are not present in quick actions", () => {
 });
 
 await run();
-

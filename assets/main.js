@@ -37471,9 +37471,12 @@ function mountCharacterScreen({ root: root2, runtime: runtime2 }) {
   }
   function equipmentSlotOptions(it) {
     const def = normalizeBodyPartCode(it?.default_body_part_code || it?.model?.default_body_part_code || "");
+    const hasConfiguredInstallationSlot = collectAllowedBodyPartCodes(it).length > 0;
     const lastId = state.lastSlot[it.id];
     let parts = compatibleBodyParts(it);
-    if (!parts.length) return `<option value="">This item has no configured installation slot.</option>`;
+    if (!parts.length) {
+      return `<option value="">${hasConfiguredInstallationSlot ? "No compatible body parts available." : "This item has no configured installation slot."}</option>`;
+    }
     const selected = parts.find((b) => b.id === lastId) || parts.find((b) => def && bodyPartCodes(b).includes(def)) || parts[0];
     return parts.map((b) => {
       const sel = b.id === selected?.id ? "selected" : "";

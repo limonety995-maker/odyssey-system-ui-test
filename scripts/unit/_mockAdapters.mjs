@@ -463,7 +463,15 @@ export function resolveCharacterAccess({ viewer, character, tokenLink }) {
   return { status: "ready", canViewSelectedCharacter: false, canControl: false, reason: "notOwner" };
 }
 
-export function buildRuntimeBundleMock({ character, skills = [], abilities = [], weapons = [], combat = null, bodyParts = [] }) {
+export function buildRuntimeBundleMock({
+  character,
+  skills = [],
+  abilities = [],
+  weapons = [],
+  equipment = [],
+  combat = null,
+  bodyParts = [],
+}) {
   return {
     snapshot: {
       entity: {
@@ -476,6 +484,7 @@ export function buildRuntimeBundleMock({ character, skills = [], abilities = [],
       skills: clone(skills),
       abilities: clone(abilities),
       weapons: clone(weapons),
+      equipment: clone(equipment),
       quickActions: buildQuickActionsRuntime({ abilities, encounter: combat, characterState: { is_current_turn: combat?.is_current_turn } }).quickActions,
       combat: combat
         ? {
@@ -489,4 +498,3 @@ export function buildRuntimeBundleMock({ character, skills = [], abilities = [],
     },
   };
 }
-

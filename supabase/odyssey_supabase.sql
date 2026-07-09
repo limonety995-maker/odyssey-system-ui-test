@@ -64603,19 +64603,36 @@ begin
     v_sections := v_sections || jsonb_build_object('combat_session', coalesce(v_combat_session, 'null'::jsonb));
   end if;
 
-  if v_sections ? 'equipment' and jsonb_typeof(v_sections->'equipment') = 'array' then
-    v_sections := jsonb_set(
-      v_sections,
-      '{equipment}',
-      coalesce(
-        (
-          select jsonb_agg(public.odyssey_runtime_flatten_equipment_item(item_value))
-          from jsonb_array_elements(v_sections->'equipment') as equipment_rows(item_value)
+  if v_sections ? 'equipment' then
+    -- Runtime equipment must come from the canonical equipment RPC, otherwise
+    -- slot metadata like default_body_part_code / allowed_body_part_codes can
+    -- disappear when the legacy/helper path emits a reduced item shape.
+    if v_character_id is not null then
+      v_sections := jsonb_set(
+        v_sections,
+        '{equipment}',
+        coalesce(
+          public.get_character_equipment(v_character_id)->'items',
+          '[]'::jsonb
         ),
-        '[]'::jsonb
-      ),
-      true
-    );
+        true
+      );
+    end if;
+
+    if jsonb_typeof(v_sections->'equipment') = 'array' then
+      v_sections := jsonb_set(
+        v_sections,
+        '{equipment}',
+        coalesce(
+          (
+            select jsonb_agg(public.odyssey_runtime_flatten_equipment_item(item_value))
+            from jsonb_array_elements(v_sections->'equipment') as equipment_rows(item_value)
+          ),
+          '[]'::jsonb
+        ),
+        true
+      );
+    end if;
   end if;
 
   return v_bundle || jsonb_build_object('sections', v_sections);
