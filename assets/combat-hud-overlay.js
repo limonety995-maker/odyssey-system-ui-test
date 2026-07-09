@@ -7124,6 +7124,20 @@ function isDirectedTargetAbility(action) {
   const a = action && typeof action === "object" ? action : {};
   return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
 }
+function isToggleAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "toggle";
+}
+function deriveToggleAvailability(action) {
+  const a = action && typeof action === "object" ? action : {};
+  const state = a.state ?? {};
+  const cooldown = a.cooldown ?? {};
+  if (state.active === true) return SLOT_AVAILABILITY.ready;
+  if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
+  if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
+  if (state.available === false) return SLOT_AVAILABILITY.unavailable;
+  return SLOT_AVAILABILITY.ready;
+}
 
 // hud/abilities/AbilityTooltip.js
 var TYPE_LABEL = {
@@ -7176,6 +7190,7 @@ function abilityTooltipModel(action) {
   const directAttack = isDirectAttackAbility(a);
   const instantSelf = !directAttack && isInstantSelfAbility(a);
   const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
+  const toggleAbility = !directAttack && !instantSelf && !directedTarget && isToggleAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
@@ -7183,6 +7198,7 @@ function abilityTooltipModel(action) {
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
+  else if (toggleAbility) lines.push({ label: "Execution", value: state.active === true ? "Toggle (click to deactivate)" : "Toggle (click to activate)" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
@@ -7306,14 +7322,15 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   const directAttack = isTechnique && isDirectAttackAbility(action);
   const instantSelf = !isTechnique && isInstantSelfAbility(action);
   const directedTarget = !isTechnique && !instantSelf && isDirectedTargetAbility(action);
+  const toggleAbility = !isTechnique && !instantSelf && !directedTarget && isToggleAbility(action);
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
-  const pending = (directAttack || instantSelf || directedTarget) && pendingActionId != null && pendingActionId === action.characterActionId;
-  const availability = directAttack ? deriveDirectAttackAvailability(action) : deriveSlotAvailability(action, armed);
-  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false || (instantSelf || directedTarget) && pending;
-  const dataAction = directAttack ? "execute-direct-ability" : instantSelf ? "execute-instant-ability" : directedTarget ? "execute-directed-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
+  const pending = (directAttack || instantSelf || directedTarget || toggleAbility) && pendingActionId != null && pendingActionId === action.characterActionId;
+  const availability = directAttack ? deriveDirectAttackAvailability(action) : toggleAbility ? deriveToggleAvailability(action) : deriveSlotAvailability(action, armed);
+  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : toggleAbility ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false || (instantSelf || directedTarget) && pending;
+  const dataAction = directAttack ? "execute-direct-ability" : instantSelf ? "execute-instant-ability" : directedTarget ? "execute-directed-ability" : toggleAbility ? "execute-toggle-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
-    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : directedTarget ? pending ? "Executing\u2026" : "Directed ability \u2014 uses selected target, no body zone required" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : directedTarget ? pending ? "Executing\u2026" : "Directed ability \u2014 uses selected target, no body zone required" : toggleAbility ? pending ? "Executing\u2026" : active ? "Toggle ability \u2014 click to deactivate" : "Toggle ability \u2014 click to activate" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
   ]);
   const stateMarker = stateMarkerHtml(availability, action, pending);
   const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
@@ -7400,7 +7417,7 @@ function renderSkillBlock(state, opts = {}) {
     const role = String(state?.viewer?.role ?? "").toLowerCase();
     const canEdit = role === "gm" || role === "player";
     const armedActionId = state?.snapshot?.armedActionId ?? null;
-    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? state?.snapshot?.pendingInstantAbilityActionId ?? state?.snapshot?.pendingDirectedAbilityActionId ?? null;
+    const pendingActionId = state?.snapshot?.pendingDirectAbilityActionId ?? state?.snapshot?.pendingInstantAbilityActionId ?? state?.snapshot?.pendingDirectedAbilityActionId ?? state?.snapshot?.pendingToggleAbilityActionId ?? null;
     const openActionId = opts?.openSkillsMenu?.kind === "action" ? String(opts.openSkillsMenu.id ?? "").trim() || null : null;
     const pendingDeleteId = String(opts?.pendingGmDeleteId ?? "").trim() || null;
     const gmAdmin = role === "gm" ? { enabled: true, openActionId, pendingDeleteId } : null;
@@ -8648,6 +8665,16 @@ function mountCombatHudModule(options) {
           });
         }
         break;
+      case "execute-toggle-ability":
+        if (!t.classList.contains("is-disabled")) {
+          integration.onCommand && integration.onCommand({
+            scope: "combat-hud",
+            feature: "quickbar",
+            type: "execute-toggle-ability",
+            characterActionId: t.getAttribute("data-action-id")
+          });
+        }
+        break;
       case "end-turn":
         t.setAttribute("disabled", "disabled");
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "end-turn" });
@@ -8675,7 +8702,7 @@ function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
   function techniqueSlotFromTarget(target) {
-    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"]') : null;
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"], [data-action="execute-toggle-ability"]') : null;
     return t && el.contains(t) ? t : null;
   }
   function onSlotDetailOver(e) {

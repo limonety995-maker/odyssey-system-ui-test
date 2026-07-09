@@ -5684,6 +5684,107 @@ async function resolveDirectedAbilityExecution(ctx, deps) {
   return { ok: true, payload, raw, normalized: normalizeDirectedAbilityResult(raw), code: null, error: null };
 }
 
+// hud/combat/toggleAbilityPolicy.js
+var TOGGLE_ABILITY_BLOCK_REASON = Object.freeze({
+  noCharacter: "No character loaded.",
+  noAbility: "No ability selected.",
+  inFlight: "Ability is resolving.",
+  noActiveEncounter: "Not in an active encounter."
+});
+function blocked5(reason) {
+  return { uiAllowed: false, uiBlockReason: reason };
+}
+var ALLOWED5 = Object.freeze({ uiAllowed: true, uiBlockReason: null });
+function evaluateToggleAbilityExecution(ctx = {}) {
+  const {
+    sourceCharacterId = null,
+    abilityId = null,
+    inFlight = false,
+    sessionExists = false
+  } = ctx;
+  if (!sourceCharacterId) return blocked5(TOGGLE_ABILITY_BLOCK_REASON.noCharacter);
+  if (!abilityId) return blocked5(TOGGLE_ABILITY_BLOCK_REASON.noAbility);
+  if (inFlight) return blocked5(TOGGLE_ABILITY_BLOCK_REASON.inFlight);
+  if (!sessionExists) return blocked5(TOGGLE_ABILITY_BLOCK_REASON.noActiveEncounter);
+  return ALLOWED5;
+}
+function buildToggleAbilityRequestSignature(ctx = {}) {
+  return `${ctx.sourceCharacterId ?? ""}|${ctx.abilityId ?? ""}`;
+}
+function isToggleAbilityResultStale(requestCtx, currentCtx) {
+  return buildToggleAbilityRequestSignature(requestCtx) !== buildToggleAbilityRequestSignature(currentCtx);
+}
+
+// hud/combat/toggleAbilityPayload.js
+function buildToggleAbilityExecutionPayload(input = {}) {
+  const payload = {
+    kind: "ability",
+    include_runtime: false,
+    character_id: String(input.sourceCharacterId ?? "").trim(),
+    encounter_id: String(input.encounterId ?? "").trim(),
+    actor_player_id: String(input.actorPlayerId ?? "").trim(),
+    actor_is_gm: !!input.actorIsGm,
+    intent: {
+      character_ability_id: String(input.abilityId ?? "").trim()
+    }
+  };
+  if (input.expectedEncounterVersion !== null && input.expectedEncounterVersion !== void 0 && Number.isFinite(Number(input.expectedEncounterVersion))) {
+    payload.expected_encounter_version = Number(input.expectedEncounterVersion);
+  }
+  return payload;
+}
+function asObject3(v) {
+  return v && typeof v === "object" ? v : {};
+}
+function normalizeToggleAbilityResult(raw) {
+  const r = asObject3(raw);
+  const spent = asObject3(r.spent);
+  const result = asObject3(r.result);
+  const ability = asObject3(result.ability);
+  const resource = asObject3(result.resource);
+  return {
+    ok: r.ok !== false,
+    active: typeof result.active === "boolean" ? result.active : null,
+    actionCost: spent.action_cost ?? null,
+    moveCost: spent.move_cost ?? null,
+    usedReaction: spent.used_reaction ?? null,
+    abilityCode: ability.code ?? null,
+    abilityName: ability.name ?? null,
+    resourceSpent: resource.spent ?? resource.cost ?? resource.amount_spent ?? null,
+    resourceRemaining: resource.remaining ?? resource.current_value ?? null,
+    encounterStateVersion: r.encounter_state_version ?? null,
+    characterStateVersion: r.character_state_version ?? null
+  };
+}
+async function resolveToggleAbilityExecution(ctx, deps) {
+  const payload = buildToggleAbilityExecutionPayload(ctx);
+  let raw;
+  try {
+    raw = await deps.executeAction(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      payload,
+      raw: error?.details ?? null,
+      normalized: null,
+      code: error?.code ?? null,
+      error: error?.message || "Network or RPC error."
+    };
+  }
+  if (!raw || raw.ok === false) {
+    const code = raw?.error ?? null;
+    return {
+      ok: false,
+      payload,
+      raw: raw ?? null,
+      normalized: raw ? normalizeToggleAbilityResult(raw) : null,
+      code,
+      error: raw?.message || describeError(code, "The ability could not be toggled.")
+    };
+  }
+  return { ok: true, payload, raw, normalized: normalizeToggleAbilityResult(raw), code: null, error: null };
+}
+
 // hud/abilities/abilityAvailabilityPolicy.js
 var SLOT_AVAILABILITY = Object.freeze({
   ready: "ready",
@@ -5717,6 +5818,10 @@ function isInstantSelfAbility(action) {
 function isDirectedTargetAbility(action) {
   const a = action && typeof action === "object" ? action : {};
   return a.type === "directed" && a.targeting?.requiresBodyZone !== true;
+}
+function isToggleAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "toggle";
 }
 
 // hud/combat/attackResolutionTrace.js
@@ -5997,7 +6102,8 @@ var LOG_TYPE = Object.freeze({
   reload: "reload",
   fireMode: "fire-mode",
   abilityExecute: "ability-execute",
-  directedAbility: "directed-ability"
+  directedAbility: "directed-ability",
+  toggleAbility: "toggle-ability"
 });
 var LOG_OUTCOME = Object.freeze({
   success: "success",
@@ -6087,6 +6193,33 @@ function buildDirectedAbilityLogEntry({ sourceCharacterId, targetCharacterId, ab
     details: details2,
     sourceCharacterId: sourceCharacterId ?? null,
     targetCharacterId: targetCharacterId ?? null
+  };
+}
+function buildToggleAbilityLogEntry({ sourceCharacterId, abilityName, outcome }) {
+  const ok = !!outcome?.ok;
+  const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  let details2;
+  if (ok) {
+    const n = outcome?.normalized ?? {};
+    const verb = n.active === true ? "activated" : n.active === false ? "deactivated" : "toggled";
+    const costParts = [];
+    if (Number(n.actionCost) > 0) costParts.push("MAIN spent");
+    if (Number(n.resourceSpent) > 0) costParts.push(`Resource spent: ${n.resourceSpent}`);
+    details2 = [
+      `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${name}.`,
+      costParts.length ? costParts.join(", ") + "." : "No cost recorded."
+    ];
+  } else {
+    details2 = [String(outcome?.error || `${name} denied.`)];
+  }
+  return {
+    timestamp: Date.now(),
+    type: LOG_TYPE.toggleAbility,
+    outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
+    title: ok ? "Ability toggled" : "Ability failed",
+    details: details2,
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null
   };
 }
 function buildFireModeLogEntry({ sourceCharacterId, ok, message }) {
@@ -8456,6 +8589,10 @@ function buildBroadcastPayload(state, ephemeral = {}) {
     if (pendingDirectedAbilityActionId) {
       hudSnapshot = { ...hudSnapshot, pendingDirectedAbilityActionId };
     }
+    const pendingToggleAbilityActionId = ephemeral.pendingToggleAbilityActionId ?? null;
+    if (pendingToggleAbilityActionId) {
+      hudSnapshot = { ...hudSnapshot, pendingToggleAbilityActionId };
+    }
   }
   const debug = ready && s.runtimeBundle ? buildRuntimeDebugSummary(s.runtimeBundle, hudSnapshot, {
     selectionStatus: s.status,
@@ -8691,7 +8828,12 @@ function setupSceneSelection(hooks = {}) {
     // directed-target ability execution command — requires a selected
     // target, never a body zone.
     pendingDirectedAbilityActionId: null,
-    directedAbilityExecutionResult: null
+    directedAbilityExecutionResult: null,
+    // Phase 4.1B.3: same per-ability in-flight tracking, for the SEPARATE
+    // toggle/stance ability execution command — no target, no body zone,
+    // server decides ON vs OFF itself.
+    pendingToggleAbilityActionId: null,
+    toggleAbilityExecutionResult: null
   };
   let debugEnabled = false;
   try {
@@ -9448,6 +9590,133 @@ function setupSceneSelection(hooks = {}) {
           ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
           await refetchCurrent();
           logDebugEvent("refresh", "source-refresh-result", { reason: "directed-ability-failure" }, true);
+        }
+        return;
+      }
+      if (command?.scope === "combat-hud" && command?.feature === "quickbar" && command?.type === "execute-toggle-ability") {
+        const actionId = String(command.characterActionId ?? "").trim() || null;
+        logDebugEvent("abilities", "toggle-ability-requested", { characterActionId: actionId });
+        if (ephemeral.pendingToggleAbilityActionId) return;
+        const action = findQuickActionByCharacterActionId(actionId);
+        if (!actionId || !action || !isToggleAbility(action)) {
+          logDebugEvent("abilities", "toggle-ability-blocked", {
+            characterActionId: actionId,
+            reason: "INVALID_ABILITY",
+            hasAbilitiesRuntime: Boolean(abilitiesRuntime),
+            quickActionCount: abilitiesRuntime?.quickActions?.length ?? 0,
+            matchingActionFound: Boolean(action),
+            matchingActionType: action?.type ?? null
+          }, false);
+          if (!abilitiesRuntime) {
+            ephemeral.commandStatus = { type: "error", message: "Ability runtime is not loaded yet." };
+            if (lastState) publishState(lastState);
+            void quickbarController?.refresh();
+          }
+          return;
+        }
+        const sessionAtRequest = currentMappedSession();
+        const evalCtx = {
+          sourceCharacterId: ephemeral.characterId,
+          abilityId: actionId,
+          inFlight: false,
+          sessionExists: sessionAtRequest.exists === true
+        };
+        const evalResult = evaluateToggleAbilityExecution(evalCtx);
+        ephemeral.commandStatus = null;
+        if (!evalResult.uiAllowed) {
+          ephemeral.commandStatus = { type: "error", message: evalResult.uiBlockReason };
+          ephemeral.toggleAbilityExecutionResult = { ok: false, error: "PRECONDITION_FAILED", message: evalResult.uiBlockReason };
+          logDebugEvent("abilities", "toggle-ability-blocked", { characterActionId: actionId, reason: evalResult.uiBlockReason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const sessionGate = sessionAttackGate(sessionAtRequest);
+        if (sessionGate.blocked) {
+          ephemeral.commandStatus = { type: "error", message: sessionGate.reason };
+          ephemeral.toggleAbilityExecutionResult = { ok: false, error: "SESSION_GATE", message: sessionGate.reason };
+          logDebugEvent("abilities", "toggle-ability-blocked", { characterActionId: actionId, reason: sessionGate.reason }, false);
+          if (lastState) publishState(lastState);
+          return;
+        }
+        const requestCtx = { sourceCharacterId: evalCtx.sourceCharacterId, abilityId: actionId };
+        const ctx = {
+          sourceCharacterId: evalCtx.sourceCharacterId,
+          abilityId: actionId,
+          encounterId: sessionAtRequest.id ?? "",
+          actorPlayerId: viewer?.playerId ?? null,
+          actorIsGm: String(viewer?.role ?? "").toUpperCase() === "GM",
+          expectedEncounterVersion: expectedVersionOf(sessionAtRequest)
+        };
+        const activeBefore = action.state?.active === true;
+        ephemeral.pendingToggleAbilityActionId = actionId;
+        logDebugEvent("abilities", "toggle-ability-payload-prepared", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          activeBefore
+        });
+        if (lastState) publishState(lastState);
+        let outcome;
+        try {
+          outcome = await resolveToggleAbilityExecution(ctx, { executeAction: (payload) => executeAction(payload, settings) });
+        } catch (error) {
+          outcome = { ok: false, payload: null, raw: null, normalized: null, code: null, error: String(error?.message ?? error ?? "Ability execution failed.") };
+        }
+        ephemeral.pendingToggleAbilityActionId = null;
+        const currentCtx = { sourceCharacterId: ephemeral.characterId, abilityId: actionId };
+        const stale = isToggleAbilityResultStale(requestCtx, currentCtx);
+        ephemeral.toggleAbilityExecutionResult = { ok: outcome.ok, error: outcome.code ?? null, message: outcome.error ?? null };
+        pushLog(buildToggleAbilityLogEntry({
+          sourceCharacterId: requestCtx.sourceCharacterId,
+          abilityName: action.name,
+          outcome
+        }));
+        logDebugEvent("abilities", "toggle-ability-result", {
+          characterActionId: actionId,
+          actionType: action.type,
+          semanticKind: action.semanticKind,
+          available: action.state?.available ?? null,
+          resourceSufficient: action.state?.resourceSufficient ?? null,
+          cooldown: action.cooldown ?? null,
+          activeBefore,
+          activeAfter: outcome.normalized?.active ?? null,
+          ok: outcome.ok,
+          code: outcome.code ?? null,
+          message: outcome.error ?? null,
+          stale
+        }, outcome.ok);
+        if (outcome.ok && outcome.normalized) {
+          logDebugEvent("abilities", "toggle-ability-cost-consumed", {
+            characterActionId: actionId,
+            actionCost: outcome.normalized.actionCost,
+            moveCost: outcome.normalized.moveCost,
+            usedReaction: outcome.normalized.usedReaction,
+            resourceSpent: outcome.normalized.resourceSpent,
+            encounterStateVersionBefore: sessionAtRequest.version ?? null,
+            encounterStateVersionAfter: outcome.normalized.encounterStateVersion
+          }, true);
+          logDebugEvent("abilities", "toggle-ability-active-state", {
+            characterActionId: actionId,
+            activeBefore,
+            activeAfter: outcome.normalized.active
+          }, true);
+        }
+        if (outcome.code === "STATE_VERSION_CONFLICT") {
+          logDebugEvent("session", "stale-version", { command: "toggle-ability" }, true);
+        }
+        if (sessionController) void sessionController.refresh();
+        if (stale) {
+          if (lastState) publishState(lastState);
+          return;
+        }
+        if (outcome.ok) {
+          ephemeral.commandStatus = { type: "ok", message: outcome.normalized?.active === false ? "Ability deactivated." : "Ability activated." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "toggle-ability-success" }, true);
+        } else {
+          ephemeral.commandStatus = { type: "error", message: outcome.error || "Ability failed." };
+          await refetchCurrent();
+          logDebugEvent("refresh", "source-refresh-result", { reason: "toggle-ability-failure" }, true);
         }
         return;
       }
@@ -10998,6 +11267,7 @@ function abilityTooltipModel(action) {
   const directAttack = isDirectAttackAbility(a);
   const instantSelf = !directAttack && isInstantSelfAbility(a);
   const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
+  const toggleAbility = !directAttack && !instantSelf && !directedTarget && isToggleAbility(a);
   const lines = [];
   const typeLabel = TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
@@ -11005,6 +11275,7 @@ function abilityTooltipModel(action) {
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
+  else if (toggleAbility) lines.push({ label: "Execution", value: state.active === true ? "Toggle (click to deactivate)" : "Toggle (click to activate)" });
   lines.push({ label: "Cost", value: costText(costs) });
   const res = resourceText(costs);
   if (res) lines.push({ label: "Resource", value: res });
