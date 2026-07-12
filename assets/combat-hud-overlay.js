@@ -7086,7 +7086,12 @@ var SLOT_AVAILABILITY = Object.freeze({
   cooldown: "cooldown",
   insufficientResource: "insufficient_resource",
   unsupported: "unsupported",
-  unavailable: "unavailable"
+  unavailable: "unavailable",
+  // Phase 4.1B.4: a structural fact (this action is display-only, never
+  // executable), not a runtime-derived availability state — never returned by
+  // deriveSlotAvailability/deriveDirectAttackAvailability/deriveToggleAvailability,
+  // set directly by the caller for an isPassiveAbility() action instead.
+  passive: "passive"
 });
 function deriveSlotAvailability(action, isArmed = false) {
   const a = action && typeof action === "object" ? action : {};
@@ -7133,10 +7138,24 @@ function deriveToggleAvailability(action) {
   const state = a.state ?? {};
   const cooldown = a.cooldown ?? {};
   if (state.active === true) return SLOT_AVAILABILITY.ready;
+  if (state.executionAvailable === false) return SLOT_AVAILABILITY.unsupported;
   if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
   if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
   if (state.available === false) return SLOT_AVAILABILITY.unavailable;
   return SLOT_AVAILABILITY.ready;
+}
+function isPassiveAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "passive";
+}
+function isUnsupportedAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone === true;
+}
+var KNOWN_ABILITY_TYPES = /* @__PURE__ */ new Set(["attack_technique", "toggle", "directed", "instant", "passive"]);
+function isUnknownAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return !KNOWN_ABILITY_TYPES.has(a.type);
 }
 
 // hud/abilities/AbilityTooltip.js
@@ -7144,7 +7163,8 @@ var TYPE_LABEL = {
   attack_technique: "Attack technique",
   directed: "Directed action",
   instant: "Instant action",
-  toggle: "Toggle"
+  toggle: "Toggle",
+  passive: "Passive"
 };
 var TARGET_LABEL = {
   self: "Self",
@@ -7191,35 +7211,51 @@ function abilityTooltipModel(action) {
   const instantSelf = !directAttack && isInstantSelfAbility(a);
   const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
   const toggleAbility = !directAttack && !instantSelf && !directedTarget && isToggleAbility(a);
+  const executable = directAttack || instantSelf || directedTarget || toggleAbility;
+  const passiveAbility = !executable && isPassiveAbility(a);
+  const unsupportedAbility = !executable && !passiveAbility && isUnsupportedAbility(a);
+  const unknownAbility = !executable && !passiveAbility && !unsupportedAbility && isUnknownAbility(a);
   const lines = [];
-  const typeLabel = TYPE_LABEL[a.type] ?? "Action";
+  const typeLabel = unsupportedAbility ? "Unsupported" : unknownAbility ? "Unknown" : TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
   else if (toggleAbility) lines.push({ label: "Execution", value: state.active === true ? "Toggle (click to deactivate)" : "Toggle (click to activate)" });
-  lines.push({ label: "Cost", value: costText(costs) });
-  const res = resourceText(costs);
-  if (res) lines.push({ label: "Resource", value: res });
-  if (Number(cooldown.max) > 0) {
-    const cur = Number(cooldown.current) || 0;
-    lines.push({
-      label: "Cooldown",
-      value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
-    });
+  else if (passiveAbility) lines.push({ label: "Execution", value: "Always active / display only" });
+  else if (unsupportedAbility) {
+    lines.push({ label: "Reason", value: "Body-zone targeting is not supported for non-attack abilities yet." });
+    lines.push({ label: "Execution", value: "Not available from Skills Block" });
+  } else if (unknownAbility) {
+    lines.push({ label: "Reason", value: "Unrecognized ability type." });
+    lines.push({ label: "Execution", value: "Not available from Skills Block" });
   }
-  lines.push({
-    label: "Target",
-    value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
-  });
-  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
-  else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
-  const reqParts = [];
-  if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
-  if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
-  if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
-  if (directAttack) {
+  if (!passiveAbility && !unsupportedAbility && !unknownAbility) {
+    lines.push({ label: "Cost", value: costText(costs) });
+    const res = resourceText(costs);
+    if (res) lines.push({ label: "Resource", value: res });
+    if (Number(cooldown.max) > 0) {
+      const cur = Number(cooldown.current) || 0;
+      lines.push({
+        label: "Cooldown",
+        value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
+      });
+    }
+    lines.push({
+      label: "Target",
+      value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
+    });
+    if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
+    else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
+    const reqParts = [];
+    if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
+    if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
+    if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
+  }
+  if (passiveAbility || unsupportedAbility || unknownAbility) {
+    lines.push({ label: "Click", value: "View details" });
+  } else if (directAttack) {
     lines.push({ label: "Status", value: DIRECT_ATTACK_STATUS_LABEL[deriveDirectAttackAvailability(a)] ?? "Unavailable" });
   } else if (state.executionReason) {
     lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
@@ -7247,7 +7283,8 @@ var TYPE_MARK = {
   attack_technique: "ATK",
   directed: "DIR",
   instant: "INS",
-  toggle: "TGL"
+  toggle: "TGL",
+  passive: "PSV"
 };
 function actionById(runtime, id) {
   if (!id) return null;
@@ -7305,6 +7342,8 @@ function stateMarkerHtml(availability, action, pending) {
     case SLOT_AVAILABILITY.unsupported:
     case SLOT_AVAILABILITY.unavailable:
       return `<span class="ohud-qb-state ohud-qb-state--lock" aria-hidden="true">${ICON_LOCK}</span>`;
+    case SLOT_AVAILABILITY.passive:
+      return `<span class="ohud-qb-state ohud-qb-state--passive">PASSIVE</span>`;
     default:
       return "";
   }
@@ -7317,20 +7356,24 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   }
   const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
   const active = action.state?.active === true;
-  const mark = TYPE_MARK[action.type] ?? "";
   const isTechnique = action.type === "attack_technique";
   const directAttack = isTechnique && isDirectAttackAbility(action);
   const instantSelf = !isTechnique && isInstantSelfAbility(action);
   const directedTarget = !isTechnique && !instantSelf && isDirectedTargetAbility(action);
   const toggleAbility = !isTechnique && !instantSelf && !directedTarget && isToggleAbility(action);
+  const executable = isTechnique || instantSelf || directedTarget || toggleAbility;
+  const passiveAbility = !executable && isPassiveAbility(action);
+  const unsupportedAbility = !executable && !passiveAbility && isUnsupportedAbility(action);
+  const unknownAbility = !executable && !passiveAbility && !unsupportedAbility && isUnknownAbility(action);
+  const mark = unsupportedAbility || unknownAbility ? "N/A" : TYPE_MARK[action.type] ?? "";
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
   const pending = (directAttack || instantSelf || directedTarget || toggleAbility) && pendingActionId != null && pendingActionId === action.characterActionId;
-  const availability = directAttack ? deriveDirectAttackAvailability(action) : toggleAbility ? deriveToggleAvailability(action) : deriveSlotAvailability(action, armed);
-  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : toggleAbility ? availability !== SLOT_AVAILABILITY.ready || pending : action.state?.available === false || (instantSelf || directedTarget) && pending;
+  const availability = directAttack ? deriveDirectAttackAvailability(action) : toggleAbility ? deriveToggleAvailability(action) : passiveAbility ? SLOT_AVAILABILITY.passive : unsupportedAbility || unknownAbility ? SLOT_AVAILABILITY.unsupported : deriveSlotAvailability(action, armed);
+  const disabled = directAttack ? availability !== SLOT_AVAILABILITY.ready || pending : toggleAbility ? availability !== SLOT_AVAILABILITY.ready || pending : passiveAbility || unsupportedAbility || unknownAbility ? true : action.state?.available === false || (instantSelf || directedTarget) && pending;
   const dataAction = directAttack ? "execute-direct-ability" : instantSelf ? "execute-instant-ability" : directedTarget ? "execute-directed-ability" : toggleAbility ? "execute-toggle-ability" : isTechnique ? "toggle-armed-technique" : "show-ability-detail";
   const tip = tipAttr(action.name, [
     ...abilityTooltipLines(action),
-    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : directedTarget ? pending ? "Executing\u2026" : "Directed ability \u2014 uses selected target, no body zone required" : toggleAbility ? pending ? "Executing\u2026" : active ? "Toggle ability \u2014 click to deactivate" : "Toggle ability \u2014 click to activate" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
+    directAttack ? pending ? "Executing\u2026" : "Direct ability attack \u2014 uses selected target and body zone" : instantSelf ? pending ? "Executing\u2026" : "Instant ability \u2014 no target required" : directedTarget ? pending ? "Executing\u2026" : "Directed ability \u2014 uses selected target, no body zone required" : toggleAbility ? pending ? "Executing\u2026" : active ? "Toggle ability \u2014 click to deactivate" : "Toggle ability \u2014 click to activate" : passiveAbility ? "Passive \u2014 always active, view details" : unsupportedAbility ? "Unsupported \u2014 not available from Skills Block" : unknownAbility ? "Unrecognized action \u2014 view details" : isTechnique ? armed ? "Prepared for next attack" : "Click to arm for your next attack" : ""
   ]);
   const stateMarker = stateMarkerHtml(availability, action, pending);
   const activeMarker = active ? `<span class="ohud-qb-active">ON</span>` : "";
@@ -8702,7 +8745,7 @@ function mountCombatHudModule(options) {
   }
   el.addEventListener("keydown", onKeyDown);
   function techniqueSlotFromTarget(target) {
-    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"], [data-action="execute-toggle-ability"]') : null;
+    const t = target && target.closest ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"], [data-action="execute-toggle-ability"], [data-action="show-ability-detail"]') : null;
     return t && el.contains(t) ? t : null;
   }
   function onSlotDetailOver(e) {

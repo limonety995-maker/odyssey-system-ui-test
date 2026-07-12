@@ -5792,7 +5792,12 @@ var SLOT_AVAILABILITY = Object.freeze({
   cooldown: "cooldown",
   insufficientResource: "insufficient_resource",
   unsupported: "unsupported",
-  unavailable: "unavailable"
+  unavailable: "unavailable",
+  // Phase 4.1B.4: a structural fact (this action is display-only, never
+  // executable), not a runtime-derived availability state — never returned by
+  // deriveSlotAvailability/deriveDirectAttackAvailability/deriveToggleAvailability,
+  // set directly by the caller for an isPassiveAbility() action instead.
+  passive: "passive"
 });
 function isDirectAttackAbility(action) {
   const a = action && typeof action === "object" ? action : {};
@@ -5822,6 +5827,19 @@ function isDirectedTargetAbility(action) {
 function isToggleAbility(action) {
   const a = action && typeof action === "object" ? action : {};
   return a.type === "toggle";
+}
+function isPassiveAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "passive";
+}
+function isUnsupportedAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone === true;
+}
+var KNOWN_ABILITY_TYPES = /* @__PURE__ */ new Set(["attack_technique", "toggle", "directed", "instant", "passive"]);
+function isUnknownAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return !KNOWN_ABILITY_TYPES.has(a.type);
 }
 
 // hud/combat/attackResolutionTrace.js
@@ -7218,7 +7236,13 @@ var QUICK_ACTION_TYPES = Object.freeze({
   attackTechnique: "attack_technique",
   directed: "directed",
   instant: "instant",
-  toggle: "toggle"
+  toggle: "toggle",
+  // Phase 4.1B.4: not produced by the server today (passive abilities are
+  // excluded from the quickbar runtime entirely — see
+  // docs/PHASE_4_1B_4_PASSIVE_UNSUPPORTED_POLISH_AUDIT.md §3) — whitelisted
+  // here so that IF this is ever revisited, a real `type:"passive"` survives
+  // normalizeType() instead of being silently coerced to "instant".
+  passive: "passive"
 });
 var QUICK_ACTION_SOURCES = Object.freeze({
   perk: "perk",
@@ -11221,7 +11245,8 @@ var TYPE_LABEL = {
   attack_technique: "Attack technique",
   directed: "Directed action",
   instant: "Instant action",
-  toggle: "Toggle"
+  toggle: "Toggle",
+  passive: "Passive"
 };
 var TARGET_LABEL = {
   self: "Self",
@@ -11268,35 +11293,51 @@ function abilityTooltipModel(action) {
   const instantSelf = !directAttack && isInstantSelfAbility(a);
   const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
   const toggleAbility = !directAttack && !instantSelf && !directedTarget && isToggleAbility(a);
+  const executable = directAttack || instantSelf || directedTarget || toggleAbility;
+  const passiveAbility = !executable && isPassiveAbility(a);
+  const unsupportedAbility = !executable && !passiveAbility && isUnsupportedAbility(a);
+  const unknownAbility = !executable && !passiveAbility && !unsupportedAbility && isUnknownAbility(a);
   const lines = [];
-  const typeLabel = TYPE_LABEL[a.type] ?? "Action";
+  const typeLabel = unsupportedAbility ? "Unsupported" : unknownAbility ? "Unknown" : TYPE_LABEL[a.type] ?? "Action";
   lines.push({ label: "Type", value: typeLabel });
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
   if (directAttack) lines.push({ label: "Execution", value: "Direct ability attack" });
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
   else if (toggleAbility) lines.push({ label: "Execution", value: state.active === true ? "Toggle (click to deactivate)" : "Toggle (click to activate)" });
-  lines.push({ label: "Cost", value: costText(costs) });
-  const res = resourceText(costs);
-  if (res) lines.push({ label: "Resource", value: res });
-  if (Number(cooldown.max) > 0) {
-    const cur = Number(cooldown.current) || 0;
-    lines.push({
-      label: "Cooldown",
-      value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
-    });
+  else if (passiveAbility) lines.push({ label: "Execution", value: "Always active / display only" });
+  else if (unsupportedAbility) {
+    lines.push({ label: "Reason", value: "Body-zone targeting is not supported for non-attack abilities yet." });
+    lines.push({ label: "Execution", value: "Not available from Skills Block" });
+  } else if (unknownAbility) {
+    lines.push({ label: "Reason", value: "Unrecognized ability type." });
+    lines.push({ label: "Execution", value: "Not available from Skills Block" });
   }
-  lines.push({
-    label: "Target",
-    value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
-  });
-  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
-  else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
-  const reqParts = [];
-  if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
-  if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
-  if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
-  if (directAttack) {
+  if (!passiveAbility && !unsupportedAbility && !unknownAbility) {
+    lines.push({ label: "Cost", value: costText(costs) });
+    const res = resourceText(costs);
+    if (res) lines.push({ label: "Resource", value: res });
+    if (Number(cooldown.max) > 0) {
+      const cur = Number(cooldown.current) || 0;
+      lines.push({
+        label: "Cooldown",
+        value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`
+      });
+    }
+    lines.push({
+      label: "Target",
+      value: directAttack ? "Requires a selected target" : TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "\u2014")
+    });
+    if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
+    else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
+    const reqParts = [];
+    if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
+    if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
+    if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" \xB7 ") });
+  }
+  if (passiveAbility || unsupportedAbility || unknownAbility) {
+    lines.push({ label: "Click", value: "View details" });
+  } else if (directAttack) {
     lines.push({ label: "Status", value: DIRECT_ATTACK_STATUS_LABEL[deriveDirectAttackAvailability(a)] ?? "Unavailable" });
   } else if (state.executionReason) {
     lines.push({ label: "Status", value: EXECUTION_REASON_LABEL[state.executionReason] ?? String(state.disabledReason ?? state.executionReason) });
