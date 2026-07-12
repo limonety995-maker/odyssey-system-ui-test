@@ -206,11 +206,20 @@ test("cooldown/insufficient-resource/unsupported slots render is-disabled + the 
 test("9. the detail card shows the canonical executionReason as human-readable text, never the raw code", () => {
   // Phase 4.1B.0: an attack_technique with this exact executionReason is now
   // direct-attack-eligible (see scripts/direct-ability-attack.test.mjs test
-  // 8/deriveDirectAttackAvailability) and shows its OWN status text instead —
-  // this test uses a non-technique type to keep exercising the ORIGINAL,
-  // still-fully-valid "unsupported executionReason" text mapping for actions
-  // that are not direct-attack-eligible.
-  const a = action({ type: "directed", state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false } });
+  // 8/deriveDirectAttackAvailability) and shows its OWN status text instead.
+  // Phase 4.1B.4: type "directed" + the DEFAULT targeting.requiresBodyZone:true
+  // (this file's own fixture default) is now the structurally-unsupported
+  // combination (isUnsupportedAbility) and gets its OWN "Type: Unsupported" /
+  // "Reason: ..." lines instead — see scripts/passive-unsupported-ability.test.mjs
+  // for that case. This test now uses "instant" + targeting.mode:"self" (an
+  // executable, non-technique, non-unsupported class) to keep exercising the
+  // ORIGINAL "unsupported executionReason" text mapping on the generic Status
+  // line for an action that is neither direct-attack- nor unsupported-eligible.
+  const a = action({
+    type: "instant",
+    targeting: { mode: "self", minTargets: 1, maxTargets: 1, allowAllies: true, allowSelf: true, requiresBodyZone: false },
+    state: { available: false, disabledReason: "Attack effect is not supported yet", executionAvailable: false, executionReason: "ACTION_EFFECT_NOT_IMPLEMENTED", resourceSufficient: true, selectable: false, active: false },
+  });
   const html = renderAbilityDetailCard(a);
   assert.match(html, /Attack effect is not supported yet\./);
   assert.ok(!html.includes("ACTION_EFFECT_NOT_IMPLEMENTED"), "the raw code itself is never shown");
