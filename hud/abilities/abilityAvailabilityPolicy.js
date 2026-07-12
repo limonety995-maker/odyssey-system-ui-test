@@ -21,6 +21,11 @@ export const SLOT_AVAILABILITY = Object.freeze({
   insufficientResource: "insufficient_resource",
   unsupported: "unsupported",
   unavailable: "unavailable",
+  // Phase 4.1B.4: a structural fact (this action is display-only, never
+  // executable), not a runtime-derived availability state — never returned by
+  // deriveSlotAvailability/deriveDirectAttackAvailability/deriveToggleAvailability,
+  // set directly by the caller for an isPassiveAbility() action instead.
+  passive: "passive",
 });
 
 /**
@@ -183,8 +188,62 @@ export function deriveToggleAvailability(action) {
   const cooldown = a.cooldown ?? {};
 
   if (state.active === true) return SLOT_AVAILABILITY.ready;
+  // Phase 4.1B.4: same "unsupported" check every other derivation in this
+  // file already makes — toggle abilities never have effect_mode='attack'
+  // (so this is not expected to fire in practice), but omitting it would be
+  // an inconsistency with deriveSlotAvailability/deriveDirectAttackAvailability,
+  // both of which check this exact server-truth flag first.
+  if (state.executionAvailable === false) return SLOT_AVAILABILITY.unsupported;
   if (Number(cooldown.current) > 0) return SLOT_AVAILABILITY.cooldown;
   if (state.resourceSufficient === false) return SLOT_AVAILABILITY.insufficientResource;
   if (state.available === false) return SLOT_AVAILABILITY.unavailable;
   return SLOT_AVAILABILITY.ready;
+}
+
+// Phase 4.1B.4 — Passive Display + Unsupported Reasons Polish.
+//
+// A quick action is passive-display-only when the server's own type
+// derivation says `type === "passive"`. Confirmed by audit
+// (docs/PHASE_4_1B_4_PASSIVE_UNSUPPORTED_POLISH_AUDIT.md §3): no ability
+// currently reaches the quickbar runtime with this type at all — both
+// ability_kind='passive' and activation_type='passive' rows are excluded by
+// the server's own WHERE clause before the `type` CASE ever runs. This
+// classifier exists for forward-compatibility (and direct unit testing) only;
+// it is not reachable via today's live data, and this phase does not change
+// the server-side filter.
+export function isPassiveAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "passive";
+}
+
+// A quick action is structurally UNSUPPORTED — no execute-* command exists
+// for it at all, in any phase so far — when it is a non-attack ability that
+// targets a body part (`type==='directed'` with `requiresBodyZone===true`).
+// This is the one target_type/effect_mode combination the HUD has never had
+// an execution path for (see isDirectedTargetAbility's own doc comment,
+// unchanged) — it used to fall through to the generic show-ability-detail
+// fallback with NO distinguishing marker, silently looking identical to a
+// working "ready" ability. This is a CLIENT-DERIVED classification (the
+// server never says "this is unsupported" for this specific reason) — never
+// presented as if the server said it (see AbilityTooltip.js).
+export function isUnsupportedAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return a.type === "directed" && a.targeting?.requiresBodyZone === true;
+}
+
+// Every server-recognized type this file classifies against. Kept in sync
+// with abilityRuntimeMapper.js's own QUICK_ACTION_TYPES whitelist.
+const KNOWN_ABILITY_TYPES = new Set(["attack_technique", "toggle", "directed", "instant", "passive"]);
+
+// A quick action is UNKNOWN when its type is none of the above — defensive
+// only: abilityRuntimeMapper.js's normalizeType() already coerces any
+// unrecognized raw server value down to "instant" (its own "safest inert
+// type" fallback) before an action ever reaches this classifier, so this can
+// never actually be true for a mapped runtime action today. Exists so a
+// directly-constructed fixture (bypassing the mapper) can still be classified
+// safely, and so QuickbarView has an explicit, tested fallback rather than an
+// implicit one if that mapper behavior is ever revisited.
+export function isUnknownAbility(action) {
+  const a = action && typeof action === "object" ? action : {};
+  return !KNOWN_ABILITY_TYPES.has(a.type);
 }

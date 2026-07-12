@@ -22,6 +22,12 @@ export const QUICK_ACTION_TYPES = Object.freeze({
   directed: "directed",
   instant: "instant",
   toggle: "toggle",
+  // Phase 4.1B.4: not produced by the server today (passive abilities are
+  // excluded from the quickbar runtime entirely — see
+  // docs/PHASE_4_1B_4_PASSIVE_UNSUPPORTED_POLISH_AUDIT.md §3) — whitelisted
+  // here so that IF this is ever revisited, a real `type:"passive"` survives
+  // normalizeType() instead of being silently coerced to "instant".
+  passive: "passive",
 });
 
 export const QUICK_ACTION_SOURCES = Object.freeze({

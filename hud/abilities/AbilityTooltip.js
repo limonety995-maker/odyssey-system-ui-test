@@ -27,13 +27,14 @@
 // zone" note — its Target/Status lines otherwise need no override either
 // (same reasoning as instant/self).
 
-import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
+import { isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility, isPassiveAbility, isUnsupportedAbility, isUnknownAbility, SLOT_AVAILABILITY } from "./abilityAvailabilityPolicy.js";
 
 const TYPE_LABEL = {
   attack_technique: "Attack technique",
   directed: "Directed action",
   instant: "Instant action",
   toggle: "Toggle",
+  passive: "Passive",
 };
 
 const TARGET_LABEL = {
@@ -99,8 +100,20 @@ export function abilityTooltipModel(action) {
   const instantSelf = !directAttack && isInstantSelfAbility(a);
   const directedTarget = !directAttack && !instantSelf && isDirectedTargetAbility(a);
   const toggleAbility = !directAttack && !instantSelf && !directedTarget && isToggleAbility(a);
+  // Phase 4.1B.4: same mutual-exclusion order as QuickbarView.js's
+  // occupiedTile() — passive/unsupported/unknown are display-only, never one
+  // of the execution classes above.
+  const executable = directAttack || instantSelf || directedTarget || toggleAbility;
+  const passiveAbility = !executable && isPassiveAbility(a);
+  const unsupportedAbility = !executable && !passiveAbility && isUnsupportedAbility(a);
+  const unknownAbility = !executable && !passiveAbility && !unsupportedAbility && isUnknownAbility(a);
   const lines = [];
-  const typeLabel = TYPE_LABEL[a.type] ?? "Action";
+  // Phase 4.1B.4: an unsupported/unknown ability's "Type" line names ITS
+  // ACTUAL situation ("Unsupported"/"Unknown"), not the raw underlying `type`
+  // string (which for the one known unsupported combination is still
+  // "directed" — misleading here for the same reason QuickbarView's corner
+  // mark overrides it, see occupiedTile()'s own comment).
+  const typeLabel = unsupportedAbility ? "Unsupported" : unknownAbility ? "Unknown" : (TYPE_LABEL[a.type] ?? "Action");
   lines.push({ label: "Type", value: typeLabel });
 
   if (a.fullDescription) lines.push({ label: "Description", value: String(a.fullDescription) });
@@ -109,36 +122,55 @@ export function abilityTooltipModel(action) {
   else if (instantSelf) lines.push({ label: "Execution", value: "Instant (self)" });
   else if (directedTarget) lines.push({ label: "Execution", value: "Directed (target)" });
   else if (toggleAbility) lines.push({ label: "Execution", value: state.active === true ? "Toggle (click to deactivate)" : "Toggle (click to activate)" });
-
-  lines.push({ label: "Cost", value: costText(costs) });
-  const res = resourceText(costs);
-  if (res) lines.push({ label: "Resource", value: res });
-
-  if (Number(cooldown.max) > 0) {
-    const cur = Number(cooldown.current) || 0;
-    lines.push({
-      label: "Cooldown",
-      value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`,
-    });
+  else if (passiveAbility) lines.push({ label: "Execution", value: "Always active / display only" });
+  else if (unsupportedAbility) {
+    // CLIENT-DERIVED classification (see abilityAvailabilityPolicy.js's
+    // isUnsupportedAbility doc comment) — never presented as if the server
+    // itself said "unsupported"; the reason names the actual structural gap.
+    lines.push({ label: "Reason", value: "Body-zone targeting is not supported for non-attack abilities yet." });
+    lines.push({ label: "Execution", value: "Not available from Skills Block" });
+  } else if (unknownAbility) {
+    lines.push({ label: "Reason", value: "Unrecognized ability type." });
+    lines.push({ label: "Execution", value: "Not available from Skills Block" });
   }
 
-  // Spec §I: a direct-attack-eligible technique states its ACTUAL target/
-  // body-zone requirement (it always uses Combat Control's own selected
-  // target + body zone) rather than the generic targeting.mode label, which
-  // otherwise reads the same as any other character-targeted ability.
-  lines.push({
-    label: "Target",
-    value: directAttack ? "Requires a selected target" : (TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "—")),
-  });
-  if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
-  else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
+  // Passive/unsupported/unknown abilities skip cost/resource/cooldown/
+  // target/body-zone lines entirely — none of that applies to something that
+  // is never activated from Skills Block (passive: always on by design;
+  // unsupported/unknown: no execution path exists to spend anything on).
+  if (!passiveAbility && !unsupportedAbility && !unknownAbility) {
+    lines.push({ label: "Cost", value: costText(costs) });
+    const res = resourceText(costs);
+    if (res) lines.push({ label: "Resource", value: res });
 
-  const reqParts = [];
-  if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
-  if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
-  if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" · ") });
+    if (Number(cooldown.max) > 0) {
+      const cur = Number(cooldown.current) || 0;
+      lines.push({
+        label: "Cooldown",
+        value: cur > 0 ? `${cur}/${cooldown.max} ${cooldown.unit ?? "turn"}(s) remaining` : `${cooldown.max} ${cooldown.unit ?? "turn"}(s)`,
+      });
+    }
 
-  if (directAttack) {
+    // Spec §I: a direct-attack-eligible technique states its ACTUAL target/
+    // body-zone requirement (it always uses Combat Control's own selected
+    // target + body zone) rather than the generic targeting.mode label, which
+    // otherwise reads the same as any other character-targeted ability.
+    lines.push({
+      label: "Target",
+      value: directAttack ? "Requires a selected target" : (TARGET_LABEL[targeting.mode] ?? String(targeting.mode ?? "—")),
+    });
+    if (directAttack) lines.push({ label: "Body zone", value: "Uses the selected body zone" });
+    else if (directedTarget) lines.push({ label: "Body zone", value: "Not required" });
+
+    const reqParts = [];
+    if (requirements.weaponClass) reqParts.push(`Weapon: ${requirements.weaponClass}`);
+    if (requirements.conditionSummary) reqParts.push(String(requirements.conditionSummary));
+    if (reqParts.length) lines.push({ label: "Requires", value: reqParts.join(" · ") });
+  }
+
+  if (passiveAbility || unsupportedAbility || unknownAbility) {
+    lines.push({ label: "Click", value: "View details" });
+  } else if (directAttack) {
     // An honest execution-status line for a compatible direct attack ability
     // — never the raw executionReason text (which describes why arming it
     // onto a weapon attack is unsupported, not why THIS, separate execution

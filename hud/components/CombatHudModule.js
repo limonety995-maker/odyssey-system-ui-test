@@ -658,8 +658,18 @@ export function mountCombatHudModule(options) {
     // "execute-directed-ability".
     // Phase 4.1B.3: same reasoning for a toggle-eligible action —
     // "execute-toggle-ability".
+    // Phase 4.1B.4: passive/unsupported/unknown slots are now forced
+    // `is-disabled` (see QuickbarView.js) so their detail is honestly locked
+    // behind cost/cooldown/target gating like everything else — but that
+    // ALSO blocks the click-triggered "show-ability-detail" case (its own
+    // `if (t.classList.contains("is-disabled")) break;` guard). Their detail
+    // must still be reachable somehow, so "show-ability-detail" tiles get the
+    // same hover/focus treatment attack_technique tiles already have — this
+    // covers passive/unsupported/unknown AND the pre-existing "missing
+    // action" tile (which already safely no-ops here since resolveQuickAction
+    // returns null for it).
     const t = target && target.closest
-      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"], [data-action="execute-toggle-ability"]')
+      ? target.closest('[data-action="toggle-armed-technique"], [data-action="execute-direct-ability"], [data-action="execute-instant-ability"], [data-action="execute-directed-ability"], [data-action="execute-toggle-ability"], [data-action="show-ability-detail"]')
       : null;
     return t && el.contains(t) ? t : null;
   }

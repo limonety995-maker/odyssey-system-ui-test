@@ -18,7 +18,7 @@ import { esc, cls, tipAttr } from "../components/hudDom.js";
 import { skillIconSvg, ICON_LOCK } from "../components/hudIcons.js";
 import { rowOfSlot, FIRST_ROW_SIZE } from "./quickbarLayoutPolicy.js";
 import { abilityTooltipLines } from "./AbilityTooltip.js";
-import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility, deriveToggleAvailability } from "./abilityAvailabilityPolicy.js";
+import { deriveSlotAvailability, SLOT_AVAILABILITY, isDirectAttackAbility, deriveDirectAttackAvailability, isInstantSelfAbility, isDirectedTargetAbility, isToggleAbility, deriveToggleAvailability, isPassiveAbility, isUnsupportedAbility, isUnknownAbility } from "./abilityAvailabilityPolicy.js";
 
 // semanticKind → HUD accent class (same accent vocabulary as SkillBlock).
 const SEMANTIC_ACCENT = {
@@ -35,6 +35,7 @@ const TYPE_MARK = {
   directed: "DIR",
   instant: "INS",
   toggle: "TGL",
+  passive: "PSV",
 };
 
 function actionById(runtime, id) {
@@ -104,6 +105,8 @@ function stateMarkerHtml(availability, action, pending) {
     case SLOT_AVAILABILITY.unsupported:
     case SLOT_AVAILABILITY.unavailable:
       return `<span class="ohud-qb-state ohud-qb-state--lock" aria-hidden="true">${ICON_LOCK}</span>`;
+    case SLOT_AVAILABILITY.passive:
+      return `<span class="ohud-qb-state ohud-qb-state--passive">PASSIVE</span>`;
     default:
       return "";
   }
@@ -118,7 +121,6 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   }
   const accent = SEMANTIC_ACCENT[action.semanticKind] ?? "neutral";
   const active = action.state?.active === true;
-  const mark = TYPE_MARK[action.type] ?? "";
 
   // Phase 4.1A: an attack_technique slot arms/disarms itself instead of just
   // showing a detail toast — directed/instant/toggle are completely untouched
@@ -149,6 +151,23 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   // (an ability's server-derived `type` is exactly one value). See
   // abilityAvailabilityPolicy.js's isToggleAbility.
   const toggleAbility = !isTechnique && !instantSelf && !directedTarget && isToggleAbility(action);
+  // Phase 4.1B.4: passive/unsupported/unknown are display-only — never one of
+  // the execute-* commands above, mutually exclusive with all of them and
+  // with each other by construction (a "directed" action with
+  // requiresBodyZone:true can never also be isDirectedTargetAbility, and
+  // isPassiveAbility/isUnknownAbility require a `type` no execution class
+  // above ever matches). See abilityAvailabilityPolicy.js's
+  // isPassiveAbility/isUnsupportedAbility/isUnknownAbility.
+  const executable = isTechnique || instantSelf || directedTarget || toggleAbility;
+  const passiveAbility = !executable && isPassiveAbility(action);
+  const unsupportedAbility = !executable && !passiveAbility && isUnsupportedAbility(action);
+  const unknownAbility = !executable && !passiveAbility && !unsupportedAbility && isUnknownAbility(action);
+  // Phase 4.1B.4: an unsupported ability's underlying `type` is still
+  // "directed" (the body-zone-without-attack combination) — showing "DIR"
+  // here would misleadingly imply it works like the real directed-target
+  // class. An unknown type has no meaningful abbreviation at all. Passive
+  // uses the normal TYPE_MARK lookup like every other real type.
+  const mark = (unsupportedAbility || unknownAbility) ? "N/A" : (TYPE_MARK[action.type] ?? "");
   const armed = isTechnique && !directAttack && armedActionId != null && armedActionId === action.characterActionId;
   const pending = (directAttack || instantSelf || directedTarget || toggleAbility) && pendingActionId != null && pendingActionId === action.characterActionId;
   // Phase 4.1A.2: canonical category driving the state marker below — armed
@@ -162,11 +181,20 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   // Toggle tiles use their OWN derivation (deriveToggleAvailability) so an
   // already-active toggle stays clickable (to turn off, always free) even
   // while on cooldown or resource-insufficient.
+  // Phase 4.1B.4: passive/unsupported/unknown never call
+  // deriveSlotAvailability — that function would honestly compute "ready" for
+  // most of them (nothing server-side blocks a structurally-unsupported
+  // ability), which is exactly the silent-looks-fine-but-does-nothing gap
+  // this phase closes. Their availability is a fixed, structural fact instead.
   const availability = directAttack
     ? deriveDirectAttackAvailability(action)
     : toggleAbility
       ? deriveToggleAvailability(action)
-      : deriveSlotAvailability(action, armed);
+      : passiveAbility
+        ? SLOT_AVAILABILITY.passive
+        : (unsupportedAbility || unknownAbility)
+          ? SLOT_AVAILABILITY.unsupported
+          : deriveSlotAvailability(action, armed);
   // Server-truth for non-direct-attack tiles: available now factors in
   // cooldown/resource sufficiency/effect support (migration 101), so this
   // dimming class is honestly correct for every non-ready state. Direct-
@@ -179,11 +207,20 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
   // not as a permanent disabled state, so a READY ability with no target
   // selected yet still LOOKS clickable and the "Select a target first."
   // error surfaces from the click itself).
+  // Phase 4.1B.4: passive/unsupported/unknown always render disabled — there
+  // is no cost/cooldown/resource state that would ever make them clickable-
+  // executable, since none of them dispatch an execute-* command in the
+  // first place. Their detail card stays reachable via hover/focus regardless
+  // (CombatHudModule.js's techniqueSlotFromTarget selector), exactly like an
+  // already-disabled attack_technique slot — is-disabled only blocks the
+  // CLICK-triggered detail open, never the hover one.
   const disabled = directAttack
     ? (availability !== SLOT_AVAILABILITY.ready || pending)
     : toggleAbility
       ? (availability !== SLOT_AVAILABILITY.ready || pending)
-      : (action.state?.available === false || ((instantSelf || directedTarget) && pending));
+      : (passiveAbility || unsupportedAbility || unknownAbility)
+        ? true
+        : (action.state?.available === false || ((instantSelf || directedTarget) && pending));
   const dataAction = directAttack
     ? "execute-direct-ability"
     : instantSelf
@@ -203,7 +240,13 @@ function occupiedTile(slot, action, armedActionId, pendingActionId, gmAdmin) {
           ? (pending ? "Executing…" : "Directed ability — uses selected target, no body zone required")
           : toggleAbility
             ? (pending ? "Executing…" : (active ? "Toggle ability — click to deactivate" : "Toggle ability — click to activate"))
-            : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
+            : passiveAbility
+              ? "Passive — always active, view details"
+              : unsupportedAbility
+                ? "Unsupported — not available from Skills Block"
+                : unknownAbility
+                  ? "Unrecognized action — view details"
+                  : isTechnique ? (armed ? "Prepared for next attack" : "Click to arm for your next attack") : "",
   ]);
 
   // The state marker and the (orthogonal) active/ON marker share one
