@@ -422,9 +422,10 @@
 /* ===================== Floating Battle Log ===================== */
 .ohud-log-float { position: absolute; top: 18px; right: 6px; z-index: 8; width: 250px; max-width: calc(100% - 12px); }
 .ohud-log-panel { max-height: 128px; box-shadow: var(--odyssey-hud-shadow); }
-.ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }
+.ohud-log-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; min-height: 0; }
 .ohud-log-list::-webkit-scrollbar { width: 5px; }
 .ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }
+.ohud-log-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .ohud-log-row { font-size: calc(var(--ohud-font-10) * var(--ohud-critical-text-ratio, 1)); line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }
 .ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }
 .ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }
@@ -451,6 +452,48 @@
 .ohud-log-result-title.ohud-log-delta--hit { color: var(--odyssey-green); }
 .ohud-log-result-title.ohud-log-delta--miss { color: var(--odyssey-hud-dim); }
 .ohud-log-result-detail { color: var(--odyssey-hud-muted); font-size: var(--ohud-font-9-5); }
+
+/* Phase 4.2: turn grouping — entries without a turnLabel render ungrouped
+ * (no fake section), so this heading only ever appears when the server
+ * actually returned round data. */
+.ohud-log-turn-group { display: flex; flex-direction: column; gap: 3px; }
+.ohud-log-turn-label {
+  font-size: var(--ohud-font-8-5); font-weight: 800; letter-spacing: 0.4px;
+  color: var(--odyssey-hud-dim); text-transform: uppercase; padding: 2px 4px 0;
+}
+
+/* Compact line: always visible, bold, a real <button> so it's keyboard
+ * reachable (Enter/Space) — expanding is local UI state only, never a
+ * server call, never mutates combat runtime. */
+.ohud-log-compact {
+  display: block; width: 100%; text-align: left; font: inherit;
+  font-weight: 700; font-size: var(--ohud-font-10); line-height: 1.3;
+  color: var(--odyssey-hud-text); background: none; border: none; padding: 0;
+  cursor: pointer;
+}
+.ohud-log-compact:hover, .ohud-log-compact:focus-visible { color: #fff; }
+.ohud-log-compact:focus-visible { outline: 1.5px solid var(--odyssey-hud-border-strong); outline-offset: 2px; }
+
+/* Status/severity badges: colour lives on the badge + key values ONLY —
+ * the row/line itself is never recoloured (see combatHudTokens.css). */
+.ohud-log-badge, .ohud-log-badge-plain { font-weight: 800; }
+.ohud-log-badge-plain { color: var(--odyssey-hud-muted); font-weight: 400; }
+.ohud-log-badge--success { color: var(--odyssey-log-status-success); }
+.ohud-log-badge--failure { color: var(--odyssey-log-status-failure); }
+.ohud-log-badge--crit-success { color: var(--odyssey-log-status-crit-success); }
+.ohud-log-badge--crit-failure { color: var(--odyssey-log-status-crit-failure); }
+.ohud-log-sev--minor { color: var(--odyssey-log-severity-minor); }
+.ohud-log-sev--serious { color: var(--odyssey-log-severity-serious); }
+.ohud-log-sev--critical { color: var(--odyssey-log-severity-critical); }
+
+/* Expanded detail block — rendered only when the entry's id is in
+ * ephemeral.expandedLogEntryIds. Semantic table, not an ASCII layout. */
+.ohud-log-details { margin-top: 3px; padding: 3px 4px 4px; border-top: 1px solid var(--odyssey-line-soft); }
+.ohud-log-table { width: 100%; border-collapse: collapse; font-size: var(--ohud-font-9-5); }
+.ohud-log-table caption { text-align: left; color: var(--odyssey-hud-dim); font-weight: 700; padding-bottom: 2px; }
+.ohud-log-table th, .ohud-log-table td { text-align: left; padding: 1px 4px; color: var(--odyssey-hud-muted); font-weight: 400; }
+.ohud-log-table th { color: var(--odyssey-hud-dim); font-weight: 700; width: 33%; }
+.ohud-log-table td + td { color: var(--odyssey-hud-text); }
 
 /* ===================== Empty / error / loading ===================== */
 .ohud-state-wrap { flex: 1 1 auto; display: grid; place-items: center; background: var(--odyssey-hud-panel);

@@ -24,7 +24,7 @@ import { renderGunBlock } from "./GunBlock.js";
 import { renderSkillBlock } from "./SkillBlock.js";
 import { renderTargetBlock } from "./TargetBlock.js";
 import { renderModifierActionColumn } from "./ModifierBlock.js";
-import { renderBattleLogPanel } from "./BattleLogBlock.js";
+import { renderBattleLogPanel, toggleLogEntryExpanded } from "./BattleLogBlock.js";
 import { renderEmptyState, renderErrorState, renderLoadingState } from "./EmptyHudState.js";
 import { createTooltip } from "./Tooltip.js";
 import { ICON_GRIP, ICON_PENCIL, ICON_CARET_DOWN, ICON_LOG } from "./hudIcons.js";
@@ -204,6 +204,7 @@ export function createCombatHudLayout(cfg) {
       case "dev-toggle": devOpen = !devOpen; render(); break;
       case "role": onRole && onRole(t.getAttribute("data-value")); break;
       case "toggle-log": battleLogOpen = !battleLogOpen; render(); break;
+      case "toggle-log-entry": toggleLogEntryExpanded(t.getAttribute("data-log-entry-id")); render(); break;
       case "primary":
         if (!t.classList.contains("is-disabled")) showToast("Action resolution arrives in a later phase");
         break;

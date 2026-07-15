@@ -19,7 +19,7 @@ import { renderPlayerBlock } from "./PlayerBlock.js";
 import { renderGunBlock } from "./GunBlock.js";
 import { renderSkillBlock } from "./SkillBlock.js";
 import { renderCombatControlBlock } from "./CombatControlBlock.js";
-import { renderBattleLogPanel } from "./BattleLogBlock.js";
+import { renderBattleLogPanel, toggleLogEntryExpanded } from "./BattleLogBlock.js";
 import { renderWeaponSelectorPanel } from "./WeaponSelectorPanel.js";
 import { renderMagazineSelectorPanel } from "./MagazineSelectorPanel.js";
 import { renderFireModeSelectorPanel } from "./FireModeSelectorPanel.js";
@@ -604,6 +604,10 @@ export function mountCombatHudModule(options) {
         break;
       case "toggle-gm-tracker":
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "toggle-tracker" });
+        break;
+      case "toggle-log-entry":
+        toggleLogEntryExpanded(t.getAttribute("data-log-entry-id"));
+        render();
         break;
       default: break;
     }

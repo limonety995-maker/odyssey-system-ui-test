@@ -48,6 +48,8 @@ import {
   buildToggleAbilityLogEntry,
   buildReloadLogEntry,
   buildFireModeLogEntry,
+  buildMovementLogEntry,
+  buildEndTurnLogEntry,
 } from "../log/combatResultLogPolicy.js";
 import { getZoneLabel, DEFAULT_PROFILE_ID } from "../targeting/targetProfiles.js";
 import { logDebugEvent } from "../debug/debugLogStore.js";
@@ -199,6 +201,10 @@ export function setupSceneSelection(hooks = {}) {
             sessionRuntime = runtime;
             if (lastState) publishState(lastState);
           },
+          onTurnEnded: ({ sourceCharacterId, sourceCharacterName, turnLabel, nextActorName }) => {
+            pushLog(buildEndTurnLogEntry({ sourceCharacterId, sourceCharacterName, turnLabel, nextActorName }));
+            if (lastState) publishState(lastState);
+          },
         })
       : null;
     if (sessionController) cleanups.push(() => sessionController.cleanup());
@@ -217,6 +223,14 @@ export function setupSceneSelection(hooks = {}) {
         const payload = event.payload ?? {};
         if (payload.source !== "combat-movement" || !payload.runtime) return;
         sessionController.applyExternalRuntime(payload.runtime, "tactical-move");
+        const moveSession = currentMappedSession();
+        pushLog(buildMovementLogEntry({
+          sourceCharacterId: payload.characterId ?? null,
+          sourceCharacterName: payload.characterName || null,
+          turnLabel: moveSession.roundNumber != null ? `T${moveSession.roundNumber}` : null,
+          distanceM: Number.isFinite(payload.distanceM) ? payload.distanceM : null,
+        }));
+        if (lastState) publishState(lastState);
       });
       if (disposed) { unsubscribeMoveTool?.(); } else { cleanups.push(unsubscribeMoveTool); }
     }
@@ -755,6 +769,9 @@ export function setupSceneSelection(hooks = {}) {
           targetCharacterId: requestCtx.targetCharacterId,
           bodyZoneLabel,
           outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          targetCharacterName: targeting.selectedTargetName ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null,
         }));
         logDebugEvent("abilities", "direct-attack-result", { characterActionId: actionId, ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
         // Full authoritative roll trace — ONLY for a genuinely resolved
@@ -923,6 +940,8 @@ export function setupSceneSelection(hooks = {}) {
           sourceCharacterId: requestCtx.sourceCharacterId,
           abilityName: action.name,
           outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null,
         }));
         logDebugEvent("abilities", "ability-execute-result", {
           characterActionId: actionId,
@@ -1085,6 +1104,8 @@ export function setupSceneSelection(hooks = {}) {
           abilityName: action.name,
           targetName: targeting.selectedTargetName ?? null,
           outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null,
         }));
         logDebugEvent("abilities", "directed-ability-result", {
           characterActionId: actionId,
@@ -1244,6 +1265,8 @@ export function setupSceneSelection(hooks = {}) {
           sourceCharacterId: requestCtx.sourceCharacterId,
           abilityName: action.name,
           outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null,
         }));
         logDebugEvent("abilities", "toggle-ability-result", {
           characterActionId: actionId,
@@ -1407,6 +1430,9 @@ export function setupSceneSelection(hooks = {}) {
           targetCharacterId: requestCtx.targetCharacterId,
           bodyZoneLabel,
           outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          targetCharacterName: targeting.selectedTargetName ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null,
         }));
         logDebugEvent("attack", "result", { ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
         // Full authoritative roll trace (Debug Console detail area / Copy
@@ -1585,7 +1611,14 @@ export function setupSceneSelection(hooks = {}) {
         if (!weaponId || !magazineId || !profileId) {
           ephemeral.commandStatus = { type: "error", message: "Reload unavailable: missing weapon profile or magazine." };
           ephemeral.reloadRpcResult = { ok: false, error: "MISSING_FIELDS", message: "weaponId/profileId/magazineId missing before RPC call." };
-          pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: false, message: ephemeral.commandStatus.message }));
+          pushLog(buildReloadLogEntry({
+            sourceCharacterId: ephemeral.characterId,
+            ok: false,
+            message: ephemeral.commandStatus.message,
+            sourceCharacterName: lastState?.view?.name ?? null,
+            turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+            weaponName: weapon?.name ?? null,
+          }));
           logDebugEvent("magazine", "reload-result", { error: "MISSING_FIELDS" }, false);
           if (lastState) publishState(lastState);
           return;
@@ -1610,7 +1643,14 @@ export function setupSceneSelection(hooks = {}) {
           if (normalized.ok) {
             ephemeral.commandStatus = { type: "ok", message: "Reloaded." };
             ephemeral.selectedReloadMagazineId = null;
-            pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: true, message: "Reloaded." }));
+            pushLog(buildReloadLogEntry({
+              sourceCharacterId: ephemeral.characterId,
+              ok: true,
+              message: "Reloaded.",
+              sourceCharacterName: lastState?.view?.name ?? null,
+              turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+              weaponName: weapon?.name ?? null,
+            }));
             logDebugEvent("magazine", "reload-result", { weaponId, magazineId }, true);
             // Phase 3E.0: server-confirmed MOVE cost — only a successful swap
             // spends it; re-read the authoritative session state afterwards.
@@ -1630,7 +1670,14 @@ export function setupSceneSelection(hooks = {}) {
             await refetchCurrent();
           } else {
             ephemeral.commandStatus = { type: "error", message: normalized.message || normalized.error || "Reload failed." };
-            pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: false, message: ephemeral.commandStatus.message }));
+            pushLog(buildReloadLogEntry({
+              sourceCharacterId: ephemeral.characterId,
+              ok: false,
+              message: ephemeral.commandStatus.message,
+              sourceCharacterName: lastState?.view?.name ?? null,
+              turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+              weaponName: weapon?.name ?? null,
+            }));
             logDebugEvent("magazine", "reload-result", { weaponId, magazineId, error: normalized.error }, false);
             if (normalized.error === "STATE_VERSION_CONFLICT") {
               logDebugEvent("session", "stale-version", { command: "reload" }, true);
@@ -1641,7 +1688,14 @@ export function setupSceneSelection(hooks = {}) {
         } catch (error) {
           ephemeral.reloadRpcResult = { ok: false, error: "RPC_EXCEPTION", message: String(error?.message ?? error ?? "Reload failed.") };
           ephemeral.commandStatus = { type: "error", message: String(error?.message ?? error ?? "Reload failed.") };
-          pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: false, message: ephemeral.commandStatus.message }));
+          pushLog(buildReloadLogEntry({
+            sourceCharacterId: ephemeral.characterId,
+            ok: false,
+            message: ephemeral.commandStatus.message,
+            sourceCharacterName: lastState?.view?.name ?? null,
+            turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+            weaponName: weapon?.name ?? null,
+          }));
           logDebugEvent("magazine", "reload-result", { error: "RPC_EXCEPTION", message: ephemeral.commandStatus.message }, false);
           if (lastState) publishState(lastState);
         }

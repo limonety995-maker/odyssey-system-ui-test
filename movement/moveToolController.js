@@ -1435,7 +1435,7 @@ export function setupTacticalMoveTool({ runtime }) {
     return invokeMutation(retryPayload, state.settings);
   }
 
-  async function finalizeMutationSuccess(result, source, successMessage) {
+  async function finalizeMutationSuccess(result, source, successMessage, distanceM = null) {
     if (result?.runtime) {
       updateRuntimeCache(result.runtime);
     }
@@ -1446,6 +1446,7 @@ export function setupTacticalMoveTool({ runtime }) {
     await publishMoveToolEvent(MOVE_TOOL_EVENTS.Applied, {
       ...buildStatus(state, { applied: true, source }),
       runtime: result?.runtime ?? null,
+      distanceM: Number.isFinite(distanceM) ? distanceM : null,
     });
     await notify(successMessage, "SUCCESS");
   }
@@ -1700,6 +1701,7 @@ export function setupTacticalMoveTool({ runtime }) {
         result,
         "combat-movement",
         `Moved ${preview.moveCostM} m - ${Math.max(preview.remainingMoveM, 0)} m remaining.`,
+        preview.moveCostM,
       );
     } catch (error) {
       const normalized = normalizeError(error, "Unable to move combatant.");

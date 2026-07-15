@@ -83,6 +83,19 @@
   --odyssey-hud-psi: var(--odyssey-purple);
   --odyssey-hud-weapon: var(--odyssey-steel);
 
+  /* ---- Battle Log status/severity badges (Phase 4.2) ----
+   * Badge + key-value colouring ONLY — the row itself is never recoloured.
+   * Crit failure gets its OWN dark-red (not --odyssey-red) so a CRIT FAILURE
+   * status badge is never visually identical to a CRITICAL severity badge —
+   * those are different concepts (roll quality vs. damage outcome). */
+  --odyssey-log-status-success: var(--odyssey-green);
+  --odyssey-log-status-failure: var(--odyssey-ink-dim);
+  --odyssey-log-status-crit-success: var(--odyssey-purple-strong);
+  --odyssey-log-status-crit-failure: #7a2634;
+  --odyssey-log-severity-minor: var(--odyssey-hud-zone-healthy);
+  --odyssey-log-severity-serious: var(--odyssey-orange);
+  --odyssey-log-severity-critical: var(--odyssey-red);
+
   /* ---- Elevation & geometry ---- */
   --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);

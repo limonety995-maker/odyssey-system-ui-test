@@ -38,7 +38,7 @@ import {
   endSession,
 } from "./combatSessionApi.js";
 
-export function setupCombatSessionController({ context, settings, getViewer, onSessionRuntime }) {
+export function setupCombatSessionController({ context, settings, getViewer, onSessionRuntime, onTurnEnded }) {
   let disposed = false;
   let lastRuntime = null;
   let lastCandidates = [];
@@ -232,6 +232,16 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
     return applied;
   }
 
+  /** Display name of a runtime participant by character id — null when the
+   *  runtime doesn't carry that participant (never a guessed name). */
+  function participantName(runtime, characterId) {
+    if (!characterId) return null;
+    const participants = Array.isArray(runtime?.visible_participants) ? runtime.visible_participants : [];
+    const match = participants.find((p) => p?.character_id === characterId);
+    const name = String(match?.display_name ?? "").trim();
+    return name || null;
+  }
+
   function currentSessionRef() {
     const encounter = encounterOf(lastRuntime);
     if (!encounter || encounter.status !== "active") return null;
@@ -241,7 +251,7 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
   /** Shared mutation runner: single-flight, stale-version detection, and an
    *  authoritative runtime re-read on every outcome. */
   async function runMutation(kind, call, extraDetails = {}) {
-    if (mutationInFlight) return; // e.g. End Turn double-click → single request
+    if (mutationInFlight) return false; // e.g. End Turn double-click → single request
     mutationInFlight = true;
     try {
       const result = await call();
@@ -258,9 +268,11 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
       } else {
         await refresh(kind);
       }
+      return ok;
     } catch (error) {
       logDebugEvent("session", kind, { ok: false, message: String(error?.message ?? error), ...extraDetails }, false);
       await refresh(kind);
+      return false;
     } finally {
       mutationInFlight = false;
     }
@@ -286,7 +298,23 @@ export function setupCombatSessionController({ context, settings, getViewer, onS
     if (type === "end-turn") {
       const ref = currentSessionRef();
       if (!ref) return;
-      await runMutation("turn-ended", () => endSessionTurn({ context, viewer: viewer(), settings, ...ref }), { sessionId: ref.sessionId });
+      const prevEncounter = encounterOf(lastRuntime);
+      const endingCharacterId = prevEncounter?.active_character_id ?? null;
+      const endingCharacterName = participantName(lastRuntime, endingCharacterId);
+      const turnLabel = prevEncounter?.current_round != null ? `T${prevEncounter.current_round}` : null;
+      const ok = await runMutation("turn-ended", () => endSessionTurn({ context, viewer: viewer(), settings, ...ref }), { sessionId: ref.sessionId });
+      if (ok && typeof onTurnEnded === "function") {
+        const nextEncounter = encounterOf(lastRuntime);
+        const nextCharacterId = nextEncounter?.active_character_id ?? null;
+        try {
+          onTurnEnded({
+            sourceCharacterId: endingCharacterId,
+            sourceCharacterName: endingCharacterName,
+            turnLabel,
+            nextActorName: participantName(lastRuntime, nextCharacterId),
+          });
+        } catch (_e) { /* consumer owns its errors */ }
+      }
       return;
     }
 
