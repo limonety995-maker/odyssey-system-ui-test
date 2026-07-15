@@ -3515,7 +3515,7 @@ var OBR = {
 var lib_default = OBR;
 
 // hud/styles/combatHudTokens.css
-var combatHudTokens_default = "/*\r\n * Combat HUD \u2014 design tokens (Phase 0, palette refreshed for Phase 2).\r\n *\r\n * Semantic custom properties ONLY. No layout, no component rules \u2014 those live\r\n * in hud/components/combatHudLayout.css and hud/overlay/combatHudOverlay.css.\r\n * JavaScript must never hard-code colours; it stores semantic state names\r\n * (see hud/models/combatHudContracts.js) and the UI maps state \u2192 token here.\r\n *\r\n * Scope: variables are declared on a `.odyssey-hud` root class so the HUD's\r\n * theme cannot leak into the existing popup screens (Resolve Attack, etc.).\r\n *\r\n * The palette follows the approved Phase 2 references: a dark sci-fi MMORPG\r\n * panel \u2014 deep navy surfaces, thin blue-grey borders, bright colours reserved\r\n * for game-state accents only.\r\n */\r\n\r\n.odyssey-hud {\r\n  /* ---- Raw palette (approved Phase 2 reference) ---- */\r\n  --odyssey-bg-deep: #0e1320;\r\n  --odyssey-panel-base: #16203a;\r\n  --odyssey-panel-raised: #1a2236;\r\n  --odyssey-panel-hover: #232e47;\r\n  --odyssey-line: #3a4a66;\r\n  --odyssey-line-soft: #283448;\r\n\r\n  --odyssey-ink: #eaf0ff;\r\n  --odyssey-ink-muted: #9fb0d0;\r\n  --odyssey-ink-dim: #6b7a9c;\r\n\r\n  --odyssey-purple: #a78bfa;\r\n  --odyssey-purple-strong: #8b5cf6;\r\n  --odyssey-purple-panel: #26215c;\r\n  --odyssey-cyan: #34e1d6;\r\n  --odyssey-yellow: #ffc24b;\r\n  --odyssey-orange: #f59042;\r\n  --odyssey-red: #ff5c6c;\r\n  --odyssey-green: #4ade80;\r\n  --odyssey-steel: #aecbf0;     /* light cool blue \u2014 weapon / vehicle silhouettes */\r\n\r\n  /* ---- Semantic surfaces (names kept stable since Phase 0/1A) ---- */\r\n  --odyssey-hud-bg: rgba(14, 19, 32, 0.94);\r\n  --odyssey-hud-panel: rgba(22, 32, 58, 0.96);\r\n  --odyssey-hud-panel-raised: rgba(26, 34, 54, 0.98);\r\n  --odyssey-hud-panel-hover: #232e47;\r\n  --odyssey-hud-border: rgba(120, 142, 184, 0.30);\r\n  --odyssey-hud-border-strong: rgba(150, 172, 214, 0.55);\r\n\r\n  /* ---- Text ---- */\r\n  --odyssey-hud-text: var(--odyssey-ink);\r\n  --odyssey-hud-muted: var(--odyssey-ink-muted);\r\n  --odyssey-hud-dim: var(--odyssey-ink-dim);\r\n\r\n  /* ---- Generic valence ---- */\r\n  --odyssey-hud-positive: var(--odyssey-green);\r\n  --odyssey-hud-negative: var(--odyssey-red);\r\n  --odyssey-hud-warning: var(--odyssey-yellow);\r\n\r\n  /* ---- Action / ability semantics (spec colour language) ---- */\r\n  --odyssey-hud-attack: var(--odyssey-red);          /* red \u2014 attacking / hostile     */\r\n  --odyssey-hud-neutral: #8593b0;                    /* cool grey \u2014 defensive / util  */\r\n  --odyssey-hud-psionic: var(--odyssey-purple);      /* purple \u2014 psionics             */\r\n  --odyssey-hud-implant: var(--odyssey-cyan);        /* cyan \u2014 implants / tech        */\r\n  --odyssey-hud-intervention: var(--odyssey-yellow); /* gold \u2014 intervention           */\r\n\r\n  /* ---- State / availability ---- */\r\n  --odyssey-hud-state-active: var(--odyssey-green);\r\n  --odyssey-hud-state-unavailable: var(--odyssey-red);\r\n  --odyssey-hud-disabled: rgba(159, 176, 208, 0.22);\r\n\r\n  /* ---- Body zone condition scale (healthy \u2192 disabled) ---- */\r\n  /* healthy is a MUTED COOL tone (not green) per the spec. */\r\n  --odyssey-hud-zone-healthy: #6e7da0;\r\n  --odyssey-hud-zone-wounded: var(--odyssey-yellow);\r\n  --odyssey-hud-zone-serious: var(--odyssey-orange);\r\n  --odyssey-hud-zone-critical: var(--odyssey-red);\r\n  --odyssey-hud-zone-disabled: #39414f;\r\n  /* Combat data missing/denied (e.g. a target refresh blocked by RLS) \u2014 a\r\n   * distinct dim hatch-like grey, never the same as healthy. */\r\n  --odyssey-hud-zone-unknown: #2a3040;\r\n\r\n  /* ---- Resources ---- */\r\n  --odyssey-hud-shield: #5b9be0;\r\n  --odyssey-hud-psi: var(--odyssey-purple);\r\n  --odyssey-hud-weapon: var(--odyssey-steel);\r\n\r\n  /* ---- Elevation & geometry ---- */\r\n  --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\r\n  --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);\r\n  --odyssey-hud-radius: 14px;       /* outer panels */\r\n  --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */\r\n  --odyssey-hud-radius-chip: 9px;\r\n\r\n  /* ---- Typography scale (Priority UI Fix: +2px readability pass) ----\r\n   * One token per distinct pre-existing font-size, named after the OLD\r\n   * (pre-increase) value so the mapping stays traceable; every value here\r\n   * is that old size + 2px. Every font-size in combatHudLayout.css /\r\n   * combatHudModule.css / combatHudOverlay.css reads from one of these \u2014\r\n   * component CSS never hard-codes a px value directly, so the whole HUD's\r\n   * type scale is tuned from this one place. The --ohud-critical-text-ratio\r\n   * / --ohud-slot-marker-ratio multipliers (hud/overlay/hudLayout.js) still\r\n   * apply on top of these, unchanged \u2014 this is a floor bump, not a new\r\n   * scaling mechanism. */\r\n  --ohud-font-5-5: 7.5px;\r\n  --ohud-font-6: 8px;\r\n  --ohud-font-6-5: 8.5px;\r\n  --ohud-font-7: 9px;\r\n  --ohud-font-7-5: 9.5px;\r\n  --ohud-font-8: 10px;\r\n  --ohud-font-8-5: 10.5px;\r\n  --ohud-font-9: 11px;\r\n  --ohud-font-9-5: 11.5px;\r\n  --ohud-font-10: 12px;\r\n  --ohud-font-10-5: 12.5px;\r\n  --ohud-font-11: 13px;\r\n  --ohud-font-11-5: 13.5px;\r\n  --ohud-font-12: 14px;\r\n  --ohud-font-13: 15px;\r\n  --ohud-font-14: 16px;\r\n  --ohud-font-15: 17px;\r\n  --ohud-font-16: 18px;\r\n  --ohud-font-17: 19px;\r\n  --ohud-font-20: 22px;\r\n  --ohud-font-24: 26px;\r\n}\r\n";
+var combatHudTokens_default = "/*\r\n * Combat HUD \u2014 design tokens (Phase 0, palette refreshed for Phase 2).\r\n *\r\n * Semantic custom properties ONLY. No layout, no component rules \u2014 those live\r\n * in hud/components/combatHudLayout.css and hud/overlay/combatHudOverlay.css.\r\n * JavaScript must never hard-code colours; it stores semantic state names\r\n * (see hud/models/combatHudContracts.js) and the UI maps state \u2192 token here.\r\n *\r\n * Scope: variables are declared on a `.odyssey-hud` root class so the HUD's\r\n * theme cannot leak into the existing popup screens (Resolve Attack, etc.).\r\n *\r\n * The palette follows the approved Phase 2 references: a dark sci-fi MMORPG\r\n * panel \u2014 deep navy surfaces, thin blue-grey borders, bright colours reserved\r\n * for game-state accents only.\r\n */\r\n\r\n.odyssey-hud {\r\n  /* ---- Raw palette (approved Phase 2 reference) ---- */\r\n  --odyssey-bg-deep: #0e1320;\r\n  --odyssey-panel-base: #16203a;\r\n  --odyssey-panel-raised: #1a2236;\r\n  --odyssey-panel-hover: #232e47;\r\n  --odyssey-line: #3a4a66;\r\n  --odyssey-line-soft: #283448;\r\n\r\n  --odyssey-ink: #eaf0ff;\r\n  --odyssey-ink-muted: #9fb0d0;\r\n  --odyssey-ink-dim: #6b7a9c;\r\n\r\n  --odyssey-purple: #a78bfa;\r\n  --odyssey-purple-strong: #8b5cf6;\r\n  --odyssey-purple-panel: #26215c;\r\n  --odyssey-cyan: #34e1d6;\r\n  --odyssey-yellow: #ffc24b;\r\n  --odyssey-orange: #f59042;\r\n  --odyssey-red: #ff5c6c;\r\n  --odyssey-green: #4ade80;\r\n  --odyssey-steel: #aecbf0;     /* light cool blue \u2014 weapon / vehicle silhouettes */\r\n\r\n  /* ---- Semantic surfaces (names kept stable since Phase 0/1A) ---- */\r\n  --odyssey-hud-bg: rgba(14, 19, 32, 0.94);\r\n  --odyssey-hud-panel: rgba(22, 32, 58, 0.96);\r\n  --odyssey-hud-panel-raised: rgba(26, 34, 54, 0.98);\r\n  --odyssey-hud-panel-hover: #232e47;\r\n  --odyssey-hud-border: rgba(120, 142, 184, 0.30);\r\n  --odyssey-hud-border-strong: rgba(150, 172, 214, 0.55);\r\n\r\n  /* ---- Text ---- */\r\n  --odyssey-hud-text: var(--odyssey-ink);\r\n  --odyssey-hud-muted: var(--odyssey-ink-muted);\r\n  --odyssey-hud-dim: var(--odyssey-ink-dim);\r\n\r\n  /* ---- Generic valence ---- */\r\n  --odyssey-hud-positive: var(--odyssey-green);\r\n  --odyssey-hud-negative: var(--odyssey-red);\r\n  --odyssey-hud-warning: var(--odyssey-yellow);\r\n\r\n  /* ---- Action / ability semantics (spec colour language) ---- */\r\n  --odyssey-hud-attack: var(--odyssey-red);          /* red \u2014 attacking / hostile     */\r\n  --odyssey-hud-neutral: #8593b0;                    /* cool grey \u2014 defensive / util  */\r\n  --odyssey-hud-psionic: var(--odyssey-purple);      /* purple \u2014 psionics             */\r\n  --odyssey-hud-implant: var(--odyssey-cyan);        /* cyan \u2014 implants / tech        */\r\n  --odyssey-hud-intervention: var(--odyssey-yellow); /* gold \u2014 intervention           */\r\n\r\n  /* ---- State / availability ---- */\r\n  --odyssey-hud-state-active: var(--odyssey-green);\r\n  --odyssey-hud-state-unavailable: var(--odyssey-red);\r\n  --odyssey-hud-disabled: rgba(159, 176, 208, 0.22);\r\n\r\n  /* ---- Body zone condition scale (healthy \u2192 disabled) ---- */\r\n  /* healthy is a MUTED COOL tone (not green) per the spec. */\r\n  --odyssey-hud-zone-healthy: #6e7da0;\r\n  --odyssey-hud-zone-wounded: var(--odyssey-yellow);\r\n  --odyssey-hud-zone-serious: var(--odyssey-orange);\r\n  --odyssey-hud-zone-critical: var(--odyssey-red);\r\n  --odyssey-hud-zone-disabled: #39414f;\r\n  /* Combat data missing/denied (e.g. a target refresh blocked by RLS) \u2014 a\r\n   * distinct dim hatch-like grey, never the same as healthy. */\r\n  --odyssey-hud-zone-unknown: #2a3040;\r\n\r\n  /* ---- Resources ---- */\r\n  --odyssey-hud-shield: #5b9be0;\r\n  --odyssey-hud-psi: var(--odyssey-purple);\r\n  --odyssey-hud-weapon: var(--odyssey-steel);\r\n\r\n  /* ---- Battle Log status/severity badges (Phase 4.2) ----\r\n   * Badge + key-value colouring ONLY \u2014 the row itself is never recoloured.\r\n   * Crit failure gets its OWN dark-red (not --odyssey-red) so a CRIT FAILURE\r\n   * status badge is never visually identical to a CRITICAL severity badge \u2014\r\n   * those are different concepts (roll quality vs. damage outcome). */\r\n  --odyssey-log-status-success: var(--odyssey-green);\r\n  --odyssey-log-status-failure: var(--odyssey-ink-dim);\r\n  --odyssey-log-status-crit-success: var(--odyssey-purple-strong);\r\n  --odyssey-log-status-crit-failure: #7a2634;\r\n  --odyssey-log-severity-minor: var(--odyssey-hud-zone-healthy);\r\n  --odyssey-log-severity-serious: var(--odyssey-orange);\r\n  --odyssey-log-severity-critical: var(--odyssey-red);\r\n\r\n  /* ---- Elevation & geometry ---- */\r\n  --odyssey-hud-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\r\n  --odyssey-hud-shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.35);\r\n  --odyssey-hud-radius: 14px;       /* outer panels */\r\n  --odyssey-hud-radius-inner: 10px; /* nested cards / tiles */\r\n  --odyssey-hud-radius-chip: 9px;\r\n\r\n  /* ---- Typography scale (Priority UI Fix: +2px readability pass) ----\r\n   * One token per distinct pre-existing font-size, named after the OLD\r\n   * (pre-increase) value so the mapping stays traceable; every value here\r\n   * is that old size + 2px. Every font-size in combatHudLayout.css /\r\n   * combatHudModule.css / combatHudOverlay.css reads from one of these \u2014\r\n   * component CSS never hard-codes a px value directly, so the whole HUD's\r\n   * type scale is tuned from this one place. The --ohud-critical-text-ratio\r\n   * / --ohud-slot-marker-ratio multipliers (hud/overlay/hudLayout.js) still\r\n   * apply on top of these, unchanged \u2014 this is a floor bump, not a new\r\n   * scaling mechanism. */\r\n  --ohud-font-5-5: 7.5px;\r\n  --ohud-font-6: 8px;\r\n  --ohud-font-6-5: 8.5px;\r\n  --ohud-font-7: 9px;\r\n  --ohud-font-7-5: 9.5px;\r\n  --ohud-font-8: 10px;\r\n  --ohud-font-8-5: 10.5px;\r\n  --ohud-font-9: 11px;\r\n  --ohud-font-9-5: 11.5px;\r\n  --ohud-font-10: 12px;\r\n  --ohud-font-10-5: 12.5px;\r\n  --ohud-font-11: 13px;\r\n  --ohud-font-11-5: 13.5px;\r\n  --ohud-font-12: 14px;\r\n  --ohud-font-13: 15px;\r\n  --ohud-font-14: 16px;\r\n  --ohud-font-15: 17px;\r\n  --ohud-font-16: 18px;\r\n  --ohud-font-17: 19px;\r\n  --ohud-font-20: 22px;\r\n  --ohud-font-24: 26px;\r\n}\r\n";
 
 // hud/overlay/combatHudOverlay.css
 var combatHudOverlay_default = '/*\r\n * Combat HUD overlay \u2014 frame + collapsed pill (Phase 2.1).\r\n *\r\n * The popover iframe is sized tightly to the HUD by the background controller,\r\n * so the HUD fills it. NOTHING here may scroll vertically \u2014 overflow:hidden on\r\n * every level kills the native scrollbar seen in earlier builds. The only\r\n * permitted scroll is inside the expanded Battle Log list (see layout CSS).\r\n */\r\n\r\n*,\r\n*::before,\r\n*::after { box-sizing: border-box; }\r\n\r\nhtml, body {\r\n  height: 100%;\r\n  margin: 0;\r\n  overflow: hidden;            /* no native scrollbar */\r\n}\r\nbody {\r\n  background: transparent;\r\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;\r\n  color: var(--odyssey-hud-text, #eaf0ff);\r\n}\r\n\r\n#root { height: 100%; overflow: hidden; }\r\n\r\n/* The popover rect IS the HUD footprint; the HUD fills it. */\r\n.ohud-overlay {\r\n  height: 100%;\r\n  width: 100%;\r\n  overflow: hidden;\r\n  background: transparent;\r\n}\r\n\r\n/* ===================== Collapsed pill ===================== */\r\n.ohud-overlay.is-collapsed {\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n}\r\n.ohud-pill {\r\n  display: inline-flex; align-items: center; gap: 8px;\r\n  padding: 8px 14px; cursor: pointer;\r\n  font: inherit; font-size: var(--ohud-font-12); font-weight: 700; letter-spacing: 1px;\r\n  color: var(--odyssey-hud-text);\r\n  background: var(--odyssey-hud-bg); border: 1px solid var(--odyssey-hud-border-strong);\r\n  border-radius: 20px; box-shadow: var(--odyssey-hud-shadow);\r\n  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);\r\n}\r\n.ohud-pill:hover { border-color: var(--odyssey-purple); }\r\n.ohud-pill .ohud-mark { color: var(--odyssey-purple); display: inline-flex; }\r\n.ohud-pill-label { line-height: 1; }\r\n';
@@ -3945,9 +3945,10 @@ var combatHudLayout_default = `/*\r
 /* ===================== Floating Battle Log ===================== */\r
 .ohud-log-float { position: absolute; top: 18px; right: 6px; z-index: 8; width: 250px; max-width: calc(100% - 12px); }\r
 .ohud-log-panel { max-height: 128px; box-shadow: var(--odyssey-hud-shadow); }\r
-.ohud-log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; min-height: 0; }\r
+.ohud-log-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; min-height: 0; }\r
 .ohud-log-list::-webkit-scrollbar { width: 5px; }\r
 .ohud-log-list::-webkit-scrollbar-thumb { background: var(--odyssey-line); border-radius: 3px; }\r
+.ohud-log-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }\r
 .ohud-log-row { font-size: calc(var(--ohud-font-10) * var(--ohud-critical-text-ratio, 1)); line-height: 1.25; color: var(--odyssey-hud-muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding: 2px 4px; border-radius: 5px; background: var(--odyssey-bg-deep); }\r
 .ohud-log-row--system { color: var(--odyssey-hud-dim); background: transparent; font-style: italic; }\r
 .ohud-log-row--narr { color: var(--odyssey-purple); background: transparent; font-style: italic; }\r
@@ -3974,6 +3975,48 @@ var combatHudLayout_default = `/*\r
 .ohud-log-result-title.ohud-log-delta--hit { color: var(--odyssey-green); }\r
 .ohud-log-result-title.ohud-log-delta--miss { color: var(--odyssey-hud-dim); }\r
 .ohud-log-result-detail { color: var(--odyssey-hud-muted); font-size: var(--ohud-font-9-5); }\r
+\r
+/* Phase 4.2: turn grouping \u2014 entries without a turnLabel render ungrouped\r
+ * (no fake section), so this heading only ever appears when the server\r
+ * actually returned round data. */\r
+.ohud-log-turn-group { display: flex; flex-direction: column; gap: 3px; }\r
+.ohud-log-turn-label {\r
+  font-size: var(--ohud-font-8-5); font-weight: 800; letter-spacing: 0.4px;\r
+  color: var(--odyssey-hud-dim); text-transform: uppercase; padding: 2px 4px 0;\r
+}\r
+\r
+/* Compact line: always visible, bold, a real <button> so it's keyboard\r
+ * reachable (Enter/Space) \u2014 expanding is local UI state only, never a\r
+ * server call, never mutates combat runtime. */\r
+.ohud-log-compact {\r
+  display: block; width: 100%; text-align: left; font: inherit;\r
+  font-weight: 700; font-size: var(--ohud-font-10); line-height: 1.3;\r
+  color: var(--odyssey-hud-text); background: none; border: none; padding: 0;\r
+  cursor: pointer;\r
+}\r
+.ohud-log-compact:hover, .ohud-log-compact:focus-visible { color: #fff; }\r
+.ohud-log-compact:focus-visible { outline: 1.5px solid var(--odyssey-hud-border-strong); outline-offset: 2px; }\r
+\r
+/* Status/severity badges: colour lives on the badge + key values ONLY \u2014\r
+ * the row/line itself is never recoloured (see combatHudTokens.css). */\r
+.ohud-log-badge, .ohud-log-badge-plain { font-weight: 800; }\r
+.ohud-log-badge-plain { color: var(--odyssey-hud-muted); font-weight: 400; }\r
+.ohud-log-badge--success { color: var(--odyssey-log-status-success); }\r
+.ohud-log-badge--failure { color: var(--odyssey-log-status-failure); }\r
+.ohud-log-badge--crit-success { color: var(--odyssey-log-status-crit-success); }\r
+.ohud-log-badge--crit-failure { color: var(--odyssey-log-status-crit-failure); }\r
+.ohud-log-sev--minor { color: var(--odyssey-log-severity-minor); }\r
+.ohud-log-sev--serious { color: var(--odyssey-log-severity-serious); }\r
+.ohud-log-sev--critical { color: var(--odyssey-log-severity-critical); }\r
+\r
+/* Expanded detail block \u2014 rendered only when the entry's id is in\r
+ * ephemeral.expandedLogEntryIds. Semantic table, not an ASCII layout. */\r
+.ohud-log-details { margin-top: 3px; padding: 3px 4px 4px; border-top: 1px solid var(--odyssey-line-soft); }\r
+.ohud-log-table { width: 100%; border-collapse: collapse; font-size: var(--ohud-font-9-5); }\r
+.ohud-log-table caption { text-align: left; color: var(--odyssey-hud-dim); font-weight: 700; padding-bottom: 2px; }\r
+.ohud-log-table th, .ohud-log-table td { text-align: left; padding: 1px 4px; color: var(--odyssey-hud-muted); font-weight: 400; }\r
+.ohud-log-table th { color: var(--odyssey-hud-dim); font-weight: 700; width: 33%; }\r
+.ohud-log-table td + td { color: var(--odyssey-hud-text); }\r
 \r
 /* ===================== Empty / error / loading ===================== */\r
 .ohud-state-wrap { flex: 1 1 auto; display: grid; place-items: center; background: var(--odyssey-hud-panel);\r
@@ -7666,14 +7709,104 @@ function renderCombatControlBlock(state) {
   </section>`;
 }
 
+// hud/log/battleLogEntryModel.js
+var LOG_STATUS = Object.freeze({
+  success: "success",
+  failure: "failure",
+  critSuccess: "crit_success",
+  critFailure: "crit_failure"
+});
+var LOG_SEVERITY = Object.freeze({
+  minor: "minor",
+  serious: "serious",
+  critical: "critical"
+});
+var STATUS_LABEL = Object.freeze({
+  [LOG_STATUS.success]: "SUCCESS",
+  [LOG_STATUS.failure]: "FAILURE",
+  [LOG_STATUS.critSuccess]: "CRIT SUCCESS",
+  [LOG_STATUS.critFailure]: "CRIT FAILURE"
+});
+var SEVERITY_LABEL = Object.freeze({
+  [LOG_SEVERITY.minor]: "MINOR",
+  [LOG_SEVERITY.serious]: "SERIOUS",
+  [LOG_SEVERITY.critical]: "CRITICAL"
+});
+function statusLabel(status2) {
+  return STATUS_LABEL[status2] ?? null;
+}
+function severityLabel(severity) {
+  return SEVERITY_LABEL[severity] ?? null;
+}
+
 // hud/components/BattleLogBlock.js
+var expandedIds = /* @__PURE__ */ new Set();
+function toggleLogEntryExpanded(entryId) {
+  const id = String(entryId ?? "").trim();
+  if (!id) return;
+  if (expandedIds.has(id)) expandedIds.delete(id);
+  else expandedIds.add(id);
+}
 function deltaClass(delta) {
   const d = String(delta || "").toLowerCase();
   if (!d) return "neutral";
   if (d.includes("miss")) return "miss";
   return "hit";
 }
+function isCompactEntry(e) {
+  return !!e && typeof e.compactText === "string" && e.compactText.length > 0;
+}
+function badgeClassFor(bracketText, e) {
+  if (e.status && bracketText === `[${statusLabel(e.status)}]`) {
+    return `ohud-log-badge--${String(e.status).replace(/_/g, "-")}`;
+  }
+  if (e.severity && bracketText === `[${severityLabel(e.severity)}]`) {
+    return `ohud-log-sev--${e.severity}`;
+  }
+  if (bracketText === "[ON]") return "ohud-log-badge--success";
+  if (bracketText === "[OFF]") return "ohud-log-badge--failure";
+  return null;
+}
+function splitCompact(text) {
+  const idx = text.indexOf(" \u2014 ");
+  if (idx === -1) return { who: text, badges: [] };
+  return { who: text.slice(0, idx), badges: text.slice(idx + 3).split(" \xB7 ") };
+}
+function compactLineHtml(e) {
+  const { who, badges } = splitCompact(e.compactText);
+  if (!badges.length) return esc(who);
+  const badgeHtml2 = badges.map((b) => {
+    const cls2 = badgeClassFor(b, e);
+    return `<span class="ohud-log-badge${cls2 ? ` ${cls2}` : "-plain"}">${esc(b)}</span>`;
+  }).join(" \xB7 ");
+  return `${esc(who)} \u2014 ${badgeHtml2}`;
+}
+function detailsHtml(e) {
+  if (!e.breakdown) {
+    if (!Array.isArray(e.details) || !e.details.length) return "";
+    return `<div class="ohud-log-details">${e.details.map((d) => `<div class="ohud-log-result-detail">${esc(d)}</div>`).join("")}</div>`;
+  }
+  const b = e.breakdown;
+  const rows = [
+    ["Accuracy", b.accuracy?.attacking, b.accuracy?.defending],
+    ...b.damage ? [["Damage", b.damage.attacking, b.damage.defending]] : [],
+    ["Result", b.result?.attacking, b.result?.defending]
+  ];
+  return `<div class="ohud-log-details"><table class="ohud-log-table">
+    <thead><tr><th scope="col"></th><th scope="col">Attacking</th><th scope="col">Defending</th></tr></thead>
+    <tbody>${rows.map(([label, a, d]) => `<tr><th scope="row">${esc(label)}</th><td>${esc(a ?? "\u2014")}</td><td>${esc(d ?? "\u2014")}</td></tr>`).join("")}</tbody>
+  </table></div>`;
+}
+function compactEntryRow(e) {
+  const id = String(e.id ?? "").trim();
+  const expanded = id && expandedIds.has(id);
+  return `<li class="ohud-log-row ohud-log-row--result">
+    <button type="button" class="ohud-log-compact" data-action="toggle-log-entry" data-log-entry-id="${esc(id)}" aria-expanded="${expanded}">${compactLineHtml(e)}</button>
+    ${expanded ? detailsHtml(e) : ""}
+  </li>`;
+}
 function entryRow(e) {
+  if (isCompactEntry(e)) return compactEntryRow(e);
   if (Array.isArray(e.details)) {
     const accent = e.outcome === "failure" ? "miss" : "hit";
     return `<li class="ohud-log-row ohud-log-row--result">
@@ -7694,6 +7827,30 @@ function entryRow(e) {
     ${e.delta ? `<span class="ohud-log-delta ohud-log-delta--${deltaClass(e.delta)}">${esc(e.delta)}</span>` : ""}
   </li>`;
 }
+function groupByTurn(entries) {
+  const groups = [];
+  for (const e of entries) {
+    const label = e?.turnLabel ?? null;
+    const last = groups[groups.length - 1];
+    if (label && last && last.turnLabel === label) last.entries.push(e);
+    else groups.push({ turnLabel: label, entries: [e] });
+  }
+  return groups;
+}
+function turnHeading(turnLabel) {
+  const round = /^T(\d+)$/.exec(turnLabel)?.[1];
+  return round ? `Turn ${round}` : turnLabel;
+}
+function renderGroups(groups) {
+  return groups.map((g) => {
+    const rows = `<ul class="ohud-log-rows">${g.entries.map(entryRow).join("")}</ul>`;
+    if (!g.turnLabel) return rows;
+    return `<section class="ohud-log-turn-group">
+        <div class="ohud-log-turn-label">${esc(turnHeading(g.turnLabel))}</div>
+        ${rows}
+      </section>`;
+  }).join("");
+}
 function selectRecentLogEntries(state) {
   const raw = state?.snapshot?.battleLog?.entries ?? [];
   if (raw.length && Array.isArray(raw[0]?.details)) return raw.slice(0, 5);
@@ -7701,13 +7858,13 @@ function selectRecentLogEntries(state) {
 }
 function renderBattleLogPanel(state) {
   const entries = selectRecentLogEntries(state);
-  const list = entries.length ? `<ul class="ohud-log-list">${entries.map(entryRow).join("")}</ul>` : `<div class="ohud-log-empty">No combat log yet.</div>`;
+  const body = entries.length ? `<div class="ohud-log-list">${renderGroups(groupByTurn(entries))}</div>` : `<div class="ohud-log-empty">No combat log yet.</div>`;
   return `<section class="ohud-panel ohud-log-panel" data-block="log">
     <div class="ohud-panel-head">
       <span class="ohud-panel-label">Battle Log</span>
       <button type="button" class="ohud-icon-btn" data-action="toggle-log" aria-label="Close log">${ICON_CARET_DOWN}</button>
     </div>
-    ${list}
+    ${body}
   </section>`;
 }
 
@@ -8724,6 +8881,10 @@ function mountCombatHudModule(options) {
         break;
       case "toggle-gm-tracker":
         integration.onCommand && integration.onCommand({ scope: "combat-hud", feature: "combat-session", type: "toggle-tracker" });
+        break;
+      case "toggle-log-entry":
+        toggleLogEntryExpanded(t.getAttribute("data-log-entry-id"));
+        render();
         break;
       default:
         break;

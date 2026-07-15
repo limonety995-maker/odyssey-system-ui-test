@@ -6114,6 +6114,114 @@ function createArmedTechniqueMemory() {
   };
 }
 
+// hud/log/battleLogEntryModel.js
+var LOG_STATUS = Object.freeze({
+  success: "success",
+  failure: "failure",
+  critSuccess: "crit_success",
+  critFailure: "crit_failure"
+});
+var LOG_SEVERITY = Object.freeze({
+  minor: "minor",
+  serious: "serious",
+  critical: "critical"
+});
+var STATUS_LABEL = Object.freeze({
+  [LOG_STATUS.success]: "SUCCESS",
+  [LOG_STATUS.failure]: "FAILURE",
+  [LOG_STATUS.critSuccess]: "CRIT SUCCESS",
+  [LOG_STATUS.critFailure]: "CRIT FAILURE"
+});
+var SEVERITY_LABEL = Object.freeze({
+  [LOG_SEVERITY.minor]: "MINOR",
+  [LOG_SEVERITY.serious]: "SERIOUS",
+  [LOG_SEVERITY.critical]: "CRITICAL"
+});
+function statusLabel(status) {
+  return STATUS_LABEL[status] ?? null;
+}
+function severityLabel(severity) {
+  return SEVERITY_LABEL[severity] ?? null;
+}
+function classifyAttackStatus(trace) {
+  const t = trace && typeof trace === "object" ? trace : {};
+  if (!t.ok) return null;
+  const acc = t.accuracy ?? {};
+  if (acc.auto === "fail") return LOG_STATUS.critFailure;
+  if (acc.auto === "crit" && acc.hit === true) return LOG_STATUS.critSuccess;
+  if (acc.hit === true) return LOG_STATUS.success;
+  if (acc.hit === false) return LOG_STATUS.failure;
+  return null;
+}
+function classifySeverity(trace) {
+  const t = trace && typeof trace === "object" ? trace : {};
+  const level = t.damage?.damageLevel;
+  if (level === LOG_SEVERITY.minor || level === LOG_SEVERITY.serious || level === LOG_SEVERITY.critical) {
+    return level;
+  }
+  return null;
+}
+function turnPrefix(turnLabel) {
+  return turnLabel ? `[${turnLabel}] ` : "";
+}
+function buildAttackCompactText({ actorName, actionLabel = "attacks", targetName, bodyZoneLabel, turnLabel, trace }) {
+  const actor = actorName || "Someone";
+  const target = targetName ? ` ${targetName}` : "";
+  const zone = bodyZoneLabel ? ` / ${bodyZoneLabel}` : "";
+  const who = `${turnPrefix(turnLabel)}${actor} ${actionLabel}${target}${zone}`;
+  const t = trace && typeof trace === "object" ? trace : {};
+  if (!t.ok) return who;
+  const status = classifyAttackStatus(t);
+  const label = statusLabel(status);
+  const badgeParts = [];
+  if (label) badgeParts.push(`[${label}]`);
+  const acc = t.accuracy ?? {};
+  if (isReturnedNumber(acc.attackTotal) && isReturnedNumber(acc.defenseTotal)) {
+    badgeParts.push(`Accuracy ${acc.attackTotal}/${acc.defenseTotal}`);
+  }
+  const dmg = t.damage ?? {};
+  const damageRolled = acc.hit === true && isReturnedNumber(dmg.attackTotalUsed) && isReturnedNumber(dmg.defenseTotalUsed);
+  if (damageRolled) {
+    badgeParts.push(`Damage ${dmg.attackTotalUsed}/${dmg.defenseTotalUsed}`);
+  }
+  const severity = classifySeverity(t);
+  const sevLabel = severityLabel(severity);
+  if (sevLabel) badgeParts.push(`[${sevLabel}]`);
+  return badgeParts.length ? `${who} \u2014 ${badgeParts.join(" \xB7 ")}` : who;
+}
+function formatFormula(terms, total) {
+  const real = terms.filter(isReturnedNumber);
+  if (!real.length && !isReturnedNumber(total)) return null;
+  const lhs = real.length ? real.join(" + ") : null;
+  if (lhs && isReturnedNumber(total)) return `${lhs} = ${total}`;
+  if (lhs) return lhs;
+  return String(total);
+}
+function buildAttackBreakdown(trace) {
+  const t = trace && typeof trace === "object" ? trace : {};
+  const acc = t.accuracy ?? {};
+  const dmg = t.damage ?? {};
+  const accuracyAttacking = formatFormula(
+    [acc.attackRoll, acc.attackSkillBonus, acc.attackManualBonus, acc.weaponAccuracyBonus, acc.fireModeAccuracyModifier, acc.ammoAccuracyModifier],
+    acc.attackTotal
+  );
+  const accuracyDefending = formatFormula(
+    [acc.defenseRoll, acc.defenseManualBonus, acc.defenseManualPenalty],
+    acc.defenseTotal
+  );
+  const damageRolled = acc.hit === true && (isReturnedNumber(dmg.attackTotalUsed) || isReturnedNumber(dmg.bulletDamage));
+  const damageAttacking = damageRolled ? formatFormula([acc.attackTotal, dmg.bulletDamage, dmg.ammoDamageModifier, dmg.meleeStrengthBonus], dmg.attackTotalUsed) : null;
+  const damageDefending = damageRolled ? formatFormula([acc.defenseTotal, dmg.armorValueUsed], dmg.defenseTotalUsed) : null;
+  const resultAttacking = isReturnedNumber(dmg.attackTotalUsed) ? dmg.attackTotalUsed : isReturnedNumber(acc.attackTotal) ? acc.attackTotal : null;
+  const resultDefending = isReturnedNumber(dmg.defenseTotalUsed) ? dmg.defenseTotalUsed : isReturnedNumber(acc.defenseTotal) ? acc.defenseTotal : null;
+  return {
+    accuracy: { attacking: accuracyAttacking, defending: accuracyDefending },
+    damage: damageRolled ? { attacking: damageAttacking, defending: damageDefending } : null,
+    damageNotRolled: !damageRolled,
+    result: { attacking: resultAttacking, defending: resultDefending }
+  };
+}
+
 // hud/log/combatResultLogPolicy.js
 var LOG_TYPE = Object.freeze({
   attack: "attack",
@@ -6121,45 +6229,72 @@ var LOG_TYPE = Object.freeze({
   fireMode: "fire-mode",
   abilityExecute: "ability-execute",
   directedAbility: "directed-ability",
-  toggleAbility: "toggle-ability"
+  toggleAbility: "toggle-ability",
+  movement: "movement",
+  endTurn: "end-turn"
 });
 var LOG_OUTCOME = Object.freeze({
   success: "success",
   failure: "failure"
 });
 var COMBAT_LOG_MAX_ENTRIES = 100;
+var logEntrySeq = 0;
+function nextLogEntryId(prefix) {
+  logEntrySeq += 1;
+  return `${prefix}-${logEntrySeq}`;
+}
 function appendCombatLogEntry(list, entry) {
   const next = [entry, ...Array.isArray(list) ? list : []];
   return next.length > COMBAT_LOG_MAX_ENTRIES ? next.slice(0, COMBAT_LOG_MAX_ENTRIES) : next;
 }
-function buildAttackLogEntry({ sourceCharacterId, targetCharacterId, bodyZoneLabel, outcome }) {
+function buildAttackLogEntry({ sourceCharacterId, targetCharacterId, sourceCharacterName = null, targetCharacterName = null, turnLabel = null, actionLabel = "attacks", bodyZoneLabel, outcome }) {
   const ok = !!outcome?.ok;
-  const details2 = ok ? buildCombatLogLines(buildAttackResolutionTrace(outcome), bodyZoneLabel) : [String(outcome?.error || "Attack denied.")];
+  const trace = buildAttackResolutionTrace(outcome);
+  const details2 = ok ? buildCombatLogLines(trace, bodyZoneLabel) : [String(outcome?.error || "Attack denied.")];
+  const compactText = ok ? buildAttackCompactText({ actorName: sourceCharacterName, actionLabel, targetName: targetCharacterName, bodyZoneLabel, turnLabel, trace }) : `${turnLabel ? `[${turnLabel}] ` : ""}${sourceCharacterName || "Someone"} cannot ${actionLabel.replace(/s$/, "")} \u2014 ${String(outcome?.error || "denied")}`;
   return {
+    id: nextLogEntryId("attack"),
     timestamp: Date.now(),
     type: LOG_TYPE.attack,
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Attack" : "Attack failed",
     details: details2,
     sourceCharacterId: sourceCharacterId ?? null,
-    targetCharacterId: targetCharacterId ?? null
+    targetCharacterId: targetCharacterId ?? null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: ok ? classifyAttackStatus(trace) : null,
+    severity: ok ? classifySeverity(trace) : null,
+    breakdown: ok ? buildAttackBreakdown(trace) : null
   };
 }
-function buildReloadLogEntry({ sourceCharacterId, ok, message }) {
+function buildReloadLogEntry({ sourceCharacterId, sourceCharacterName = null, turnLabel = null, weaponName = null, ok, message }) {
+  const actor = sourceCharacterName || "Someone";
+  const weapon = weaponName ? ` ${weaponName}` : "";
+  const compactText = ok ? `${turnLabel ? `[${turnLabel}] ` : ""}${actor} reloads${weapon}.` : `${turnLabel ? `[${turnLabel}] ` : ""}${actor} fails to reload${weapon} \u2014 ${String(message || "denied")}`;
   return {
+    id: nextLogEntryId("reload"),
     timestamp: Date.now(),
     type: LOG_TYPE.reload,
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Reload" : "Reload failed",
     details: [String(message || (ok ? "Reloaded." : "Reload denied."))],
     sourceCharacterId: sourceCharacterId ?? null,
-    targetCharacterId: null
+    targetCharacterId: null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: null,
+    severity: null,
+    breakdown: null
   };
 }
-function buildAbilityExecutionLogEntry({ sourceCharacterId, abilityName, outcome }) {
+function buildAbilityExecutionLogEntry({ sourceCharacterId, sourceCharacterName = null, turnLabel = null, abilityName, outcome }) {
   const ok = !!outcome?.ok;
   const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  const actor = sourceCharacterName || "Someone";
+  const prefix = turnLabel ? `[${turnLabel}] ` : "";
   let details2;
+  let compactText;
   if (ok) {
     const n = outcome?.normalized ?? {};
     const costParts = [];
@@ -6171,24 +6306,35 @@ function buildAbilityExecutionLogEntry({ sourceCharacterId, abilityName, outcome
       costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
       ...effectPart ? [effectPart] : []
     ];
+    compactText = `${prefix}${actor} uses ${name}${n.narrativeOnly ? "" : " \u2014 active"}.`;
   } else {
     details2 = [String(outcome?.error || `${name} denied.`)];
+    compactText = `${prefix}${actor} cannot use ${name} \u2014 ${String(outcome?.error || "denied")}`;
   }
   return {
+    id: nextLogEntryId("ability"),
     timestamp: Date.now(),
     type: LOG_TYPE.abilityExecute,
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Ability used" : "Ability failed",
     details: details2,
     sourceCharacterId: sourceCharacterId ?? null,
-    targetCharacterId: null
+    targetCharacterId: null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: null,
+    severity: null,
+    breakdown: null
   };
 }
-function buildDirectedAbilityLogEntry({ sourceCharacterId, targetCharacterId, abilityName, targetName, outcome }) {
+function buildDirectedAbilityLogEntry({ sourceCharacterId, targetCharacterId, sourceCharacterName = null, turnLabel = null, abilityName, targetName, outcome }) {
   const ok = !!outcome?.ok;
   const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
   const target = String(targetName || "the target");
+  const actor = sourceCharacterName || "Someone";
+  const prefix = turnLabel ? `[${turnLabel}] ` : "";
   let details2;
+  let compactText;
   if (ok) {
     const n = outcome?.normalized ?? {};
     const costParts = [];
@@ -6200,23 +6346,34 @@ function buildDirectedAbilityLogEntry({ sourceCharacterId, targetCharacterId, ab
       costParts.length ? costParts.join(", ") + "." : "No cost recorded.",
       ...effectPart ? [effectPart] : []
     ];
+    compactText = `${prefix}${actor} uses ${name} on ${target} \u2014 [SUCCESS]`;
   } else {
     details2 = [String(outcome?.error || `${name} denied.`)];
+    compactText = `${prefix}${actor} cannot use ${name} on ${target} \u2014 ${String(outcome?.error || "denied")}`;
   }
   return {
+    id: nextLogEntryId("directed-ability"),
     timestamp: Date.now(),
     type: LOG_TYPE.directedAbility,
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Ability used" : "Ability failed",
     details: details2,
     sourceCharacterId: sourceCharacterId ?? null,
-    targetCharacterId: targetCharacterId ?? null
+    targetCharacterId: targetCharacterId ?? null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: null,
+    severity: null,
+    breakdown: null
   };
 }
-function buildToggleAbilityLogEntry({ sourceCharacterId, abilityName, outcome }) {
+function buildToggleAbilityLogEntry({ sourceCharacterId, sourceCharacterName = null, turnLabel = null, abilityName, outcome }) {
   const ok = !!outcome?.ok;
   const name = String(abilityName || outcome?.normalized?.abilityName || "ability");
+  const actor = sourceCharacterName || "Someone";
+  const prefix = turnLabel ? `[${turnLabel}] ` : "";
   let details2;
+  let compactText;
   if (ok) {
     const n = outcome?.normalized ?? {};
     const verb = n.active === true ? "activated" : n.active === false ? "deactivated" : "toggled";
@@ -6227,28 +6384,86 @@ function buildToggleAbilityLogEntry({ sourceCharacterId, abilityName, outcome })
       `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${name}.`,
       costParts.length ? costParts.join(", ") + "." : "No cost recorded."
     ];
+    const stateBadge = n.active === true ? "[ON]" : n.active === false ? "[OFF]" : "";
+    compactText = `${prefix}${actor} ${verb} ${name}${stateBadge ? ` \u2014 ${stateBadge}` : ""}`;
   } else {
     details2 = [String(outcome?.error || `${name} denied.`)];
+    compactText = `${prefix}${actor} cannot use ${name} \u2014 ${String(outcome?.error || "denied")}`;
   }
   return {
+    id: nextLogEntryId("toggle"),
     timestamp: Date.now(),
     type: LOG_TYPE.toggleAbility,
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Ability toggled" : "Ability failed",
     details: details2,
     sourceCharacterId: sourceCharacterId ?? null,
-    targetCharacterId: null
+    targetCharacterId: null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: null,
+    severity: null,
+    breakdown: null
   };
 }
 function buildFireModeLogEntry({ sourceCharacterId, ok, message }) {
   return {
+    id: nextLogEntryId("fire-mode"),
     timestamp: Date.now(),
     type: LOG_TYPE.fireMode,
     outcome: ok ? LOG_OUTCOME.success : LOG_OUTCOME.failure,
     title: ok ? "Fire mode changed" : "Fire mode change failed",
     details: [String(message || (ok ? "Fire mode changed." : "Fire mode change denied."))],
     sourceCharacterId: sourceCharacterId ?? null,
-    targetCharacterId: null
+    targetCharacterId: null,
+    turnLabel: null,
+    compactText: null,
+    status: null,
+    severity: null,
+    breakdown: null
+  };
+}
+function buildMovementLogEntry({ sourceCharacterId, sourceCharacterName = null, turnLabel = null, distanceM = null }) {
+  const actor = sourceCharacterName || "Someone";
+  const prefix = turnLabel ? `[${turnLabel}] ` : "";
+  const hasDistance = typeof distanceM === "number" && Number.isFinite(distanceM) && distanceM > 0;
+  const compactText = hasDistance ? `${prefix}${actor} moves ${distanceM}m` : `${prefix}${actor} moves`;
+  return {
+    id: nextLogEntryId("movement"),
+    timestamp: Date.now(),
+    type: LOG_TYPE.movement,
+    outcome: LOG_OUTCOME.success,
+    title: "Movement",
+    details: [compactText.replace(prefix, "")],
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: null,
+    severity: null,
+    breakdown: null
+  };
+}
+function buildEndTurnLogEntry({ sourceCharacterId, sourceCharacterName = null, turnLabel = null, nextActorName = null }) {
+  const actor = sourceCharacterName || "Someone";
+  const prefix = turnLabel ? `[${turnLabel}] ` : "";
+  const compactText = `${prefix}${actor} ends turn`;
+  const details2 = [`${actor} ended their turn.`];
+  if (nextActorName) details2.push(`Next: ${nextActorName}.`);
+  return {
+    id: nextLogEntryId("end-turn"),
+    timestamp: Date.now(),
+    type: LOG_TYPE.endTurn,
+    outcome: LOG_OUTCOME.success,
+    title: "End turn",
+    details: details2,
+    sourceCharacterId: sourceCharacterId ?? null,
+    targetCharacterId: null,
+    turnLabel: turnLabel ?? null,
+    compactText,
+    status: null,
+    severity: null,
+    breakdown: null
   };
 }
 
@@ -6923,7 +7138,7 @@ function endSession(args) {
 }
 
 // hud/session/combatSessionController.js
-function setupCombatSessionController({ context, settings, getViewer, onSessionRuntime }) {
+function setupCombatSessionController({ context, settings, getViewer, onSessionRuntime, onTurnEnded }) {
   let disposed = false;
   let lastRuntime = null;
   let lastCandidates = [];
@@ -7068,13 +7283,20 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
     if (applied) scheduleReconciliation(origin);
     return applied;
   }
+  function participantName(runtime, characterId) {
+    if (!characterId) return null;
+    const participants = Array.isArray(runtime?.visible_participants) ? runtime.visible_participants : [];
+    const match = participants.find((p) => p?.character_id === characterId);
+    const name = String(match?.display_name ?? "").trim();
+    return name || null;
+  }
   function currentSessionRef() {
     const encounter = encounterOf(lastRuntime);
     if (!encounter || encounter.status !== "active") return null;
     return { sessionId: encounter.id, expectedVersion: encounter.state_version ?? null };
   }
   async function runMutation(kind, call, extraDetails = {}) {
-    if (mutationInFlight) return;
+    if (mutationInFlight) return false;
     mutationInFlight = true;
     try {
       const result = await call();
@@ -7091,9 +7313,11 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
       } else {
         await refresh(kind);
       }
+      return ok;
     } catch (error) {
       logDebugEvent("session", kind, { ok: false, message: String(error?.message ?? error), ...extraDetails }, false);
       await refresh(kind);
+      return false;
     } finally {
       mutationInFlight = false;
     }
@@ -7118,7 +7342,24 @@ function setupCombatSessionController({ context, settings, getViewer, onSessionR
     if (type === "end-turn") {
       const ref = currentSessionRef();
       if (!ref) return;
-      await runMutation("turn-ended", () => endSessionTurn({ context, viewer: viewer(), settings, ...ref }), { sessionId: ref.sessionId });
+      const prevEncounter = encounterOf(lastRuntime);
+      const endingCharacterId = prevEncounter?.active_character_id ?? null;
+      const endingCharacterName = participantName(lastRuntime, endingCharacterId);
+      const turnLabel = prevEncounter?.current_round != null ? `T${prevEncounter.current_round}` : null;
+      const ok = await runMutation("turn-ended", () => endSessionTurn({ context, viewer: viewer(), settings, ...ref }), { sessionId: ref.sessionId });
+      if (ok && typeof onTurnEnded === "function") {
+        const nextEncounter = encounterOf(lastRuntime);
+        const nextCharacterId = nextEncounter?.active_character_id ?? null;
+        try {
+          onTurnEnded({
+            sourceCharacterId: endingCharacterId,
+            sourceCharacterName: endingCharacterName,
+            turnLabel,
+            nextActorName: participantName(lastRuntime, nextCharacterId)
+          });
+        } catch (_e) {
+        }
+      }
       return;
     }
     if (type === "gm-skip-turn" || type === "gm-force-next") {
@@ -8889,6 +9130,10 @@ function setupSceneSelection(hooks = {}) {
       onSessionRuntime: (runtime) => {
         sessionRuntime = runtime;
         if (lastState) publishState(lastState);
+      },
+      onTurnEnded: ({ sourceCharacterId, sourceCharacterName, turnLabel, nextActorName }) => {
+        pushLog(buildEndTurnLogEntry({ sourceCharacterId, sourceCharacterName, turnLabel, nextActorName }));
+        if (lastState) publishState(lastState);
       }
     }) : null;
     if (sessionController) cleanups3.push(() => sessionController.cleanup());
@@ -8898,6 +9143,14 @@ function setupSceneSelection(hooks = {}) {
         const payload = event.payload ?? {};
         if (payload.source !== "combat-movement" || !payload.runtime) return;
         sessionController.applyExternalRuntime(payload.runtime, "tactical-move");
+        const moveSession = currentMappedSession();
+        pushLog(buildMovementLogEntry({
+          sourceCharacterId: payload.characterId ?? null,
+          sourceCharacterName: payload.characterName || null,
+          turnLabel: moveSession.roundNumber != null ? `T${moveSession.roundNumber}` : null,
+          distanceM: Number.isFinite(payload.distanceM) ? payload.distanceM : null
+        }));
+        if (lastState) publishState(lastState);
       });
       if (disposed) {
         unsubscribeMoveTool?.();
@@ -9303,7 +9556,10 @@ function setupSceneSelection(hooks = {}) {
           sourceCharacterId: requestCtx.sourceCharacterId,
           targetCharacterId: requestCtx.targetCharacterId,
           bodyZoneLabel,
-          outcome
+          outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          targetCharacterName: targeting.selectedTargetName ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null
         }));
         logDebugEvent("abilities", "direct-attack-result", { characterActionId: actionId, ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
         if (outcome.ok) {
@@ -9429,7 +9685,9 @@ function setupSceneSelection(hooks = {}) {
         pushLog(buildAbilityExecutionLogEntry({
           sourceCharacterId: requestCtx.sourceCharacterId,
           abilityName: action.name,
-          outcome
+          outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null
         }));
         logDebugEvent("abilities", "ability-execute-result", {
           characterActionId: actionId,
@@ -9564,7 +9822,9 @@ function setupSceneSelection(hooks = {}) {
           targetCharacterId: requestCtx.targetCharacterId,
           abilityName: action.name,
           targetName: targeting.selectedTargetName ?? null,
-          outcome
+          outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null
         }));
         logDebugEvent("abilities", "directed-ability-result", {
           characterActionId: actionId,
@@ -9693,7 +9953,9 @@ function setupSceneSelection(hooks = {}) {
         pushLog(buildToggleAbilityLogEntry({
           sourceCharacterId: requestCtx.sourceCharacterId,
           abilityName: action.name,
-          outcome
+          outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null
         }));
         logDebugEvent("abilities", "toggle-ability-result", {
           characterActionId: actionId,
@@ -9818,7 +10080,10 @@ function setupSceneSelection(hooks = {}) {
           sourceCharacterId: requestCtx.sourceCharacterId,
           targetCharacterId: requestCtx.targetCharacterId,
           bodyZoneLabel,
-          outcome
+          outcome,
+          sourceCharacterName: lastState?.view?.name ?? null,
+          targetCharacterName: targeting.selectedTargetName ?? null,
+          turnLabel: sessionAtRequest.roundNumber != null ? `T${sessionAtRequest.roundNumber}` : null
         }));
         logDebugEvent("attack", "result", { ok: outcome.ok, error: outcome.code ?? null, stale }, outcome.ok);
         if (outcome.ok) {
@@ -9954,7 +10219,14 @@ function setupSceneSelection(hooks = {}) {
         if (!weaponId || !magazineId || !profileId) {
           ephemeral.commandStatus = { type: "error", message: "Reload unavailable: missing weapon profile or magazine." };
           ephemeral.reloadRpcResult = { ok: false, error: "MISSING_FIELDS", message: "weaponId/profileId/magazineId missing before RPC call." };
-          pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: false, message: ephemeral.commandStatus.message }));
+          pushLog(buildReloadLogEntry({
+            sourceCharacterId: ephemeral.characterId,
+            ok: false,
+            message: ephemeral.commandStatus.message,
+            sourceCharacterName: lastState?.view?.name ?? null,
+            turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+            weaponName: weapon?.name ?? null
+          }));
           logDebugEvent("magazine", "reload-result", { error: "MISSING_FIELDS" }, false);
           if (lastState) publishState(lastState);
           return;
@@ -9975,7 +10247,14 @@ function setupSceneSelection(hooks = {}) {
           if (normalized.ok) {
             ephemeral.commandStatus = { type: "ok", message: "Reloaded." };
             ephemeral.selectedReloadMagazineId = null;
-            pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: true, message: "Reloaded." }));
+            pushLog(buildReloadLogEntry({
+              sourceCharacterId: ephemeral.characterId,
+              ok: true,
+              message: "Reloaded.",
+              sourceCharacterName: lastState?.view?.name ?? null,
+              turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+              weaponName: weapon?.name ?? null
+            }));
             logDebugEvent("magazine", "reload-result", { weaponId, magazineId }, true);
             const reloadCost = result?.combat_session ?? null;
             if (reloadCost && typeof reloadCost === "object") {
@@ -9993,7 +10272,14 @@ function setupSceneSelection(hooks = {}) {
             await refetchCurrent();
           } else {
             ephemeral.commandStatus = { type: "error", message: normalized.message || normalized.error || "Reload failed." };
-            pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: false, message: ephemeral.commandStatus.message }));
+            pushLog(buildReloadLogEntry({
+              sourceCharacterId: ephemeral.characterId,
+              ok: false,
+              message: ephemeral.commandStatus.message,
+              sourceCharacterName: lastState?.view?.name ?? null,
+              turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+              weaponName: weapon?.name ?? null
+            }));
             logDebugEvent("magazine", "reload-result", { weaponId, magazineId, error: normalized.error }, false);
             if (normalized.error === "STATE_VERSION_CONFLICT") {
               logDebugEvent("session", "stale-version", { command: "reload" }, true);
@@ -10004,7 +10290,14 @@ function setupSceneSelection(hooks = {}) {
         } catch (error) {
           ephemeral.reloadRpcResult = { ok: false, error: "RPC_EXCEPTION", message: String(error?.message ?? error ?? "Reload failed.") };
           ephemeral.commandStatus = { type: "error", message: String(error?.message ?? error ?? "Reload failed.") };
-          pushLog(buildReloadLogEntry({ sourceCharacterId: ephemeral.characterId, ok: false, message: ephemeral.commandStatus.message }));
+          pushLog(buildReloadLogEntry({
+            sourceCharacterId: ephemeral.characterId,
+            ok: false,
+            message: ephemeral.commandStatus.message,
+            sourceCharacterName: lastState?.view?.name ?? null,
+            turnLabel: reloadSession.roundNumber != null ? `T${reloadSession.roundNumber}` : null,
+            weaponName: weapon?.name ?? null
+          }));
           logDebugEvent("magazine", "reload-result", { error: "RPC_EXCEPTION", message: ephemeral.commandStatus.message }, false);
           if (lastState) publishState(lastState);
         }
@@ -14178,7 +14471,7 @@ function setupTacticalMoveTool({ runtime }) {
     );
     return invokeMutation(retryPayload, state.settings);
   }
-  async function finalizeMutationSuccess(result, source, successMessage) {
+  async function finalizeMutationSuccess(result, source, successMessage, distanceM = null) {
     if (result?.runtime) {
       updateRuntimeCache(result.runtime);
     }
@@ -14188,7 +14481,8 @@ function setupTacticalMoveTool({ runtime }) {
     await syncSelectionState(`${source}-applied`, { runtimeResponse: result?.runtime ?? state.runtime });
     await publishMoveToolEvent(MOVE_TOOL_EVENTS.Applied, {
       ...buildStatus(state, { applied: true, source }),
-      runtime: result?.runtime ?? null
+      runtime: result?.runtime ?? null,
+      distanceM: Number.isFinite(distanceM) ? distanceM : null
     });
     await notify3(successMessage, "SUCCESS");
   }
@@ -14406,7 +14700,8 @@ function setupTacticalMoveTool({ runtime }) {
       await finalizeMutationSuccess(
         result,
         "combat-movement",
-        `Moved ${preview.moveCostM} m - ${Math.max(preview.remainingMoveM, 0)} m remaining.`
+        `Moved ${preview.moveCostM} m - ${Math.max(preview.remainingMoveM, 0)} m remaining.`,
+        preview.moveCostM
       );
     } catch (error) {
       const normalized = normalizeError(error, "Unable to move combatant.");
