@@ -271,7 +271,7 @@ test("22. a stale expected version is rejected without mutation (attack, reload,
 /* ── 23. End Turn cannot double-send ──────────────────────────────────── */
 
 test("23. End Turn is single-flight (controller guard) and the button disables itself on click", () => {
-  assert.ok(sessionControllerSrc.includes("if (mutationInFlight) return;"), "second mutation while one is in flight is a no-op");
+  assert.ok(sessionControllerSrc.includes("if (mutationInFlight) return false;"), "second mutation while one is in flight is a no-op");
   const moduleSrc = fs.readFileSync(path.join(repoRoot, "hud", "components", "CombatHudModule.js"), "utf8");
   assert.ok(moduleSrc.includes('case "end-turn":'));
   assert.ok(moduleSrc.includes('t.setAttribute("disabled", "disabled")'));
